@@ -1,0 +1,104 @@
+id: health-domain-onboarding
+type: module
+visibility: public
+status: official
+version: 0.2.0
+owns:
+  - "payload/service/health/onboarding-gate"
+  - "payload/service/health/program-init"
+  - "payload/service/health/program-plan"
+requires:
+  framework: ">=1.30.0"
+  kit: "kit_life >=2.19.0"
+publish_target: dogany-agentpack-health-trainer
+
+# WHY THE DECLARATION IS HERE AND NOT ON THE SKILL (read this before moving it).
+# D10 names "the skill's product.yaml" as the declaration surface, and the
+# module being declared IS the health-onboarding skill. But lane-lint's HARD
+# rule L6 requires a rule step's carrier to live INSIDE the declaring unit's
+# directory, and every carrier of this module is a service CLI -- the gate and
+# the writer both sit here, not in skills-bundle/. Declaring it on the skill
+# would produce four L6 HARD findings, and the two ways out of that are both
+# worse: a shim inside the skill dir is a second front door to a writer that
+# already has one named call site, and splitting the block across two units
+# breaks every `after:` edge (lane-lint resolves order references within a
+# unit). So the block lives with the machines and the skill's own product.yaml
+# points here. One declaration, all edges resolve, no second copy.
+#
+# THE SEAM OF THIS MODULE is `answer`. Everything above it is judgment -- what
+# the owner wants, in his words, at his pace. Everything below it is
+# arithmetic, and none of it is left in prose.
+lanes:
+  contract: 1
+  steps:
+    - id: gate
+      lane: rule
+      kind: gate
+      carrier: onboarding-gate
+      # "Is the domain onboarding outstanding?" Inputs: one marker in one file,
+      # two artifacts, two integers -- all machine-readable at this point, and
+      # the same inputs must always give the same verdict. D10 test (1) and (2)
+      # both answer rule.
+
+    - id: offer
+      lane: llm
+      after: gate
+      # The sentence the owner reads. Spoken in an identity that was set one
+      # turn ago (address term, tone, humor) and it names what is missing in
+      # HIS terms. Same input -> same required output is NO: llm lane, with the
+      # gate above it deciding whether it may be spoken at all.
+
+    - id: latch
+      lane: rule
+      kind: value
+      carrier: onboarding-gate
+      after: offer
+      # `offered` / `declined`: the decline ladder, bookkeeping only. It can
+      # withhold a future offer; it can NEVER report completion. Deliberately
+      # powerless in the direction that would let a self-report close a gate.
+
+    - id: next
+      lane: rule
+      kind: value
+      carrier: program-plan
+      after: offer
+      # WHICH question is next and the SENTENCE that asks it (2026-09-26). The
+      # goal part is the kit's move loop, read through; the safety check runs
+      # before the first number; the program part is one decision per move
+      # with every number from a record, the user's answer, or a rule table.
+      # Same state -> same move: rule lane. The model speaks it verbatim.
+
+    - id: collect
+      lane: llm
+      after: next
+      # Hearing the answer and carrying the user's words into the move's
+      # `answer` payload; naming lifts (Korean display names) in the one
+      # compose step. Never a number: the compose payload refuses them.
+
+    - id: answer
+      lane: rule
+      kind: gate
+      carrier: program-plan
+      after: collect
+      # THE SEAM. A typed boundary that either accepts a well-formed answer or
+      # refuses it BY NAME. The model hands over what it heard; nothing past
+      # this point is judgment.
+
+    - id: write
+      lane: rule
+      kind: value
+      carrier: program-init
+      after: answer
+      # The card and the session_type rotation rows, one call, from one
+      # `rotation:` list, round-tripped through rx-calc's own loader before it
+      # lands. It is the SIDE EFFECT of the last answer -- there is no separate
+      # "now save it" step for a model to forget.
+
+    - id: verify
+      lane: rule
+      kind: verify
+      carrier: onboarding-gate
+      after: write
+      # Re-run the gate and report what it SAYS. A completion claim built from
+      # the writer's exit code instead of a re-measurement is the defect class
+      # this whole module exists to close, one level up.

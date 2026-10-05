@@ -1,0 +1,1161 @@
+#!/usr/bin/env python3
+# session-open -- deterministic session BIRTH primitive (DGN session-lifecycle
+# determinism). The symmetric partner of session-closeout (death).
+#
+# WHY (root fix, replaces the reverted set-add first-set bolt-on):
+#   workouts.session_type_id is the CANONICAL SoT for a session's rotation day --
+#   session-cursor, rx-calc rotation inference, and set-table all read the day
+#   from it. Today the workouts row is born UNTAGGED (session_type_id NULL) at
+#   SESSION_START (the model calls `kit_life.sh workout-add`) and is only tagged
+#   at session-closeout, which is skippable. An untagged session causes:
+#     - the wrap-up card deriving its label from muscle display ("가슴") instead
+#       of the rotation code (앞A)  [batch #19],
+#     - rx-calc seeing an untagged latest session -> provisional -> wrong-day
+#       prescriptions / weight:null,
+#     - a non-deterministic close  [batch #20].
+#   session-open tags the row at BIRTH so the code is available from the first
+#   moment, killing the untagged-session class of bugs at the root.
+#
+# WHAT (atomic session birth, idempotent):
+#   (a) create/reconcile the workouts row by CALLING `kit_life.sh workout-add`
+#       (framework -- preserves DGN-231 reconcile-before-write on (date, 대분류)
+#       and every workout-add side effect, e.g. the card-followup hook). We do
+#       NOT raw-insert.
+#   (b) tag session_type_id immediately via the ENCAPSULATED canonical write
+#       (session-closeout.tag_session_type, birth_only=True -- never clobbers an
+#       existing tag). The day source is rx-calc's AUTHORITATIVE rotation_day +
+#       session_class; we NEVER re-derive the day (session_class = rx-calc SoT).
+#       regular -> rotation_day's session_type_id; makeup -> 보충 (never a
+#       rotation type). If rx-calc's rotation is PROVISIONAL, the start-tag is
+#       SKIPPED (leave NULL for closeout to tag authoritatively -- do not launder
+#       an unconfirmed guess into a confirmed anchor).
+#   (c) set the active-session marker (session-cursor.marker_write).
+#
+# Idempotency + safety:
+#   - workout-add's own DGN-231 (date, 근력) reconcile means a second open on the
+#     same day returns the EXISTING row (no double-create). We capture that id.
+#   - birth_only tag never overwrites an existing tag (manual / closeout / a
+#     prior open).
+#   - STALE marker: if a marker for a DIFFERENT session is active when we open a
+#     new one, we clear it (the new session's marker replaces it). A stuck marker
+#     from a prior day can never survive an open. We report the takeover.
+#   - best-effort tag / marker: a TAG failure alone must NOT fail the row+marker
+#     creation (mirrors set-add's marker self-heal). The row is the critical
+#     path; the tag and marker are best-effort layered on top.
+#
+# SAME-DAY 2ND SESSION (2026-08-20 mock-session incident, root fix):
+#   workout-add's DGN-231 reconcile matches on (date, 근력) and returns the
+#   EXISTING row for today. When today's row is ALREADY CLOSED (session-closeout
+#   has run: the .session-closed tombstone holds it AND it is tagged), a plain
+#   open would (1) reuse the CLOSED row, (2) skip the birth tag under the
+#   no-clobber guard (leaving the OLD rotation code, e.g. 앞B), and (3) point
+#   .active-session at a CLOSED session id -- a closed-but-active contradiction
+#   that then desyncs the rotation calc (set-table computes "next = 뒷B" but the
+#   reused row still reads 앞B). Fix: when today's reconciled row is closed, force
+#   a BRAND-NEW row (`workout-add --new`, DGN-231 bypass) tagged at birth with the
+#   AUTHORITATIVE next rotation day, and surface an overtraining note. We never
+#   hard-block a 2nd session (owner may legitimately double up / mock-test) and we
+#   never point the active marker at a closed id.
+#
+# Usage:
+#   session-open [--date YYYY-MM-DD] [--db PATH] [--program PATH]
+#                [--marker PATH] [--subtype CODE] [--minutes N] [--kcal N]
+#                [--note TEXT] [--dry-run]
+#     date defaults to today (KST). subtype defaults to the resolved rotation
+#     code (or "보충" for a makeup session). rotation_day / session_class are
+#     always taken from rx-calc (authoritative); they are never passed in.
+#
+# stdout (machine-parseable, one key=value block):
+#   OPENED session_id=<id> created=<yes|existing> session_class=<regular|makeup>
+#     rotation_day=<code> tag=<applied|skipped_provisional|skip_clobber|failed>
+#     marker=<set|takeover|failed> ... taxonomy=<seeded|unseeded|partial|...>
+#     install=<complete|incomplete:N>
+#     us_step=<ok|synced:N[,unresolved:N]|collision|failed>  (G17 reconcile)
+#     resumed=<yes|no>  yes = this open re-attached to today's LIVE session
+#                       (the marker named it); nothing was forked
+#   or ERROR <reason> on a hard failure (workout-add could not create the row).
+#   CARE <n> line(s) ... + the indented lines, when the card carries `care:`
+#     (the model says them verbatim at session start).
+#
+# INSTALL-COMPLETENESS ANNOUNCEMENT (2026-09-12). `health_taxonomy_seed.py --apply` is this
+# pack's MANUAL post-install step and the only place it was written down was
+# service/health/README.md -- which is not a caller, the same finding
+# session-ensure.sh already carries for this script. An unseeded instance does
+# not fail: it prescribes UNROUNDED weights with no empty-bar ramp, quietly.
+# Session BIRTH is the one code path no session can skip, so the state is probed
+# here, once per session, and announced on BOTH channels -- taxonomy= and
+# install= keys in the machine-parseable block, and an INSTALL-GAP prose block
+# addressed to the session agent (same vehicle as the START_CARD / NOTE lines
+# below it). The same probe covers the three SoT files (prep.yaml /
+# stretch-matrix.md / gym-layout.md) that ship as TEMPLATES and that no install
+# lane places -- see install_gaps() for why two of them must never be
+# auto-copied.
+# It ANNOUNCES, it does not block: the workouts row is the critical path every
+# later set-add hangs off, and a projection-config defect must not be able to
+# suppress it. Refusing to PRESCRIBE is ax-project's job (exit 3) and it does.
+#
+# Exit codes:
+#   0 = session open (row exists + marker handled; tag best-effort)
+#   1 = hard error (workout-add failed / rx-calc unusable / bad args)
+#
+# Reuse (ladder): kit_life.sh workout-add (row + DGN-231 + hooks), rx-calc
+# select_rotation_day/verdict (authoritative day + class), session-closeout
+# tag_session_type (canonical tag write), session-cursor marker_* (active gate).
+# stdlib only. ASCII source (Korean literals only where user-visible strings are
+# unavoidable -- rotation codes come from the DB, not hardcoded).
+
+import sys
+import os
+import subprocess
+import argparse
+import importlib.util
+import importlib.machinery
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+# ax_engine holds this pack's taxonomy-state probe (stdlib-only at import; its
+# kit_life/DB access is lazy). See its TAXONOMY SEED STATE section.
+import ax_engine as TX                                       # noqa: E402
+DEFAULT_DB = os.path.join(HERE, "..", "..", "database", "kit_life.db")
+# LIVE-SAFETY: runtime-state root -- see set-arm. Tests MUST export
+# LIFEKIT_HEALTH_STATE_DIR=<temp dir>; unset means the LIVE marker surface.
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+# 2026-08-25: STATE_DIR no longer follows the SCRIPT DIRECTORY.
+# The runtime marker surface is pinned to files/program/ INDEPENDENTLY of where
+# this file lives, because bridge/bot.py:4239 reads .idrill-arm/ from that exact
+# path and IDRILL-ARM-CONTRACT.md declares it the single pack<->bridge surface.
+# Before this, `or HERE`/`or SCRIPT_DIR` worked only by the coincidence that code
+# and state shared one directory. Moving the engine to service/health/ dissolves
+# that coincidence and would silently kill EVERY inline button (arm written to the
+# new dir, bridge still reading the old one -> IDRILL_ARM_EXPIRED, no error).
+# Unset LIFEKIT_HEALTH_STATE_DIR resolves byte-identically to the pre-change behaviour.
+STATE_DIR = (os.environ.get("LIFEKIT_HEALTH_STATE_DIR")
+             or os.path.join(PROJECT_ROOT, "files", "program"))
+# 2026-08-25: program.yaml / prep.yaml are OWNER DATA (their slots, loads,
+# rulings), not product. They stay in files/program/ when the engine moves to
+# service/health/, so resolve them off DATA_DIR, never off SCRIPT_DIR --
+# otherwise an install would cp -f a packaged copy over their real program.
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+DEFAULT_MARKER = os.path.join(STATE_DIR, ".active-session")
+DEFAULT_TOMBSTONE = os.path.join(STATE_DIR, ".session-closed")
+LIFEKIT_SH = os.path.join(HERE, "..", "..", "database", "kit_life.sh")
+
+# workout-add EXISTS exit code (DGN-231 reconcile hit -> row already there for
+# (date, category)). Mirrors kit_life.py EXISTS_CODE (= 3).
+WORKOUT_ADD_EXISTS_CODE = 3
+# Makeup sessions are always tagged 보충 (id 10009), never a rotation type.
+# These two Korean literals are session-type CODES / a workout CATEGORY that must
+# match the DB verbatim (session_type.code / workout_types.category); they are
+# domain constants, not user-facing prose.
+MAKEUP_CODE = "보충"       # 보충
+STRENGTH_CATEGORY = "근력"  # 근력
+
+
+def _load_module(name, filename):
+    """Import a sibling script that has no .py extension as a module (same
+    convention session-cursor uses). __main__ guards keep import side-effect
+    free."""
+    path = os.path.join(HERE, filename)
+    spec = importlib.util.spec_from_loader(
+        name, importlib.machinery.SourceFileLoader(name, path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# ---------------------------------------------------------------------------
+# (a) row birth -- call kit_life.sh workout-add (framework, DGN-231 preserved).
+# ---------------------------------------------------------------------------
+def open_workout_row(kit_life_sh, date, subtype, minutes, kcal, note,
+                     force_new=False):
+    """Create or reconcile today's strength (근력) workouts row via
+    `kit_life.sh workout-add`. Returns (session_id, created_flag, err).
+    created_flag: "yes" (new row) | "existing" (DGN-231 reconcile hit).
+    force_new=True appends the framework `--new` flag (DGN-231 reconcile bypass)
+    so a BRAND-NEW same-day row is created even when today's category row already
+    exists -- used for a same-day 2nd session after the first was closed. On
+    failure returns (None, None, reason).
+
+    NOTE: kit_life.py's DB_PATH is hardcoded to its own SCRIPT_DIR/kit_life.db
+    (framework, no --db override for workout-add). So the DB that this row lands
+    in is determined by WHICH kit_life.sh we call -- production points at the real
+    database/kit_life.sh; the test harness points --kit_life at a scratch copy of
+    the database dir so workout-add writes to the scratch DB. The caller keeps
+    the tag/marker DB in lockstep with this kit_life's DB."""
+    if not os.path.exists(kit_life_sh):
+        return None, None, "kit_life.sh not found: %s" % kit_life_sh
+    # kit 064: an omitted kcal is "not entered" (NULL), never 0. A number
+    # here was stated by the caller, so it carries origin `declared`.
+    argv = [kit_life_sh, "workout-add", date, STRENGTH_CATEGORY, subtype,
+            str(minutes), "" if kcal is None else str(kcal), note]
+    if kcal is not None:
+        argv += ["--kcal-origin", "declared"]
+    if force_new:
+        argv.append("--new")   # DGN-231 reconcile bypass -> guaranteed new row
+    try:
+        proc = subprocess.run(argv, capture_output=True, text=True)
+    except OSError as e:
+        return None, None, "workout-add exec failed: %s" % e
+    out = (proc.stdout or "").strip()
+    # DGN-231 reconcile hit -> EXISTS <n> then rows: id<TAB>type<TAB>...
+    if proc.returncode == WORKOUT_ADD_EXISTS_CODE:
+        sid = _first_id_from_output(out)
+        if sid is None:
+            return None, None, "workout-add EXISTS but no id parsed: %r" % out
+        return sid, "existing", None
+    if proc.returncode != 0:
+        err = (proc.stderr or out or "nonzero exit %d" % proc.returncode).strip()
+        return None, None, "workout-add failed: %s" % err
+    # success: first line = id<TAB>type<TAB>name<TAB>kcal<TAB>avg_hr
+    sid = _first_id_from_output(out)
+    if sid is None:
+        return None, None, "workout-add ok but no id parsed: %r" % out
+    return sid, "yes", None
+
+
+def _first_id_from_output(out):
+    """Pull the leading integer workouts.id from a workout-add stdout block.
+    Handles both the success shape (id<TAB>...) and the EXISTS shape
+    (`EXISTS <n>` header then id<TAB>... rows)."""
+    for line in out.splitlines():
+        line = line.strip()
+        if not line or line.startswith("EXISTS"):
+            continue
+        head = line.split("\t", 1)[0].strip()
+        if head.isdigit():
+            return int(head)
+    return None
+
+
+# ---------------------------------------------------------------------------
+# same-day closed-session detection (2nd-session guard).
+# A same-day strength row is treated as CLOSED (so a fresh session-open must NOT
+# reuse it) when EITHER the .session-closed tombstone holds its id OR the row is
+# already tagged (session_type_id NOT NULL -- closeout writes the tag) AND
+# carries >=1 workout_sets row. Tombstone is the primary signal; the tagged+sets
+# fallback catches a manual/legacy close that never stamped the tombstone.
+#
+# LIVE SESSION (2026-09-30, ticket 2026-08-23-session-open-reopen-
+# abandons-live). The tagged+sets fallback read EVERY live session as closed:
+# session-open tags at birth, so one logged set was enough. A second
+# session-open mid-session (bridge restart, "운동 시작" said twice) then forked
+# a new makeup row, took the marker over, and abandoned the live one --
+# reproduced on a fixture: open -> 1 set -> open => row 2, session_class=makeup,
+# marker 1 -> 2. The fact that a session is still running already exists: the
+# .active-session marker names it until closeout clears it. So a row the
+# marker names, and the tombstone does not, is OPEN, whatever it carries.
+# Decision owed by the ticket (promote lifecycle state to a workouts column vs
+# fix the judgment): the judgment. The column is a kit_life schema change this
+# pack cannot make (zero-schema, db_lane=false), and the marker is already the
+# lifecycle fact every other reader (set-add, session-cursor, the TurnPre hook)
+# uses -- a column would be a second copy of it. "Start over" stays possible,
+# explicitly: `session-open --new`.
+# ---------------------------------------------------------------------------
+def _marker_names(marker_path, session_id):
+    if not marker_path:
+        return False
+    try:
+        with open(marker_path) as fh:
+            txt = fh.read().strip()
+        return bool(txt) and int(txt) == int(session_id)
+    except (OSError, ValueError):
+        return False
+
+
+def _row_is_closed(db_path, session_id, tombstone_path, marker_path=None):
+    """True if session_id is a CLOSED strength session. Best-effort: any error
+    returns False (never blocks a legitimate first-open)."""
+    if session_id is None:
+        return False
+    try:
+        co = _load_module("session_closeout", "session-closeout")
+        tomb = co.read_closed_tombstone(tombstone_path)
+        if tomb is not None and int(tomb) == int(session_id):
+            return True
+    except Exception:  # noqa: BLE001 -- tombstone read is best-effort
+        pass
+    if _marker_names(marker_path, session_id):
+        return False   # the live session: the marker still names it
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        try:
+            row = conn.execute(
+                "SELECT session_type_id FROM workouts WHERE id = ?",
+                (session_id,)).fetchone()
+            if not row or row[0] is None:
+                return False   # untagged -> still open (mid-session)
+            srow = conn.execute(
+                "SELECT COUNT(*) FROM workout_sets WHERE session_id = ?",
+                (session_id,)).fetchone()
+            return bool(srow and srow[0] > 0)
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def probe_existing_strength_ids(db_path, date):
+    """Read-only: return the list of today's strength (근력) workouts ids, newest
+    first. Pure SELECT -- NO write, so it never creates a junk row (unlike a
+    workout-add reconcile probe). Best-effort: any error -> []."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT DISTINCT w.id FROM workouts w "
+                "JOIN workout_classifications wc ON wc.workout_id = w.id "
+                "JOIN workout_types wt ON wt.id = wc.type_id "
+                "WHERE w.date = ? AND wt.category = ? "
+                "ORDER BY w.id DESC",
+                (date, STRENGTH_CATEGORY)).fetchall()
+            return [r[0] for r in rows]
+        finally:
+            conn.close()
+    except Exception:  # noqa: BLE001 -- probe is best-effort
+        return []
+
+
+# ---------------------------------------------------------------------------
+# rotation verdict -- rx-calc is the AUTHORITATIVE source of rotation_day,
+# session_class, and provisional. We never re-derive the day.
+# ---------------------------------------------------------------------------
+def rotation_verdict(program_path, db_path, date, exclude_session_id=None):
+    """Return a dict {session_class, rotation_day, provisional, session_type_id,
+    makeup_type_id} using rx-calc's own functions -- NOT a re-derivation.
+    On any failure returns (None, reason)."""
+    try:
+        rx = _load_module("rx_calc", "rx-calc")
+    except Exception as e:  # noqa: BLE001 -- surface any import failure as a reason
+        return None, "rx-calc import failed: %s" % e
+    try:
+        program = rx.load_yaml(program_path)
+    except Exception as e:  # noqa: BLE001
+        return None, "program.yaml load failed: %s" % e
+    if not isinstance(program, dict):
+        return None, "program.yaml did not parse as a dict"
+
+    # Authoritative rotation day (excludes the session we are opening so its own
+    # untagged row never contaminates the basis -- same guard rx-calc uses).
+    try:
+        rotation_day, provisional = _select_day(rx, program, db_path,
+                                                 exclude_session_id)
+    except Exception as e:  # noqa: BLE001
+        return None, "select_rotation_day failed: %s" % e
+
+    # Authoritative regular/makeup verdict (MEASURED weekly state, C1 gate).
+    # G1: the SAME exclusion applies to the class gate. Previously only the day
+    # selector honored exclude_session_id, so an "exclude this session" retry
+    # fixed the exercise list while the 정규/보충 label stayed wrong.
+    session_class = _session_class(rx, program, db_path, date,
+                                   exclude_session_id)
+
+    makeup_type_id = rx.resolve_session_type_id(db_path, MAKEUP_CODE)
+    rot_type_id = (rx.resolve_session_type_id(db_path, rotation_day)
+                   if rotation_day else None)
+    return {
+        "session_class": session_class,
+        "rotation_day": rotation_day,
+        "provisional": bool(provisional),
+        "rotation_type_id": rot_type_id,
+        "makeup_type_id": makeup_type_id,
+    }, None
+
+
+def _select_day(rx, program, db_path, exclude_session_id):
+    """Call rx-calc.select_rotation_day. Its contract is a 3-tuple
+    (rotation_day_code, basis_text, provisional_flag). Returns (code,
+    provisional)."""
+    res = rx.select_rotation_day(program, db_path,
+                                 exclude_session_id=exclude_session_id)
+    # Contract: (code, basis_text, provisional_flag). provisional is index 2.
+    code = res[0]
+    prov = res[2] if len(res) >= 3 else False
+    return code, prov
+
+
+def _session_class(rx, program, db_path, date, exclude_session_id=None):
+    """Authoritative regular/makeup via rx-calc's C1 gate (week_regular_status).
+    Returns 'regular' | 'makeup'; defaults to 'regular' if unavailable.
+    exclude_session_id = the session this verdict is FOR (never counts itself).
+    Passed as a keyword and tolerated if absent, so an older rx-calc without
+    the G1 parameter still yields a verdict instead of falling to the
+    'regular' default."""
+    fn = getattr(rx, "week_regular_status", None)
+    if not callable(fn):
+        return "regular"
+    try:
+        try:
+            v = fn(program, db_path, date,
+                   exclude_session_id=exclude_session_id)
+        except TypeError:
+            # pre-G1 rx-calc: no exclude_session_id parameter.
+            v = fn(program, db_path, date)
+    except Exception:  # noqa: BLE001 -- best-effort; default regular
+        return "regular"
+    if isinstance(v, dict):
+        v = v.get("session_class")
+    if isinstance(v, str) and v in ("regular", "makeup"):
+        return v
+    return "regular"
+
+
+# ---------------------------------------------------------------------------
+# (b) tag + (c) marker  -- best-effort layered on the row.
+# ---------------------------------------------------------------------------
+def apply_birth_tag(db_path, session_id, verdict):
+    """Best-effort birth tag through the shared canonical write. Returns one of:
+    applied | skipped_provisional | skip_clobber | noop | failed. A tag failure
+    NEVER propagates (row + marker must survive)."""
+    session_class = verdict["session_class"]
+    if session_class == "makeup":
+        code = MAKEUP_CODE
+    else:
+        # PROVISIONAL policy: an unconfirmed rotation guess is NOT laundered into
+        # a confirmed anchor. Leave NULL; closeout tags authoritatively later.
+        if verdict["provisional"]:
+            return "skipped_provisional"
+        code = verdict["rotation_day"]
+        if not code:
+            return "skipped_provisional"
+    try:
+        import sqlite3
+        co = _load_module("session_closeout", "session-closeout")
+        conn = sqlite3.connect(db_path)
+        try:
+            rc, result = co.tag_session_type(conn, session_id, code,
+                                             birth_only=True)
+        finally:
+            conn.close()
+    except Exception as e:  # noqa: BLE001 -- best-effort; never fail the open
+        print("WARN birth tag failed (row+marker unaffected): %s" % e,
+              file=sys.stderr)
+        return "failed"
+    if rc != 0:
+        return "failed"
+    if result == "skip_birth_clobber":
+        return "skip_clobber"
+    if result == "noop_same":
+        return "noop"
+    return "applied"
+
+
+def set_marker(marker_path, session_id, tombstone_path=None):
+    """Set the active-session marker (session-cursor.marker_write), clearing a
+    STALE marker for a DIFFERENT session first. Returns set | takeover | failed.
+    Best-effort: a marker failure never fails the open.
+
+    Closed-id guard: never point .active-session at a session that the
+    .session-closed tombstone still holds. When the marker is about to become the
+    active session AND the tombstone equals it, clear the stale tombstone first
+    (a fresh open on the closed session's day supersedes it) so the active marker
+    can never coexist with a closed tombstone for the SAME id -- the exact
+    contradiction the 2026-08-20 incident produced. For a forced-new 2nd session
+    this is a no-op (the new id != the tombstoned id)."""
+    try:
+        sc = _load_module("session_cursor", "session-cursor")
+    except Exception:  # noqa: BLE001
+        return "failed"
+    if tombstone_path is not None:
+        _clear_matching_tombstone(tombstone_path, session_id)
+    prior = sc.marker_read(marker_path)
+    ok = sc.marker_write(marker_path, session_id)
+    if not ok:
+        return "failed"
+    if prior is not None and prior != session_id:
+        return "takeover"
+    return "set"
+
+
+def clear_pending_markers(session_id, state_dir=None):
+    """Drop any pending-menu marker found at session BIRTH. See the call site in
+    do_open (step 5b) for why birth is a legitimate clear point.
+
+    Returns a short status token for the OPENED line: "clean" (nothing there),
+    or e.g. "cleared:reply" / "cleared:reply+tip". Best-effort: a marker that
+    will not delete never fails an open -- the fast path's own age bound (900s,
+    session-fastpath.REPLY_PENDING_TTL_S) retires it shortly after."""
+    root = state_dir or STATE_DIR
+    cleared = []
+    for label, name in (("reply", ".reply-pending"), ("tip", ".tip-pending")):
+        path = os.path.join(root, name)
+        if not os.path.exists(path):
+            continue
+        try:
+            os.remove(path)
+            cleared.append(label)
+        except OSError:
+            pass
+    return "cleared:%s" % "+".join(cleared) if cleared else "clean"
+
+
+def _clear_matching_tombstone(tombstone_path, session_id):
+    """If the .session-closed tombstone holds session_id, remove it (best-effort).
+    Prevents a closed-tombstone + active-marker contradiction for the same id."""
+    try:
+        co = _load_module("session_closeout", "session-closeout")
+        tomb = co.read_closed_tombstone(tombstone_path)
+    except Exception:  # noqa: BLE001
+        return
+    if tomb is None or int(tomb) != int(session_id):
+        return
+    try:
+        os.remove(tombstone_path)
+    except OSError:
+        pass
+
+
+# ---------------------------------------------------------------------------
+# (d) SESSION-START 표3 pin (SPEC 2026-08-20 section 2): "종목표(표3) = 대시보드
+# 핀 상시 고정. 진입 시 뜨고 세트 진행 따라 갱신." The pin was previously written
+# only by exercise-enter on the FIRST exercise entry, so at SESSION START there
+# was no pinned lineup (the pin showed yesterday's stale card). Here we write
+# today's exercise lineup the moment the session opens; exercise-enter later
+# REFINES the same pin per exercise (it re-publishes the SAME owner section, so
+# its card simply supersedes this initial state). ONE SHARED CARD FORMAT (owner
+# directive 2026-08-21): both the CARD BUILDER (exercise-enter.render_lineup_card
+# -- the 종목전환표/표3 종목카드 with per-slot ✓완료/▸진행중/·예정 state, all ·예정
+# at open) and the PUBLISH path (write_dashboard_card -> DGN-967
+# `status-footer.py --pin-set workout` -> bridge/dashboard.py DGN-214 auto-pin)
+# live in exercise-enter, so the session-start pin and the per-exercise pin read
+# as ONE card -- no new pin mechanism, no session-open-local lineup renderer.
+# session-closeout owns the matching --pin-clear at the end of the session.
+# ---------------------------------------------------------------------------
+def write_start_pin(program_path, verdict, db_path=None, session_id=None,
+                    card_out=None):
+    """Write today's 종목전환표 (표3 종목카드) to the dashboard.md pin at SESSION
+    START.
+
+    ONE shared card format (owner directive 2026-08-21): the session-start pin
+    and the per-exercise pin use the SAME builder -- exercise-enter.render_lineup_card,
+    which renders the whole-day session card in the 2026-08-14 LOCKED 표(3)
+    layout (🗂 title + 부위군 / progress bar + 진행률 / 경과·잔여 / [진행] with
+    ✓ ▸ · markers / [누적 볼륨]). At session open EVERY slot is · 예정, the bar
+    reads 0/N and the volume block is ABSENT (nothing is measured yet -- it
+    appears with the first working set); exercise-enter later REFINES the same
+    pin per set.
+
+    db_path/session_id (optional): when both are given the card is built from
+    live state via exercise-enter.gather_card_state, so the session-start pin
+    already carries the coarse 부위군 title and the 0분 경과 clock row. Absent ->
+    the static all-upcoming card (still the locked layout, no clock row).
+
+    GATED (never write a bad pin):
+      - only for a REGULAR session with a CONFIRMED (non-provisional) rotation
+        day -- a provisional guess or a makeup session has no authoritative
+        lineup, so we leave the pin to exercise-enter's per-exercise refine;
+      - render_lineup_card returns None -> nothing to pin -> no publish (an
+        empty body is a NO-OP for the owner section, never a clear -- clearing
+        is session-closeout's job, DGN-967).
+
+    REUSE: both the CARD BUILDER (render_lineup_card) and the PUBLISH path
+    (write_dashboard_card -- the SAME DGN-967 "workout" pin section + inert-safe
+    guard the per-exercise refine uses) live in exercise-enter.
+    BEST-EFFORT / INERT-SAFE: any failure is swallowed here so a pin miss can
+    NEVER fail the session open (the row + tag + marker are the critical path).
+    Returns "written" | "skipped_provisional" | "skipped_makeup"
+    | "skipped_no_lineup" | "error"."""
+    session_class = verdict.get("session_class")
+    if session_class == "makeup":
+        return "skipped_makeup"
+    if verdict.get("provisional"):
+        return "skipped_provisional"
+    day_code = verdict.get("rotation_day")
+    if not day_code:
+        return "skipped_provisional"
+    try:
+        rx = _load_module("rx_calc", "rx-calc")
+        program = rx.load_yaml(program_path)
+    except Exception as e:  # noqa: BLE001 -- pin miss never fails the open
+        print("WARN start-pin program load failed (pin unaffected): %s" % e,
+              file=sys.stderr)
+        return "error"
+    if not isinstance(program, dict):
+        return "skipped_no_lineup"
+    days = program.get("days") or {}
+    slots = (days.get(day_code) or {}).get("exercises") or []
+    if not slots:
+        return "skipped_no_lineup"
+    try:
+        # REUSE the exercise-enter card builder + pin publisher (shared 표3
+        # format + the DGN-967 "workout" section). It reads WARG_DASHBOARD_FILE
+        # from env at import time and derives the section store's dir from it,
+        # so a scratch pin path set for a test isolates this call too.
+        # states=None -> every slot ·예정 (session-start all-upcoming state).
+        ee = _load_module("exercise_enter", "exercise-enter")
+        card_state = None
+        if db_path and session_id:
+            # D1: rotation_day = the split THIS session trains, so the start pin
+            # names TODAY's prescribed weights -- the same ones the 표2 grid will
+            # show -- not program.yaml's last-session snapshot.
+            card_state = ee.gather_card_state(db_path, program_path,
+                                              session_id, slots, rx=rx,
+                                              rotation_day=day_code)
+        if not card_state or not card_state.get('session_prep_total'):
+            try:
+                st = _load_module('start_set_table', 'set-table')
+                prep = st.session_prep_drills(rx, program_path, day_code)
+                if prep:
+                    card_state = dict(card_state or {})
+                    card_state['session_prep_total'] = len(prep)
+                    card_state['session_prep_done'] = 0
+                    card_state['session_prep_names'] = [
+                        d.get('display') or d.get('code') for d in prep]
+            except Exception:
+                pass
+        card_lines = ee.render_lineup_card(day_code, slots,
+                                           card_state=card_state)
+        if not card_lines:
+            return "skipped_no_lineup"
+        if card_out is not None:
+            # deliver_start_card reads the SAME render, so the chat card and
+            # the pin can never show two different lineups.
+            card_out.extend(card_lines)
+        ok = ee.write_dashboard_card(card_lines)
+    except Exception as e:  # noqa: BLE001 -- inert-safe: never break the open
+        print("WARN start-pin write failed (session open unaffected): %s" % e,
+              file=sys.stderr)
+        return "error"
+    return "written" if ok else "error"
+
+
+# ---------------------------------------------------------------------------
+# (e) SESSION-START chat card -- the 표-평문-버튼 order carrier (owner 2026-09-11,
+# verbatim: "표-평문-버튼 이게 기본이라고 왜 표가 제일 아래에나와").
+#
+# MEASURED SHAPE OF THE DEFECT: at session start the only table surface was the
+# dashboard PIN, which the bridge posts/updates on its own clock -- so the
+# owner's screen read 평문(컨디션 질문) -> 버튼 -> (later) 카드. No code fixed
+# the order because no code EMITTED a table into the chat flow at all.
+#
+# THE CARRIER IS EXECUTION ORDER, not an instruction: session-open runs as the
+# session's STEP-0 tool call, and this push happens synchronously INSIDE that
+# call -- so the card is on the owner's screen before the model's C6 question
+# (평문) and its [[OPTIONS]] marker (버튼, rendered on that same later message)
+# can exist. 표 -> 평문 -> 버튼, held by sequence, with nothing for the model
+# to remember.
+#
+# Reuses the delivery hop the tables already ride (set-table.deliver_table,
+# push.sh -> bridge sanitize -> <pre>) and its content ledger (an idempotent
+# re-open of the same session must not post the card twice). Ledger key is
+# ASCII -- the identifier axis never carries Korean. Best-effort: a delivery
+# miss never fails the open (the pin still carries the lineup).
+# ---------------------------------------------------------------------------
+START_CARD_LEDGER_KEY = "session-start-card"
+
+
+def deliver_start_card(card_lines, session_id):
+    """Push the session-start 표3 card into the CHAT FLOW, by code, during the
+    open call. Returns "sent" | "duplicate" | "skipped_<reason>" | "error"."""
+    if not card_lines:
+        return "skipped_no_lineup"
+    try:
+        ee = _load_module("exercise_enter", "exercise-enter")
+        markers = getattr(ee, "_CARD_MACHINE_MARKERS", ())
+        body_lines = [str(ln) for ln in card_lines
+                      if str(ln).strip() not in markers]
+        if not any(ln.strip() for ln in body_lines):
+            return "skipped_no_lineup"
+        body = "```\n%s\n```" % "\n".join(body_lines)
+        st = _load_module("set_table", "set-table")
+        claimed, _sig = st.claim_table_delivery(
+            session_id, START_CARD_LEDGER_KEY, body)
+        if not claimed:
+            return "duplicate"
+        ok, detail = st.deliver_table(body, session_id,
+                                      START_CARD_LEDGER_KEY)
+        return "sent" if ok else ("error:%s" % detail)
+    except Exception as e:  # noqa: BLE001 -- a card miss never fails the open
+        print("WARN start-card delivery failed (open unaffected): %s" % e,
+              file=sys.stderr)
+        return "error"
+
+
+# ---------------------------------------------------------------------------
+# (e2) CARE BEYOND THE LIFTS (owner rehearsal 2026-09-26, functional
+# direction). program-plan writes what every session carries around its
+# exercises onto the card (`care:` -- 5-min joint + core prep including the
+# injured site, 5-min cooldown stretch, bracing on heavy lifts, body
+# signals). Before this the list lived only in the plan's own state and the
+# summary message, so no session ever read it. Session birth is the one code
+# path no session skips, so the lines are rendered HERE, by program-plan's
+# own renderer (one wording for the summary and for every session start).
+# Best-effort: a care miss never fails the open.
+# ---------------------------------------------------------------------------
+def care_lines(program_path):
+    """The session-start care lines from the card's `care:`, or []."""
+    try:
+        rx = _load_module("rx_calc", "rx-calc")
+        program = rx.load_yaml(program_path)
+        care = (program or {}).get("care") if isinstance(program,
+                                                         dict) else None
+        if not care:
+            return []
+        plan = _load_module("program_plan", "program-plan")
+        return plan.care_lines(care, head="care_session_head")
+    except Exception as e:  # noqa: BLE001 -- a care miss never fails the open
+        print("WARN care lines unavailable (open unaffected): %s" % e,
+              file=sys.stderr)
+        return []
+
+
+# ---------------------------------------------------------------------------
+# orchestration
+# ---------------------------------------------------------------------------
+# ---------------------------------------------------------------------------
+# (f) INSTALL COMPLETENESS -- the post-install steps nothing else announces.
+#
+# Every item here has the SAME shape (2026-09-12 install verification): the pack
+# ships the content, the installer cannot place it, the README says to do it by
+# hand, and the reader that needs it DEGRADES INSTEAD OF SAYING SO. Session
+# birth is the one code path a session cannot skip, so the whole set is probed
+# once, here, and announced in one block.
+#
+# It ANNOUNCES, it does not block. The workouts row is the critical path every
+# later set-add hangs off and an incomplete install must not be able to suppress
+# it. Refusing to PRESCRIBE from missing data is the individual reader's job:
+# ax-project exits 3, and rx-calc --validate-prep exits 1.
+#
+# WHAT IS DELIBERATELY NOT AUTO-FIXED HERE. Two of the three SoT templates must
+# NOT be copied into place by a script: prep.TEMPLATE.yaml's example day would
+# fire EXAMPLE DRILLS as a real prescription, and stretch-matrix.TEMPLATE.md's
+# 부상 프로파일 section is the owner's measured injury profile, which only they
+# can supply. So this names the template and the work; it never places a file.
+# ---------------------------------------------------------------------------
+SOT_SEEDS = (
+    ("prep.yaml", "prep.TEMPLATE.yaml",
+     "no prep/cooldown drills at all -- rx-calc's prep block is 'optional "
+     "enrichment', so an absent file produces a session card with no 준비운동 "
+     "and no warning",
+     "author files/program/prep.yaml WITH the owner, using "
+     "service/health/sot/prep.TEMPLATE.yaml as the SCHEMA. Do NOT copy it "
+     "verbatim -- its example day would be prescribed as real drills. "
+     "Validate with: service/health/rx-calc --validate-prep"),
+    ("stretch-matrix.md", "stretch-matrix.TEMPLATE.md",
+     "drill cues have no provenance; --validate-prep fails closed with "
+     "PREP-CUE-SOURCE-MISSING as soon as any drill declares a cue",
+     "author files/program/stretch-matrix.md from "
+     "service/health/sot/stretch-matrix.TEMPLATE.md. Its 부상 프로파일 section "
+     "is the OWNER's measured profile -- ask, never copy the example"),
+    ("gym-layout.md", "gym-layout.TEMPLATE.md",
+     "the route axis is off: program-rebalance --order cannot judge zone hops "
+     "(it does say 'gym-layout.md missing' in its WARN line)",
+     "copy service/health/sot/gym-layout.TEMPLATE.md to "
+     "files/program/gym-layout.md and fill it in with the owner. Safe to leave "
+     "empty -- an unmapped layout turns the axis off rather than guessing"),
+)
+
+
+def install_gaps(db_path, program_path):
+    """(taxonomy report, [gap, ...]) -- every unmet post-install step we can see.
+
+    Best-effort and read-only: a probe that cannot run returns no gap rather
+    than inventing one, because a false 'your install is broken' at session
+    birth is its own defect."""
+    gaps = []
+    try:
+        tax_report = TX.taxonomy_probe(db_path)
+    except Exception:  # noqa: BLE001 -- never break the open over a diagnostic
+        tax_report = {"verdict": TX.UNKNOWN, "empty": [], "tables": {}}
+    if tax_report.get("verdict") in TX.BAD_VERDICTS:
+        gaps.append({
+            "what": "pack_health taxonomy seed has not run on this DB "
+                    "(ax_projection_rule and 10 sibling tables)",
+            "why_it_matters":
+                "every weight is served UNROUNDED and the empty-bar ramp is "
+                "dropped; ax-project now refuses with exit 3 instead",
+            "fix": TX.taxonomy_seed_command(tax_report),
+        })
+    # session_type: the rotation-day registry the BIRTH TAG writes into. Empty
+    # on every fresh kit_life mint. Until 2026-09-14 NOTHING filled it -- the
+    # kit ships no verb, the rows carry a routine_id FK, and the codes are the
+    # OWNER's (program.yaml `rotation:`), not product knowledge the pack could
+    # seed -- so the visible symptom was this script's own `tag=failed` plus
+    # one line naming a code against an empty valid-list, which explains
+    # nothing on its own. It now HAS a writer: service/health/program-init
+    # derives the rows from the same `rotation:` list it writes into the card,
+    # in the same call. This probe stays, unchanged in its trigger, because the
+    # registry can still be empty for reasons the writer cannot see -- the card
+    # was hand-authored, the DB was replaced underneath, a sync failed. What
+    # changed is the `fix` line below: it now names a command instead of
+    # reporting a gap.
+    # TWO conditions, not one. "count == 0" was the whole probe while nothing
+    # could fill the table; now that a writer exists, the interesting failure
+    # is no longer an EMPTY registry but a STALE one -- the card gained a
+    # rotation day and the sync was never re-run, so that one day tags as
+    # failed while its siblings tag fine. That is quieter than an empty table
+    # and it is the shape this probe has to keep catching.
+    _missing = []
+    try:
+        import sqlite3 as _sq3
+        _c = _sq3.connect("file:%s?mode=ro" % os.path.abspath(db_path), uri=True)
+        try:
+            _n = _c.execute("SELECT COUNT(*) FROM session_type;").fetchone()[0]
+            if _n:
+                _have = set(r[0] for r in _c.execute(
+                    "SELECT code FROM session_type;").fetchall())
+                _prog = _load_module("rx_calc", "rx-calc").load_yaml(
+                    program_path) or {}
+                for _code in list(_prog.get("rotation") or []):
+                    if _code not in _have:
+                        _missing.append(_code)
+        finally:
+            _c.close()
+    except Exception:  # noqa: BLE001 -- a diagnostic must not break the open
+        _n = None
+    if _missing:
+        gaps.append({
+            "what": "session_type does not carry every rotation day the card "
+                    "declares -- missing: %s" % ", ".join(_missing),
+            "why_it_matters":
+                "those days tag=failed at session birth while the rest tag "
+                "fine, so the wrap-up card labels exactly those sessions by "
+                "muscle instead of by rotation code and rx-calc reads them as "
+                "untagged. The card and the registry have drifted",
+            "fix": "service/health/program-init sync -- re-derives the "
+                   "registry from the card's own `rotation:` list. Idempotent; "
+                   "existing rows keep their id and everything joined to them.",
+        })
+    if _n == 0:
+        gaps.append({
+            "what": "session_type holds no rotation days (the birth tag has "
+                    "nothing to point at -- this is why tag=failed)",
+            "why_it_matters":
+                "workouts.session_type_id stays NULL, so the wrap-up card "
+                "labels the session by muscle instead of by rotation code and "
+                "rx-calc reads the latest session as untagged",
+            "fix": "service/health/program-init sync -- derives one "
+                   "session_type row per code in program.yaml `rotation:` "
+                   "(plus the makeup class at sort 99), reconcile-first and "
+                   "idempotent. Do NOT invent codes: they are the owner's and "
+                   "program.yaml is where they are declared, which is exactly "
+                   "why the derivation reads them from there. If the card "
+                   "itself is absent, `program-init next` builds it with him "
+                   "and the last answer runs this sync automatically.",
+        })
+
+    data_dir = os.path.dirname(os.path.abspath(program_path))
+    sot_dir = os.path.join(HERE, "sot")
+    for name, template, why, fix in SOT_SEEDS:
+        if os.path.exists(os.path.join(data_dir, name)):
+            continue
+        if not os.path.exists(os.path.join(sot_dir, template)):
+            # The pack does not ship the template on this tree -- then this is
+            # not a post-install step, and claiming one would be a false alarm.
+            continue
+        gaps.append({
+            "what": "files/program/%s is absent (the pack ships only the "
+                    "template, sot/%s -- no lane installs it)" % (name, template),
+            "why_it_matters": why,
+            "fix": fix,
+        })
+    return tax_report, gaps
+
+
+def reconcile_us_steps(db_path, program_path):
+    """G17: re-derive the us_step rows `ax-project serve` resolves from the
+    card on disk, at every birth. program-init writes them with the card; this
+    catches a card edited by hand (or a DB swapped underneath) before the first
+    working weight is realized, so serve can never answer from a stale slot.
+    Idempotent (an unchanged card writes nothing). Best-effort: returns a
+    status token for the OPENED line and never fails the open.
+      ok            rows already matched the card
+      synced:N      N slot rows written or removed
+      unresolved:N  N slots have no catalog row yet (machine/cable, JIT)
+      collision     another agent owns rows under this day code
+      failed        the derivation could not run"""
+    try:
+        pi = _load_module("program_init", "program-init")
+        rx = _load_module("rx_calc", "rx-calc")
+        program = rx.load_yaml(program_path) or {}
+        rep = pi.sync_us_steps(db_path, program)
+    except Exception as e:  # noqa: BLE001 -- never break the open
+        print("WARN us_step reconcile failed: %s" % e, file=sys.stderr)
+        return "failed"
+    if rep.get("error"):
+        print("WARN us_step reconcile failed: %s" % rep["error"],
+              file=sys.stderr)
+        return "failed"
+    if rep.get("collisions"):
+        return "collision"
+    n = len(rep.get("changed") or []) + len(rep.get("removed") or [])
+    tok = "synced:%d" % n if n else "ok"
+    if rep.get("unresolved"):
+        tok += ",unresolved:%d" % len(rep["unresolved"])
+    return tok
+
+
+def do_open(db_path, program_path, marker_path, kit_life_sh, date, subtype,
+            minutes, kcal, note, dry_run, tombstone_path=DEFAULT_TOMBSTONE,
+            start_over=False):
+    # 1. SAME-DAY 2ND-SESSION detection FIRST (read-only, no write). If today
+    #    ALREADY has a CLOSED strength row, a plain reconcile would reuse it
+    #    (wrong day, closed-but-active contradiction) -> switch to force-new.
+    #    We NEVER hard-block -- surface an overtraining note and proceed.
+    #    G1: this probe moved AHEAD of the rotation verdict because the verdict
+    #    needs to know which of today's rows is the session being (re)opened.
+    force_new = False
+    overtrain_note = None
+    existing_ids = probe_existing_strength_ids(db_path, date)
+    from free_session import is_free
+    # A planned open must never reconcile into an off-plan birth.
+    force_new = any(is_free(db_path, sid) for sid in existing_ids)
+    closed_today = [sid for sid in existing_ids
+                    if _row_is_closed(db_path, sid, tombstone_path,
+                                      marker_path)]
+    open_today = [sid for sid in existing_ids if sid not in closed_today]
+    if closed_today:
+        force_new = True
+        # Korean user-facing: an overtraining consideration surfaced, not a block.
+        overtrain_note = ("오늘 이미 완료한 세션이 있어요 (2세션째). "
+                          "과훈련 주의 -- 그대로 진행합니다.")
+    # A reopen of the LIVE session (marker names an open row of today) is a
+    # continuation, reported as such. `--new` is the explicit "start over".
+    live_today = [sid for sid in open_today
+                  if _marker_names(marker_path, sid)]
+    if start_over and open_today:
+        force_new = True
+    resumed = bool(live_today) and not force_new
+
+    # 2. Resolve the AUTHORITATIVE rotation verdict (read-only). We need it to
+    #    pick the birth subtype default (rotation code) and to know the tag.
+    #    A CLOSED same-day session is NEVER excluded: it IS the correct rotation
+    #    basis (앞B closed -> next 뒷B), and excluding it would re-serve the
+    #    SAME day.
+    #    G1: an OPEN same-day row is a different animal -- it is the very
+    #    session this open call is about to reconcile into, so it must not be
+    #    its own basis. Left in, its birth tag made the calc advance one slot
+    #    past the day the owner was about to train (open 뒷B -> served 앞A) and
+    #    made the weekly tally count the session as already done. Newest open
+    #    row wins (probe returns id DESC).
+    reopen_id = open_today[0] if open_today and not force_new else None
+    verdict, err = rotation_verdict(program_path, db_path, date,
+                                    exclude_session_id=reopen_id)
+    if verdict is None:
+        # rx-calc unusable is a hard error only for the TAG; we can still create
+        # the row + marker untagged (closeout will tag). Degrade, do not abort.
+        print("WARN rotation verdict unavailable (%s) -- opening untagged"
+              % err, file=sys.stderr)
+        verdict = {"session_class": "regular", "rotation_day": None,
+                   "provisional": True, "rotation_type_id": None,
+                   "makeup_type_id": None}
+
+    # Birth subtype default: the rotation code (self-describing at birth). For a
+    # makeup session, 보충. Muscle classifications are refined at workout-log.
+    if not subtype:
+        if verdict["session_class"] == "makeup":
+            subtype = MAKEUP_CODE
+        else:
+            subtype = verdict["rotation_day"] or STRENGTH_CATEGORY
+
+    if dry_run:
+        print("DRYRUN session_class=%s rotation_day=%s provisional=%s "
+              "subtype=%s date=%s force_new=%s closed_today=%s reopen_id=%s"
+              % (verdict["session_class"], verdict["rotation_day"],
+                 verdict["provisional"], subtype, date,
+                 "yes" if force_new else "no",
+                 ",".join(str(s) for s in closed_today) or "none",
+                 reopen_id if reopen_id is not None else "none"))
+        if overtrain_note:
+            print("NOTE %s" % overtrain_note)
+        return 0
+
+    # 3. Row BIRTH (critical path) -- via workout-add (framework, DGN-231).
+    #    force_new bypasses the reconcile so a same-day 2nd session gets a fresh
+    #    row instead of reviving the closed one.
+    session_id, created, err = open_workout_row(
+        kit_life_sh, date, subtype, minutes, kcal, note, force_new=force_new)
+    if session_id is None:
+        print("ERROR %s" % err, file=sys.stderr)
+        return 1
+
+    # Freeze before activation so a failed snapshot can be retried. An already
+    # live session without a snapshot predates this decision; do not replan it.
+    from session_day_trim import prepare
+    try:
+        session_program = prepare(
+            program_path, db_path, session_id, date, verdict,
+            _load_module('trim_rx', 'rx-calc'),
+            allow_new=not (resumed and created == 'existing'))
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        print('ERROR session day trim failed: %s' % exc, file=sys.stderr)
+        return 1
+
+    # 4. Birth tag (best-effort, birth_only, provisional-skip). A forced-new row
+    #    is untagged, so the birth tag applies cleanly to the NEXT rotation day.
+    tag_result = apply_birth_tag(db_path, session_id, verdict)
+
+    # 5. Active marker (best-effort, stale takeover). The closed-id guard in
+    #    set_marker clears a stale tombstone that matches the new active id, so
+    #    .active-session can never point at a closed session.
+    marker_result = set_marker(marker_path, session_id, tombstone_path)
+
+    # 5b. BIRTH-SIDE PENDING SWEEP (D1, 2026-08-25). A brand-new session cannot
+    #     legitimately owe an answer to a menu that was offered before it
+    #     existed, so any .reply-pending / .tip-pending found at open is by
+    #     definition garbage from a prior session and is dropped here.
+    #
+    #     This is the THIRD independent guard on the marker that deadlocked
+    #     session 10092's fast path for all 31 of its typed sets, and the three
+    #     are deliberately independent so no single failure can reproduce it:
+    #       birth   (here)              -- start every session with a clean slate
+    #       in-flight (session-fastpath) -- consume-on-read + sid match + TTL
+    #       death   (session-closeout)   -- sweep every marker the session owns
+    #     The 10092 deadlock needed only ONE of these to exist. Cheap, and the
+    #     cost of being wrong is one model turn.
+    # A RESUMED live session can owe an answer to a menu it offered itself;
+    # the sweep is for a new session only.
+    is_resume = resumed and created == "existing"
+    pending_result = ("kept_resumed" if is_resume
+                      else clear_pending_markers(session_id))
+
+    # 5c. us_step reconcile (G17): the rows serve resolves follow the card.
+    us_result = reconcile_us_steps(db_path, program_path)
+
+    # 6. SESSION-START 표3 pin (SPEC section 2). Reaches here only on a REAL open
+    #    (dry-run returned above; a hard row error returned above), so a bad pin
+    #    can never be written on a dry-run/hold/error path. Best-effort: the pin
+    #    is layered on top of the row+tag+marker and never fails the open.
+    start_card_lines = []
+    pin_result = write_start_pin(session_program, verdict, db_path=db_path,
+                                 session_id=session_id,
+                                 card_out=start_card_lines)
+
+    # 7. SESSION-START chat card (owner 2026-09-11 표-평문-버튼): the SAME
+    #    render the pin got, pushed into the chat flow NOW -- i.e. before the
+    #    model's C6 question/buttons can exist. See deliver_start_card.
+    card_result = deliver_start_card(start_card_lines, session_id)
+
+    # 8. INSTALL COMPLETENESS (read-only, best-effort). See the header block.
+    tax_report, gaps = install_gaps(db_path, program_path)
+    tax_verdict = tax_report["verdict"]
+
+    print("OPENED session_id=%d created=%s session_class=%s rotation_day=%s "
+          "tag=%s marker=%s force_new=%s start_pin=%s start_card=%s pending=%s "
+          "taxonomy=%s install=%s us_step=%s resumed=%s"
+          % (session_id, created, verdict["session_class"],
+             verdict["rotation_day"] or "NONE", tag_result, marker_result,
+             "yes" if force_new else "no", pin_result, card_result,
+             pending_result, tax_verdict,
+             "complete" if not gaps else "incomplete:%d" % len(gaps),
+             us_result, "yes" if is_resume else "no"))
+    if gaps:
+        print("INSTALL-GAP %d unmet post-install step(s). This install is "
+              "INCOMPLETE -- do NOT improvise the missing content to cover it. "
+              "Tell the owner the install needs finishing, in one plain "
+              "sentence, and work through the items below with them."
+              % len(gaps))
+        for g in gaps:
+            print("  - %s" % g["what"])
+            print("    %s" % g["why_it_matters"])
+            print("    fix: %s" % g["fix"])
+        if tax_verdict in TX.BAD_VERDICTS:
+            print(TX.taxonomy_diagnostic(tax_report, "session birth"))
+        # One line on the OTHER channel too: session-ensure.sh / cron-guard read
+        # stderr, and they parse stdout for session_id only, so a stdout-only
+        # announcement would be invisible on the headless path.
+        print("[session-open] install incomplete: %s"
+              % "; ".join(g["what"] for g in gaps), file=sys.stderr)
+    if is_resume:
+        print("RESUMED session_id=%d -- today's session was already live (the "
+              "active marker named it); this open re-attached to it and "
+              "created nothing. Continue from the live cursor; do not restart "
+              "the prep or re-announce the lineup. If the owner really wants "
+              "to start over, `session-open --new` opens a fresh row."
+              % session_id)
+    care = care_lines(program_path) if not is_resume else None
+    if care:
+        print("CARE %d line(s) -- what this owner's plan carries beyond the "
+              "lifts at EVERY session. Say them verbatim in this turn's "
+              "prose (below the lineup card, above the [[OPTIONS]] marker); "
+              "run the prep before the first lift, the cooldown after the "
+              "last, the breathing cue on every heavy set:" % (len(care) - 1))
+        for ln in care:
+            print("  %s" % ln)
+    if card_result in ("sent", "duplicate"):
+        print("START_CARD delivered=yes -- today's lineup table is already on "
+              "the owner's screen, ABOVE this turn's reply. Do NOT re-render "
+              "the lineup in chat; put any prose below it and the [[OPTIONS]] "
+              "marker last (표-평문-버튼).")
+    if overtrain_note:
+        print("NOTE %s" % overtrain_note)
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="session-open",
+        description="Deterministic session BIRTH primitive (row + birth tag + "
+                    "active marker). Symmetric partner of session-closeout.",
+    )
+    p.add_argument("--free", action="store_true", help="open an off-plan session")
+    p.add_argument("--regions", help="comma-separated regions for proposals")
+    p.add_argument("--exercises", help="comma-separated catalog exercise names")
+    p.add_argument("--venue", choices=("gym", "home", "other"))
+    p.add_argument("--date", default=None,
+                   help="session date YYYY-MM-DD (default: today KST)")
+    p.add_argument("--db", default=DEFAULT_DB,
+                   help="DB for the birth tag + set-count reads. Must be the "
+                        "same file --kit_life's workout-add writes to.")
+    p.add_argument("--kit_life", default=LIFEKIT_SH,
+                   help="kit_life.sh to call for workout-add (row birth). "
+                        "Default: the real database/kit_life.sh. Tests point "
+                        "this at a scratch database dir's kit_life.sh.")
+    p.add_argument("--program", default=DEFAULT_PROGRAM)
+    p.add_argument("--marker", default=DEFAULT_MARKER)
+    p.add_argument("--tombstone", default=DEFAULT_TOMBSTONE,
+                   help="closed-session tombstone (.session-closed) read for the "
+                        "same-day 2nd-session detection + closed-id marker guard")
+    p.add_argument("--subtype", default=None,
+                   help="workout-add subtype (default: resolved rotation code)")
+    p.add_argument("--minutes", type=int, default=0)
+    p.add_argument("--kcal", type=int, default=None,
+                   help="omit = not entered (kit 064 NULL), never 0")
+    p.add_argument("--note", default="")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print the resolved verdict, create nothing")
+    p.add_argument("--new", dest="start_over", action="store_true",
+                   help="start over: open a NEW row even while today's live "
+                        "session is open (default: a reopen resumes it)")
+    args = p.parse_args(argv)
+
+    date = args.date or _today_kst()
+
+    db_path = os.path.abspath(args.db)
+    program_path = os.path.abspath(args.program)
+    if not args.dry_run and not os.path.exists(db_path):
+        print("ERROR: db not found: %s" % db_path, file=sys.stderr)
+        return 1
+    if args.free:
+        import free_session
+        from types import SimpleNamespace
+        try:
+            return free_session.open_free(SimpleNamespace(**globals()), args,
+                                          db_path, program_path, date)
+        except (ValueError, OSError, free_session.sqlite3.Error) as exc:
+            print("ERROR %s" % exc, file=sys.stderr)
+            return 1
+    if not os.path.exists(program_path):
+        print("ERROR: program.yaml not found; use session-open --free for "
+              "a real off-plan session.", file=sys.stderr)
+        return 1
+
+    return do_open(db_path, program_path, os.path.abspath(args.marker),
+                   os.path.abspath(args.kit_life),
+                   date, args.subtype, args.minutes, args.kcal, args.note,
+                   args.dry_run, tombstone_path=os.path.abspath(args.tombstone),
+                   start_over=args.start_over)
+
+
+def _today_kst():
+    import datetime
+    # KST = UTC+9, no DST. Matches kit_life's TZ=Asia/Seoul date +%F.
+    now = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=9)
+    return now.strftime("%Y-%m-%d")
+
+
+if __name__ == "__main__":
+    sys.exit(main())

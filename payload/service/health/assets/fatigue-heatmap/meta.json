@@ -1,0 +1,59 @@
+{
+ "res": [
+  820,
+  1100
+ ],
+ "views": [
+  "front",
+  "back"
+ ],
+ "group": {
+  "chest_upper": [],
+  "chest_mid": [],
+  "chest_lower": [],
+  "serratus": [],
+  "front_delt": [],
+  "side_delt": [],
+  "rear_delt": [],
+  "rotator_cuff": [],
+  "traps_upper": [],
+  "traps_mid": [],
+  "traps_lower": [],
+  "rhomboid_teres": [],
+  "back_lats": [],
+  "back_erectors": [],
+  "biceps": [],
+  "brachialis": [],
+  "triceps_long": [],
+  "triceps_lat_med": [],
+  "forearm_flexors": [],
+  "forearm_extensors": [],
+  "brachioradialis": [],
+  "rectus_abd": [],
+  "obliques": [],
+  "glute_max": [],
+  "glute_med": [],
+  "rect_fem": [],
+  "vast_lat": [],
+  "vast_med": [],
+  "adductors": [],
+  "hams_lateral": [],
+  "hams_medial": [],
+  "gastroc": [],
+  "soleus": [],
+  "tibialis": []
+ },
+ "skin_lin": [
+  0.56,
+  0.36,
+  0.26
+ ],
+ "arm_deg": 52.0,
+ "hidden_by_drawers": [
+  "glute_max",
+  "glute_med"
+ ],
+ "mask_ss": 2,
+ "prerender_s": 83.5,
+ "source": "fatigue-heatmap v8 (label8 + prerender7, 2026-09-26)"
+}

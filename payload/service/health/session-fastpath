@@ -1,0 +1,619 @@
+#!/usr/bin/env python3
+# session-fastpath -- domain fast-path handler for the DGN-801 bridge interceptor.
+#
+# WHAT: absorbs the whole cursor + tip + set-add + set-table chain behind ONE
+# domain-agnostic contract the bridge calls:  `session-fastpath handle --raw "<text>"`.
+# A mid-slot numeric set-result ("12 2") is logged + rendered deterministically
+# with ZERO model tokens; anything the handler cannot resolve deterministically
+# exits 2 (FALLBACK <reason>) so the bridge spawns a normal SDK model turn.
+#
+# OWNERSHIP: the pack owns this DOMAIN handler (all workout CLI names/order live
+# here). The framework owns the bridge interceptor that CONSUMES it -- the interceptor
+# stays domain-agnostic (exit0 stdout = rendered push, exit != 0 = SDK fallback).
+# db path + session-id marker are resolved from the primitives' own defaults
+# (M2 reduced contract: the bridge passes ONLY --raw "<text>").
+#
+# STEP ORDER (per DGN-801 ticket "설계 확정"):
+#   1. open-gate (F1)      -- .active-session present AND == sid AND NOT tombstoned
+#   2. pending markers     -- CONSUME .tip-pending / .reply-pending: a marker
+#                             that is this sid's AND younger than the TTL yields
+#                             FALLBACK tip_pending / reply_pending, and is
+#                             DESTROYED either way (D1 fix -- see the
+#                             PENDING-MARKER LIFECYCLE note below)
+#   3. cursor+hold (F2/M5) -- session-cursor parse => SETADD argv OR propagate FALLBACK
+#   4. commit (F3)         -- set-add (require SET_LOGGED witness); arming DETACHED
+#   4b. post-commit fan-out -- DETACHED, best-effort, never touches the exit code:
+#                             set-arm (rest timers + the fast-path follow-up push
+#                             carrying the next set's reps->RIR keyboard, with the
+#                             "다음: <spec>" hint folded into it) and
+#                             exercise-enter --refresh-card (표3 pin).
+#   5. exit0-degrade (F3)  -- AFTER commit = point of no return; set-table render,
+#                             degrade to a minimal confirmation, ALWAYS exit 0.
+#
+# KEYBOARD DELIVERY (why it is not on this handler's stdout): since v1.39.3 /
+# DGN-966 the bridge DOES render `[[IDRILL:<id>]]` off this handler's stdout --
+# model turn, fast path and proactive push now share ONE artifact-render tail,
+# and _send_smart no longer deletes the marker. What still blocks riding this
+# stdout is the ARMING side: set-arm is spawned FULLY DETACHED (step 4b) so its
+# up-to-30s timer children can never eat the 3s post-commit budget, and a
+# detached child has no stdout channel back to the bridge. Making it synchronous
+# would put a DURABLY COMMITTED set behind the handler's kill deadline (the F3
+# double-processing hazard this whole contract exists to prevent). So the
+# next-set affordance still travels the domain lane: ONE marker-only
+# routines/push.sh fired by the detached set-arm child -- which under DGN-966
+# renders the FULL 6-key reps row (the old single-button entry gate is gone).
+#
+# EXIT CODES (bridge contract):
+#   0 = handled. stdout = the rendered push text (NEVER exit != 0 after commit).
+#   2 = FALLBACK <reason> on stdout -> bridge routes to the SDK model turn.
+#   (any other code / timeout / exception is treated by the bridge as a fallback
+#    too; this handler only ever emits 0 or 2.)
+#
+# stdlib only. ASCII source.
+
+import sys
+import os
+import re
+import json
+import time
+import subprocess
+import argparse
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+DEFAULT_DB = os.path.join(HERE, "..", "..", "database", "kit_life.db")
+# LIVE-SAFETY: runtime-state root -- see set-arm. Tests MUST export
+# LIFEKIT_HEALTH_STATE_DIR=<temp dir>; unset means the LIVE marker surface.
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+# 2026-08-25: STATE_DIR no longer follows the SCRIPT DIRECTORY.
+# The runtime marker surface is pinned to files/program/ INDEPENDENTLY of where
+# this file lives, because bridge/bot.py:4239 reads .idrill-arm/ from that exact
+# path and IDRILL-ARM-CONTRACT.md declares it the single pack<->bridge surface.
+# Before this, `or HERE`/`or SCRIPT_DIR` worked only by the coincidence that code
+# and state shared one directory. Moving the engine to service/health/ dissolves
+# that coincidence and would silently kill EVERY inline button (arm written to the
+# new dir, bridge still reading the old one -> IDRILL_ARM_EXPIRED, no error).
+# Unset LIFEKIT_HEALTH_STATE_DIR resolves byte-identically to the pre-change behaviour.
+STATE_DIR = (os.environ.get("LIFEKIT_HEALTH_STATE_DIR")
+             or os.path.join(PROJECT_ROOT, "files", "program"))
+# 2026-08-25: program.yaml / prep.yaml are OWNER DATA (their slots, loads,
+# rulings), not product. They stay in files/program/ when the engine moves to
+# service/health/, so resolve them off DATA_DIR, never off SCRIPT_DIR --
+# otherwise an install would cp -f a packaged copy over their real program.
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+ACTIVE_MARKER = os.path.join(STATE_DIR, ".active-session")
+# F1 (DGN-801) closed-session tombstone -- session-closeout stamps the closed sid
+# here (atomically) BEFORE removing .active-session. A session whose sid matches
+# the tombstone is CLOSED and must never be fast-pathed (phantom-logging guard).
+CLOSED_TOMBSTONE = os.path.join(STATE_DIR, ".session-closed")
+# M6 (DGN-801) tip-pending carrier -- written before a tip reply. Same one-shot
+# semantics and the SAME lifecycle owner as .reply-pending below: this handler
+# consumes it. See pending_verdict().
+TIP_PENDING = os.path.join(STATE_DIR, ".tip-pending")
+# B4 residual (DGN-801) reply-pending carrier -- armed whenever a turn offers an
+# inline numbered choice (a menu the user answers with a bare token like "2").
+# Without it, a bare numeric menu-answer would be mis-logged as a set by the fast
+# path (a collision the bridge cannot see -- it is a MODEL menu, not a bridge
+# approval).
+REPLY_PENDING = os.path.join(STATE_DIR, ".reply-pending")
+
+# ---------------------------------------------------------------------------
+# PENDING-MARKER LIFECYCLE (D1 fix, 2026-08-25 -- measured deadlock).
+#
+# WHAT BROKE. Real session 10092 (06:45:05 -> 08:17:05) emitted THIRTY-ONE
+# consecutive `fast-path FALLBACK: reply_pending` lines -- one per typed set
+# result, every single set of a 118-minute session. The fast path was
+# structurally unreachable for the whole session, and the loop was CIRCULAR:
+# arming a keyboard set the flag, and the flag blocked the fast path that would
+# have built the next arm. The marker was written once and never cleared.
+#
+# ROOT CAUSE, stated precisely: the marker's REPRESENTATION did not match its
+# SEMANTIC. Its meaning is one-shot -- "the user's very NEXT message is a menu
+# answer, not a set" -- but it was stored as a STICKY file that lived until some
+# other party deleted it, and the party charged with deleting it was the MODEL
+# ("clear it on the next turn", SKILL.md B4). A prompt cannot be relied on to
+# delete a file (D2), so the sticky representation had exactly one failure mode
+# and it fired for 100% of the session.
+#
+# THE FIX -- the gate no longer depends on anyone else clearing the file:
+#   1. CONSUME-ON-READ. Looking at the marker DESTROYS it. One arm = at most one
+#      fallback, so a leaked marker can cost one message, never a session.
+#   2. SID MATCH. A marker naming a different session is another session's
+#      garbage; it is removed and ignored, never honoured.
+#   3. AGE BOUND. A marker older than REPLY_PENDING_TTL_S is removed and ignored.
+#      This is the INDEPENDENT bound, and it is load-bearing rather than
+#      belt-and-braces: bridge/fastpath.prefilter() only offers this handler
+#      SHORT DIGIT-BEARING messages, so a menu answered in prose ("그냥 넘어가자")
+#      never reaches the consume path at all and (1) alone would stay sticky.
+#   4. Unparsable content is garbage, not a gate: removed and ignored.
+# Nothing in this lifecycle asks a model to remove a file.
+#
+# TTL = 900s, chosen from THIS session's measured numbers, not a round guess:
+#   * longest owner reply gap actually observed in the 08-25 session = 498s
+#     (p50 140s, p90 444s, n=29 -- from the 31 fallback timestamps in bot.log).
+#     900s is 1.8x that worst case, so a genuinely pending menu answer is never
+#     eaten by the TTL.
+#   * the longest rest timer this program arms is ~195s (deadlift), so a menu
+#     offered at rest-start is answered deep inside the window.
+#   * the session it must not poison ran 118 minutes; 900s caps a leak at ~1/8
+#     of a session instead of all of it.
+# Shorter (say 180s) would start eating real answers around the p90 gap; longer
+# (say an hour) buys nothing, because rule (1) already covers the common case
+# and the TTL exists precisely for the messages rule (1) never sees.
+# ---------------------------------------------------------------------------
+REPLY_PENDING_TTL_S = 900
+
+SESSION_CURSOR = os.path.join(HERE, "session-cursor")
+SET_ADD = os.path.join(HERE, "set-add")
+SET_ARM = os.path.join(HERE, "set-arm")
+SET_TABLE = os.path.join(HERE, "set-table")
+# D2 (#14 표3 pin refresh) + #34/#37 entry recovery carrier. set-add runs BOTH of
+# these itself, but only on its arm path -- which commit_set suppresses with
+# --no-arm to keep the synchronous window minimal. They are re-fired here as
+# post-commit DETACHED children instead of being dropped. See side_fx_detached().
+EXERCISE_ENTER = os.path.join(HERE, "exercise-enter")
+
+
+def _read_sid_file(path):
+    """Read a single-integer marker/tombstone file. None on any miss."""
+    try:
+        with open(path) as fh:
+            txt = fh.read().strip()
+        return int(txt) if txt else None
+    except (OSError, ValueError):
+        return None
+
+
+def resolve_active_sid():
+    """The session id from the .active-session marker, or None."""
+    return _read_sid_file(ACTIVE_MARKER)
+
+
+def session_is_open(sid):
+    """F1 open-gate predicate. True iff .active-session is present AND names this
+    sid AND this sid is NOT the one the .session-closed tombstone marks closed.
+    workouts has no status/ended_at column, so the marker+tombstone pair IS the
+    open/closed source of truth (ladder rule -- no schema migration)."""
+    if sid is None:
+        return False
+    marker_sid = resolve_active_sid()
+    if marker_sid is None or marker_sid != sid:
+        return False
+    closed_sid = _read_sid_file(CLOSED_TOMBSTONE)
+    if closed_sid is not None and closed_sid == sid:
+        return False
+    return True
+
+
+def _parse_pending(path):
+    """Read a pending marker -> (sid, ts) or None.
+
+    Two accepted payloads, so an in-flight legacy marker is never mistaken for
+    garbage during the cutover:
+      * JSON  {"sid": <int>, "ts": <epoch float>, "reason": "<free text>"}
+        -- what arm_pending() writes.
+      * a bare integer sid (the pre-2026-08-25 format). Its timestamp is the
+        file mtime, which is exactly when it was armed.
+    A JSON object with no usable `ts` also falls back to the mtime.
+    """
+    try:
+        with open(path) as fh:
+            txt = fh.read().strip()
+    except OSError:
+        return None
+    if not txt:
+        return None
+    try:
+        mtime = os.path.getmtime(path)
+    except OSError:
+        mtime = 0.0
+    if txt.startswith("{"):
+        try:
+            obj = json.loads(txt)
+        except ValueError:
+            return None
+        if not isinstance(obj, dict):
+            return None
+        try:
+            sid = int(obj.get("sid"))
+        except (TypeError, ValueError):
+            return None
+        try:
+            ts = float(obj.get("ts"))
+        except (TypeError, ValueError):
+            ts = mtime
+        return sid, ts
+    try:
+        return int(txt), mtime
+    except ValueError:
+        return None
+
+
+def _unlink(path):
+    """Remove a marker, best-effort. A marker we could not delete must never
+    change the verdict -- worst case the age bound catches it next time."""
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+
+
+def pending_verdict(path, sid, now=None, ttl=REPLY_PENDING_TTL_S):
+    """CONSUME one pending marker and say whether it blocks THIS message.
+
+    Returns (block, disposition) where disposition is one of:
+      "absent"   nothing there                       -> block False
+      "garbage"  unparsable payload, removed         -> block False
+      "foreign"  names another session, removed      -> block False
+      "stale"    older than ttl, removed             -> block False
+      "consumed" fresh and ours, removed             -> block True
+
+    THE MARKER IS ALWAYS DESTROYED when it exists -- that is the point (see the
+    PENDING-MARKER LIFECYCLE note). The one exception is "absent", where there
+    is nothing to destroy. A caller that wants to look without consuming has to
+    read the file itself; there is deliberately no peek mode, because a peek is
+    how the sticky lifecycle came back.
+    """
+    parsed = _parse_pending(path)
+    if parsed is None:
+        if os.path.exists(path):
+            _unlink(path)
+            return False, "garbage"
+        return False, "absent"
+    marker_sid, ts = parsed
+    _unlink(path)
+    if sid is None or marker_sid != sid:
+        return False, "foreign"
+    now = time.time() if now is None else now
+    if ttl is not None and (now - ts) > ttl:
+        return False, "stale"
+    return True, "consumed"
+
+
+def arm_pending(path, sid, reason=""):
+    """Write a pending marker atomically (tmp + rename), so a concurrent read
+    never sees a half-written payload. This is the WRITE side the model no
+    longer owns -- it is exposed as the `hold` subcommand so the CLI that
+    actually renders a menu/keyboard arms it deterministically."""
+    payload = json.dumps({"sid": int(sid), "ts": time.time(),
+                          "reason": str(reason or "")}, ensure_ascii=True)
+    tmp = "%s.tmp.%d" % (path, os.getpid())
+    try:
+        with open(tmp, "w") as fh:
+            fh.write(payload)
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
+
+def fallback(reason):
+    """Emit the FALLBACK <reason> contract line and the exit-2 code together."""
+    print("FALLBACK %s" % reason)
+    return 2
+
+
+def run_cursor_parse(sid, raw, db_path, program_path):
+    """Step 3: run `session-cursor parse <sid> --raw <raw>`. On exit 0 return the
+    parsed set-add argv (list, from the single `SETADD\\t...` line). On exit 2
+    return (None, reason) with the cursor's own FALLBACK reason. This reuses the
+    F2 anchor + M5 hold gate + set-result grammar that live in session-cursor."""
+    cmd = [SESSION_CURSOR, "parse", str(sid), "--raw", raw,
+           "--db", db_path, "--program", program_path, "--marker", ACTIVE_MARKER]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+    except Exception:  # noqa: BLE001 -- cursor failure = a clean model fallback
+        return None, "cursor_error"
+    out = (proc.stdout or "").strip()
+    if proc.returncode == 0:
+        for line in out.splitlines():
+            if line.startswith("SETADD\t"):
+                return line.split("\t")[1:], None
+        # exit 0 but no SETADD line -> treat as a fallback (defensive).
+        return None, "cursor_no_setadd"
+    # Non-zero: propagate the cursor's FALLBACK <reason> verbatim.
+    for line in out.splitlines():
+        if line.startswith("FALLBACK "):
+            return None, line.split(" ", 1)[1]
+    return None, "cursor_fallback"
+
+
+def commit_set(setadd_argv, db_path):
+    """Step 4: run set-add with the cursor's argv, arming SUPPRESSED (--no-arm)
+    so the synchronous commit never blocks on the timer subprocess. Require the
+    SET_LOGGED stdout witness -- no witness (nonzero OR missing line) => the set
+    is NOT committed (return None). On success return the SET_LOGGED line.
+
+    --no-arm is DELIBERATELY kept (measured: 0.04s here vs 0.37s with full
+    arming). It is a safety margin, not a micro-optimization: set-add commits the
+    row BEFORE arming, so a set-add that overran this 3s-budget call would be
+    killed on a durably-logged set and force the handler into exit 2 -- the exact
+    F3 double-processing hazard. Everything --no-arm suppresses is re-fired
+    post-commit and detached (arm_detached + side_fx_detached)."""
+    cmd = [SET_ADD] + list(setadd_argv) + ["--no-arm", "--db", db_path]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+    except Exception:  # noqa: BLE001 -- no witness => not committed
+        return None
+    if proc.returncode != 0:
+        return None
+    for line in (proc.stdout or "").splitlines():
+        if re.match(r"^SET_LOGGED\s+\S+\s+\S+\s+-?\d+\s+reps=\d+", line):
+            return line.strip()
+    return None
+
+
+def _detach(cmd):
+    """Spawn one FULLY DETACHED best-effort child (start_new_session=True).
+
+    Detachment is load-bearing, not a style choice: the bridge kills the
+    handler's whole PROCESS GROUP at FASTPATH_TIMEOUT=3.0s (bridge/fastpath.py),
+    and only a child in its OWN session survives that (documented carve-out:
+    "a child the handler deliberately detaches into its own session ... is by
+    design out of kill reach"). Every caller here runs POST-COMMIT, so a failure
+    must be swallowed whole -- it may never change the exit code away from 0."""
+    try:
+        subprocess.Popen(
+            cmd,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            start_new_session=True,
+        )
+        return True
+    except Exception:  # noqa: BLE001 -- post-commit work never breaks the set
+        return False
+
+
+def arm_detached(setadd_argv, db_path, program_path):
+    """Fire the rest-timer stack (set-arm) as a FULLY DETACHED background process
+    AFTER the commit -- the 3s render path never waits on it, and set-arm's own
+    timer children (up to 30s) can never orphan-block the handler. Best-effort:
+    any failure here loses only the timer, never the set.
+    argv order = <sid> <exercise> <slot_num> <set_seq> <reps> [--weight..][--rir..]
+    -- set-arm wants <sid> <exercise> <set_seq>, taken positionally.
+
+    D1/D3 (2026-08-21): also passes --fastpath-followup. set-arm's stdout is
+    DEVNULL here and ALWAYS was, because this child is DETACHED -- and it must
+    stay detached (see the KEYBOARD DELIVERY note in the module docstring: a
+    synchronous set-arm would drag its own DB/rx work, and its detached timer
+    children's inherited pipe, into the handler's 3s post-commit budget).
+    So the affordance travels the DOMAIN lane: --fastpath-followup makes set-arm
+    push ONE message (routines/push.sh). Since v1.39.3/DGN-966 that push carries
+    a bare `[[IDRILL:<arm_id>]]` marker rendered through the SHARED artifact
+    contract, so the owner gets the next set's FULL reps row (6 keys) directly
+    -- no more single-button entry gate -- with the "다음: <spec>" hint folded
+    into that same message's text."""
+    try:
+        sid, exercise = setadd_argv[0], setadd_argv[1]
+        set_seq = setadd_argv[3]
+        cmd = [SET_ARM, str(sid), exercise, str(set_seq),
+               "--db", db_path, "--program", program_path,
+               "--fastpath-followup"]
+        _detach(cmd)
+    except Exception:  # noqa: BLE001 -- arming is best-effort, never the set
+        pass
+
+
+def side_fx_detached(setadd_argv, db_path, program_path):
+    """D2: re-fire set-add's ARM-GATED side effects that --no-arm suppresses.
+
+    set-add runs three things behind `if arm:` -- the set-arm timer stack
+    (arm_detached above), the #34/#37 auto exercise-enter entry recovery
+    (set-add:_auto_enter), and the #14 pinned 종목카드 refresh
+    (set-add:_refresh_card). commit_set keeps --no-arm so the SYNCHRONOUS window
+    stays at ~0.04s -- that is a SAFETY property, not just speed: a set-add that
+    overruns the handler's 3s budget would be killed AFTER its DB commit, and the
+    handler would then have to exit 2 on a durably-logged set (the F3
+    double-processing hazard the whole contract exists to prevent). So the two
+    remaining side effects are re-fired here, detached, instead of inline.
+
+    * refresh-card: unconditional, mirrors set-add:_refresh_card exactly
+      (exercise-enter --refresh-card rewrites the dashboard.md pin; the bridge
+      DGN-214 sync mirrors it into the pinned message with no chat message, so
+      running it ~0.3s late is invisible to the owner).
+    * full entry recovery: set_seq == 1 only, mirroring set-add's own gate.
+      NOTE, honestly: this is UNREACHABLE on the fast path -- session-cursor
+      cannot anchor here on a first working set (an empty slot yields
+      no_anchor_first_set, a full one yields slot_boundary), so the fast path
+      only ever sees set_seq >= 2. It is kept as the same belt-and-suspenders
+      set-add carries, but be aware that exercise-enter's STDOUT (the entry
+      payload) is discarded on this path -- only its STATE effects (표2 publish
+      flag, 표3 pin, reps-first arm) land."""
+    try:
+        sid, exercise = setadd_argv[0], setadd_argv[1]
+        set_seq = int(setadd_argv[3])
+    except (IndexError, TypeError, ValueError):
+        return
+    if set_seq == 1:
+        # exercise-enter is idempotent (its own .exercise-entered marker), so a
+        # re-run after a real entry is a cheap ENTERED_ALREADY no-op.
+        _detach([EXERCISE_ENTER, str(sid), exercise,
+                 "--db", db_path, "--program", program_path])
+    _detach([EXERCISE_ENTER, str(sid), exercise, "--refresh-card",
+             "--db", db_path])
+
+
+def render_table(sid, exercise, db_path, program_path):
+    """Step 5 render: run set-table for the committed exercise, return its stdout,
+    or None on any failure/nonzero (caller then degrades)."""
+    # `--surface owner`: this stdout IS the message body. fastpath's own
+    # contract -- "stdout = rendered user-facing body to push verbatim" -- is
+    # the whole story, and nothing between here and the owner's screen filters
+    # anything. Declared, not inferred: set-table cannot tell this caller apart
+    # from the model's by anything ambient (both run inside the bridge process
+    # tree), so this call site is the only place that knows.
+    cmd = [SET_TABLE, str(sid), exercise, "--db", db_path,
+           "--program", program_path, "--surface", "owner"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=3)
+    except Exception:  # noqa: BLE001
+        return None
+    if proc.returncode != 0:
+        return None
+    out = (proc.stdout or "").strip()
+    return out or None
+
+
+def minimal_confirmation(set_logged_line, setadd_argv):
+    """Deterministic degrade text (step 5) derived from the SET_LOGGED witness --
+    used only when set-table render fails. Never model-composed. Shape:
+      SET_LOGGED <sid> <exercise> <seq> reps=<n> -> "<exercise> <seq>세트 기록됨 (<n>회)"."""
+    m = re.match(r"^SET_LOGGED\s+(\S+)\s+(\S+)\s+(-?\d+)\s+reps=(\d+)",
+                 set_logged_line or "")
+    if m:
+        exercise, seq, reps = m.group(2), m.group(3), m.group(4)
+    else:
+        # Fall back to the argv the cursor gave us (exercise, set_seq, reps).
+        exercise = setadd_argv[1] if len(setadd_argv) > 1 else "set"
+        seq = setadd_argv[3] if len(setadd_argv) > 3 else "?"
+        reps = setadd_argv[4] if len(setadd_argv) > 4 else "?"
+    return "%s %s세트 기록됨 (%s회)" % (exercise, seq, reps)
+
+
+def handle(raw, db_path, program_path):
+    # -- Step 1: open-gate (F1) --------------------------------------------
+    sid = resolve_active_sid()
+    if not session_is_open(sid):
+        return fallback("no_session")
+
+    # -- Step 2: tip-pending + reply-pending CONSUME (M6 / B4) --------------
+    # No longer read-only: each marker is destroyed as it is inspected, and only
+    # a marker that is BOTH this session's AND younger than the TTL blocks the
+    # message. See the PENDING-MARKER LIFECYCLE note -- this is the D1 fix for
+    # the 31/31 fallback deadlock in session 10092.
+    # Order note: tip is inspected first and BOTH are inspected on every message,
+    # deliberately. Short-circuiting on the tip marker would leave a reply marker
+    # armed for the same beat un-consumed, i.e. sticky again for one more turn.
+    tip_block, tip_why = pending_verdict(TIP_PENDING, sid)
+    reply_block, reply_why = pending_verdict(REPLY_PENDING, sid)
+    if tip_block:
+        return fallback("tip_pending")
+    if reply_block:
+        return fallback("reply_pending")
+    # A discarded marker is reported on stderr, never on stdout: stdout is the
+    # bridge's rendered-push channel and must stay clean, but a silently swept
+    # marker is exactly the kind of thing that took a live session to notice.
+    for name, why in (("tip", tip_why), ("reply", reply_why)):
+        if why in ("garbage", "foreign", "stale"):
+            print("pending-marker discarded: %s-pending %s" % (name, why),
+                  file=sys.stderr)
+
+    # -- Step 3: cursor anchor + hold gate (F2 + M5) -----------------------
+    setadd_argv, reason = run_cursor_parse(sid, raw, db_path, program_path)
+    if setadd_argv is None:
+        return fallback(reason)
+
+    # -- Step 4: commit (F3) -- point of no return once SET_LOGGED lands ----
+    set_logged = commit_set(setadd_argv, db_path)
+    if set_logged is None:
+        # No witness => the set did NOT commit. Safe to fall back (no double-log).
+        return fallback("setadd_fail")
+
+    # Commit succeeded. From here on it is the POINT OF NO RETURN: the set is
+    # durable, so the handler must NEVER exit != 0 (that would let the model
+    # re-log = the F3 double-processing FATAL). Arm the timer detached, fire the
+    # post-commit side effects detached, then render -- degrading to a
+    # deterministic confirmation on any render failure.
+    # Ordering note: arm_detached FIRST. Its child owns the follow-up push (the
+    # next set's reps->RIR keyboard, with the "다음: <spec>" line folded into its
+    # text), which is deliberately delayed ~1s so it lands AFTER the bridge sends
+    # the table this handler is about to print. The delay is the ONLY ordering
+    # guarantee between the two rails -- the push is out-of-process and cannot
+    # observe when this handler's stdout was sent, so it stays.
+    # side_fx_detached only rewrites the pinned card (no chat message), so it
+    # cannot interleave with anything the owner sees.
+    arm_detached(setadd_argv, db_path, program_path)
+    side_fx_detached(setadd_argv, db_path, program_path)
+
+    # -- Step 5: exit0-degrade (F3) ----------------------------------------
+    exercise = setadd_argv[1] if len(setadd_argv) > 1 else None
+    rendered = render_table(sid, exercise, db_path, program_path) \
+        if exercise else None
+    if rendered:
+        print(rendered)
+    else:
+        print(minimal_confirmation(set_logged, setadd_argv))
+    return 0  # post-commit ALWAYS exit 0.
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="session-fastpath",
+        description="DGN-801 domain fast-path handler (cursor+tip+set-add+"
+                    "set-table chain behind one bridge contract).",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+    sp = sub.add_parser("handle", help="handle a raw set-result message")
+    sp.add_argument("--raw", required=True, help="the raw user message")
+    # db / program are resolvable from defaults (M2 contract passes only --raw);
+    # exposed for tests / non-default layouts.
+    sp.add_argument("--db", default=DEFAULT_DB)
+    sp.add_argument("--program", default=DEFAULT_PROGRAM)
+
+    # `hold` is the DETERMINISTIC arm for the B4 marker. It exists so the write
+    # side belongs to a CLI instead of to a prompt: whichever primitive actually
+    # renders a numbered menu / choice keyboard calls this, once, and never has
+    # to think about clearing it again (handle() consumes it).
+    hp = sub.add_parser(
+        "hold", help="arm the reply-pending marker for one message")
+    hp.add_argument("--sid", type=int, default=None,
+                    help="session id (default: the .active-session marker)")
+    hp.add_argument("--reason", default="",
+                    help="free text recorded in the marker, for post-mortems")
+    hp.add_argument("--kind", choices=("reply", "tip"), default="reply")
+
+    # `clear` is the explicit sweep, for a lifecycle owner that has to guarantee
+    # the marker is gone (session-closeout) rather than wait for a consume.
+    cp = sub.add_parser("clear", help="remove a pending marker unconditionally")
+    cp.add_argument("--kind", choices=("reply", "tip", "all"), default="all")
+
+    args = p.parse_args(argv)
+
+    if args.cmd == "handle":
+        db_path = os.path.abspath(args.db)
+        from free_session import effective_path
+        program_path = effective_path(os.path.abspath(args.program), db_path, resolve_active_sid())
+        if not os.path.exists(db_path) or not os.path.exists(program_path):
+            # Missing state is a clean fallback, never a crash.
+            return fallback("no_state")
+        return handle(args.raw, db_path, program_path)
+
+    if args.cmd == "hold":
+        sid = args.sid if args.sid is not None else resolve_active_sid()
+        if sid is None:
+            print("ERROR: no session id (pass --sid, or open a session first)",
+                  file=sys.stderr)
+            return 1
+        path = TIP_PENDING if args.kind == "tip" else REPLY_PENDING
+        if not arm_pending(path, sid, args.reason):
+            print("ERROR: could not write %s" % path, file=sys.stderr)
+            return 1
+        print("PENDING_ARMED kind=%s sid=%s ttl=%ss"
+              % (args.kind, sid, REPLY_PENDING_TTL_S))
+        return 0
+
+    if args.cmd == "clear":
+        kinds = (("reply", REPLY_PENDING), ("tip", TIP_PENDING))
+        if args.kind != "all":
+            kinds = tuple(k for k in kinds if k[0] == args.kind)
+        for name, path in kinds:
+            existed = os.path.exists(path)
+            if existed:
+                _unlink(path)
+            print("PENDING_CLEAR kind=%s removed=%s"
+                  % (name, "yes" if existed else "no"))
+        return 0
+
+    return 2
+
+
+if __name__ == "__main__":
+    sys.exit(main())

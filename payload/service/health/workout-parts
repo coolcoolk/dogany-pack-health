@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+# workout-parts -- the body parts a logged session trained, as kit
+# classifications.
+#
+# WHY (fb-1790289002-1, worklog 2026-09-25-workout-multi-bodypart-feedback).
+# "The workout log records a single body-part category." The kit stores
+# classifications N:M (workout_classifications) and every read surface folds
+# them (workout-find group_concat), so the gap is on the WRITE side:
+#
+#   * kit lane (workout-log): one `workout-add <cat> <sub>` = one part; the
+#     other parts need a follow-up `workout-classify` per part that the model
+#     has to remember (skill step 3). On 2026-09-24 it did not: the row says
+#     "하체+가슴+어깨" in its note and carries 근력/하체 only. Kit-side fix,
+#     reported as a delta (docs/reports), not made here.
+#   * pack lane (this pack's session): session-open writes ONE classification,
+#     the rotation code (근력/앞A, 근력/자유); "Muscle classifications are
+#     refined at workout-log" -- by the model again. So a 3-region session reads
+#     back as "근력 앞A".
+#
+# This tool closes the pack lane from data the kit already holds: the session's
+# logged sets x the exercise muscle map (exercise_muscle, role 'primary') x the
+# muscle tree (muscle_node), rolled up to the owner-facing region words the
+# kit's own dictionary uses (workout_types.muscle_node; 056 backfill). No
+# model judgement, no prose step:
+#
+#   workout-parts derive --session N [--db PATH] [--json]
+#       PARTS <id> <part,part,...>   (+ UNMAPPED <exercise,...> when an
+#       exercise has no primary map -- reported, never guessed)
+#   workout-parts apply  --session N [--db PATH] [--json]
+#       derive, then `kit_life.sh workout-classify <id> 근력 <part>` for each
+#       part not already on the row. Idempotent (the kit's INSERT OR IGNORE,
+#       and already-present parts are skipped). ADDED <n> on the last line.
+#
+# Warm-up sets (set_kind prep/ramp) do not count: a ramp set on the bench is
+# not a chest session. The rotation-code classification is left as it is.
+#
+# Exit: 0 ok, 1 usage/env, 2 kit write refused, 3 nothing derivable (no sets).
+# Reads read-only; writes only through kit_life.sh.
+import argparse
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+
+EXIT_OK, EXIT_ERR, EXIT_REFUSED, EXIT_NOTHING = 0, 1, 2, 3
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DEFAULT_DB = os.path.join(PROJECT_ROOT, "database", "kit_life.db")
+CATEGORY = "근력"
+WARMUP = ("prep", "ramp")
+
+# The owner-facing region word for a node when the instance's dictionary has
+# no row for it yet -- the same words the kit's 056 backfill maps FROM
+# (가슴 chest, 등 back, 어깨 shoulders, 하체 legs, 삼두 triceps, 이두 biceps,
+# 복근 abs). Walk: muscle -> parent -> ...; the first node with a dictionary
+# row wins, else the first node named here. quads/glutes/hamstrings/calves
+# therefore read as 하체 unless the owner's dictionary has a finer word.
+REGION_KO = {"chest": "가슴", "back": "등", "shoulders": "어깨", "legs": "하체",
+             "triceps": "삼두", "biceps": "이두", "abs": "복근",
+             "forearms": "전완"}
+
+
+def ro(db):
+    return sqlite3.connect("file:%s?mode=ro" % os.path.abspath(db), uri=True)
+
+
+def kit_sh():
+    return (os.environ.get("KIT_LIFE_SH")
+            or os.path.join(PROJECT_ROOT, "database", "kit_life.sh"))
+
+
+def derive(db, session_id):
+    """{'session', 'parts' [ordered by working sets], 'have', 'unmapped'}."""
+    conn = ro(db)
+    try:
+        rows = conn.execute(
+            "SELECT exercise_name, COUNT(*) FROM workout_sets WHERE session_id=? "
+            "AND COALESCE(set_kind, 'working') NOT IN (%s) GROUP BY exercise_name "
+            "ORDER BY MIN(id)" % ",".join("?" * len(WARMUP)),
+            (session_id,) + WARMUP).fetchall()
+        parent = dict(conn.execute("SELECT node, parent FROM muscle_node"))
+        dict_word = {}
+        for node, sub in conn.execute(
+                "SELECT muscle_node, subtype FROM workout_types WHERE category=? "
+                "AND muscle_node IS NOT NULL AND active=1 ORDER BY sort, id",
+                (CATEGORY,)):
+            dict_word.setdefault(node, sub)
+        have = [r[0] for r in conn.execute(
+            "SELECT wt.subtype FROM workout_classifications wc JOIN workout_types "
+            "wt ON wt.id=wc.type_id WHERE wc.workout_id=? ORDER BY wc.type_id",
+            (session_id,))]
+        weight, unmapped = {}, []
+        for ex, n in rows:
+            muscles = [m for (m,) in conn.execute(
+                "SELECT muscle FROM exercise_muscle WHERE exercise_name=? "
+                "AND role='primary' ORDER BY muscle", (ex,))]
+            words = []
+            for m in muscles:
+                w = region(m, parent, dict_word)
+                if w and w not in words:
+                    words.append(w)
+            if not words:
+                unmapped.append(ex)
+            for w in words:
+                weight[w] = weight.get(w, 0) + n
+    finally:
+        conn.close()
+    parts = sorted(weight, key=lambda w: -weight[w])
+    return {"session": session_id, "parts": parts, "have": have,
+            "unmapped": unmapped, "sets": {w: weight[w] for w in parts}}
+
+
+def region(node, parent, dict_word):
+    seen, first_named, n = set(), None, node
+    while n and n not in seen:
+        seen.add(n)
+        if n in dict_word:
+            return dict_word[n]
+        if first_named is None and n in REGION_KO:
+            first_named = REGION_KO[n]
+        n = parent.get(n)
+    return first_named
+
+
+def apply(db, session_id):
+    d = derive(db, session_id)
+    added = []
+    for p in d["parts"]:
+        if p in d["have"]:
+            continue
+        try:
+            r = subprocess.run([kit_sh(), "workout-classify", str(session_id),
+                                CATEGORY, p], capture_output=True, text=True,
+                               timeout=60)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            d["error"] = "kit_life.sh unavailable: %s" % exc
+            break
+        if r.returncode != 0:
+            d["error"] = (r.stderr or r.stdout).strip()
+            break
+        added.append(p)
+    d["added"] = added
+    return d
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="workout-parts")
+    p.add_argument("cmd", choices=("derive", "apply"))
+    p.add_argument("--session", type=int, required=True)
+    p.add_argument("--db", default=os.environ.get("KIT_LIFE_DB", DEFAULT_DB))
+    p.add_argument("--json", action="store_true")
+    a = p.parse_args(argv)
+    if not os.path.exists(a.db):
+        print("workout-parts: no database at %s" % a.db, file=sys.stderr)
+        return EXIT_ERR
+    d = derive(a.db, a.session) if a.cmd == "derive" else apply(a.db, a.session)
+    if a.json:
+        print(json.dumps(d, ensure_ascii=False))
+    else:
+        print("PARTS %d %s" % (a.session, ",".join(d["parts"])))
+        if d["unmapped"]:
+            print("UNMAPPED %s" % ",".join(d["unmapped"]))
+        if a.cmd == "apply":
+            print("ADDED %d" % len(d.get("added", [])))
+    if d.get("error"):
+        print("workout-parts: %s" % d["error"], file=sys.stderr)
+        return EXIT_REFUSED
+    return EXIT_OK if d["parts"] else EXIT_NOTHING
+
+
+if __name__ == "__main__":
+    sys.exit(main())

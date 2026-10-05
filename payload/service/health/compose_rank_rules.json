@@ -1,0 +1,1493 @@
+{
+  "version": 2,
+  "shortlist_k": 5,
+  "session_regions": {
+    "전신": [
+      "chest",
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "상체": [
+      "chest",
+      "back",
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "하체": [
+      "legs",
+      "calves",
+      "core"
+    ],
+    "앞": [
+      "chest",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "뒤": [
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "뒷": [
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "밀기": [
+      "chest",
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "당기기": [
+      "back",
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "가슴": [
+      "chest",
+      "core"
+    ],
+    "등": [
+      "back",
+      "core"
+    ],
+    "어깨·팔": [
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "어깨": [
+      "shoulders",
+      "core"
+    ],
+    "팔": [
+      "arms",
+      "core"
+    ],
+    "보충": [
+      "chest",
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ]
+  },
+  "session_excluded_muscles": {
+    "앞": [
+      "hamstrings",
+      "biceps",
+      "glutes",
+      "adductors",
+      "calves"
+    ],
+    "뒤": [
+      "quads",
+      "triceps",
+      "adductors",
+      "abs"
+    ],
+    "뒷": [
+      "quads",
+      "triceps",
+      "adductors",
+      "abs"
+    ],
+    "밀기": [
+      "biceps",
+      "forearms"
+    ],
+    "당기기": [
+      "triceps"
+    ]
+  },
+  "rules": [
+    {
+      "id": "equipment",
+      "condition": {
+        "unavailable": true
+      },
+      "effect": {
+        "exclude": true
+      },
+      "reason": "장비 없음"
+    },
+    {
+      "id": "function",
+      "condition": {
+        "functional": true,
+        "tags_any": [
+          "unilateral",
+          "carry",
+          "anti_rotation"
+        ],
+        "slot": "unilateral_practice"
+      },
+      "effect": {
+        "score": 24
+      },
+      "reason": "기능성 연습"
+    },
+    {
+      "id": "size",
+      "condition": {
+        "size": true,
+        "tags_any": [
+          "compound",
+          "isolation"
+        ],
+        "builds_size": true
+      },
+      "effect": {
+        "score": 16
+      },
+      "reason": "근육 볼륨"
+    },
+    {
+      "id": "performance",
+      "condition": {
+        "performance": true,
+        "tags_any": [
+          "barbell_main"
+        ]
+      },
+      "effect": {
+        "score": 18
+      },
+      "reason": "수행 능력"
+    },
+    {
+      "id": "body_composition",
+      "condition": {
+        "body_composition": true,
+        "builds_size": true
+      },
+      "effect": {
+        "score": 6
+      },
+      "reason": "체성분 목표"
+    },
+    {
+      "id": "health",
+      "condition": {
+        "health": true,
+        "tags_any": [
+          "guided",
+          "simple",
+          "carry",
+          "anti_rotation"
+        ]
+      },
+      "effect": {
+        "score": 5
+      },
+      "reason": "건강 기반"
+    },
+    {
+      "id": "novice_guided",
+      "condition": {
+        "novice": true,
+        "tags_any": [
+          "guided",
+          "simple"
+        ]
+      },
+      "effect": {
+        "score": 20
+      },
+      "reason": "안정적인 동작"
+    },
+    {
+      "id": "novice_complex",
+      "condition": {
+        "novice": true,
+        "tags_any": [
+          "complex"
+        ]
+      },
+      "effect": {
+        "score": -24
+      },
+      "reason": "난도 조절"
+    },
+    {
+      "id": "advanced",
+      "condition": {
+        "advanced": true,
+        "tags_any": [
+          "free_compound"
+        ]
+      },
+      "effect": {
+        "score": 12
+      },
+      "reason": "숙련도 활용"
+    },
+    {
+      "id": "focus",
+      "condition": {
+        "focused": true
+      },
+      "effect": {
+        "score": 8
+      },
+      "reason": "집중 부위"
+    },
+    {
+      "id": "equipment_variety",
+      "condition": {
+        "equipment_repeated": true
+      },
+      "effect": {
+        "score": -4
+      },
+      "reason": "주간 장비 반복"
+    },
+    {
+      "id": "unilateral_required",
+      "condition": {
+        "unilateral_required": true
+      },
+      "effect": {
+        "constraint": "unilateral_per_session",
+        "minimum": 1
+      },
+      "reason": "편측 연습 포함"
+    },
+    {
+      "id": "ab_variety",
+      "condition": {},
+      "effect": {
+        "constraint": "different_ab_main"
+      },
+      "reason": "A·B 주동작 다양화"
+    },
+    {
+      "id": "complexity_cap",
+      "condition": {
+        "novice": true
+      },
+      "effect": {
+        "constraint": "complexity_cap",
+        "maximum": 1
+      },
+      "reason": "고난도 동작 제한"
+    },
+    {
+      "id": "grip_variety",
+      "condition": {
+        "grip_alternative": true
+      },
+      "effect": {
+        "score": 12
+      },
+      "reason": "A·B 그립 다양화"
+    },
+    {
+      "id": "ab_grip",
+      "condition": {},
+      "effect": {
+        "constraint": "different_ab_grip"
+      },
+      "reason": "같은 주동작은 가능한 다른 그립"
+    },
+    {
+      "id": "bilateral_default",
+      "condition": {
+        "tags_any": [
+          "unilateral"
+        ],
+        "practice_slot": false,
+        "unilateral_required": true
+      },
+      "effect": {
+        "score": -30
+      },
+      "reason": "편측 연습은 한 종목"
+    }
+  ],
+  "session_slot_name_tokens": {
+    "뒤": {
+      "shoulders": [
+        "face_pull",
+        "reverse",
+        "rear_delt"
+      ]
+    },
+    "뒷": {
+      "shoulders": [
+        "face_pull",
+        "reverse",
+        "rear_delt"
+      ]
+    },
+    "당기기": {
+      "shoulders": [
+        "face_pull",
+        "reverse",
+        "rear_delt"
+      ]
+    }
+  },
+  "site_muscles": {
+    "knee": [
+      "quads"
+    ],
+    "shoulder": [
+      "chest",
+      "shoulders"
+    ],
+    "hip": [
+      "glutes"
+    ],
+    "elbow": [
+      "biceps",
+      "triceps"
+    ],
+    "wrist": [
+      "forearms"
+    ],
+    "ankle": [
+      "calves"
+    ],
+    "foot": [
+      "calves"
+    ],
+    "back": [
+      "back_erectors"
+    ],
+    "lower_back": [
+      "back_erectors"
+    ]
+  },
+  "safety_load_rules": [
+    {
+      "condition": {
+        "site": "shoulder",
+        "movement_in": [
+          "rear_delt_isolation",
+          "lateral_raise"
+        ]
+      },
+      "grade": "low"
+    },
+    {
+      "condition": {
+        "site": "shoulder",
+        "pattern": "vertical_push"
+      },
+      "grade": "high"
+    },
+    {
+      "condition": {
+        "site": "knee",
+        "pattern": "squat",
+        "fatigue_in": [
+          "high",
+          "med"
+        ]
+      },
+      "grade": "high"
+    },
+    {
+      "condition": {
+        "site": "knee",
+        "movement": "leg_extension"
+      },
+      "grade": "low"
+    },
+    {
+      "condition": {
+        "fatigue": "high"
+      },
+      "grade": "high"
+    },
+    {
+      "condition": {},
+      "grade": "medium"
+    }
+  ],
+  "session_excluded_patterns": {
+    "앞": [
+      "hinge"
+    ],
+    "뒤": [
+      "squat"
+    ],
+    "뒷": [
+      "squat"
+    ],
+    "상체": [
+      "hinge",
+      "squat"
+    ],
+    "하체A": [
+      "hinge"
+    ]
+  },
+  "region_rule": "All slots including unilateral practice obey session regions and primary-muscle exclusions. Secondary stabilizers do not change the session region.",
+  "main_patterns": {
+    "앞": [
+      "squat"
+    ],
+    "하체": [
+      "squat"
+    ],
+    "뒤": [
+      "hinge"
+    ],
+    "뒷": [
+      "hinge"
+    ],
+    "상체": [
+      "horizontal_push",
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "밀기": [
+      "horizontal_push",
+      "vertical_push"
+    ],
+    "당기기": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "전신": [
+      "squat"
+    ],
+    "하체A": [
+      "squat"
+    ],
+    "하체B": [
+      "hinge"
+    ],
+    "가슴": [
+      "horizontal_push"
+    ],
+    "등": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "어깨·팔": [],
+    "어깨": [],
+    "팔": [],
+    "보충": [
+      "horizontal_pull"
+    ]
+  },
+  "order": {
+    "regions": [
+      "legs",
+      "back",
+      "chest",
+      "shoulders",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "precedence": "main first; compounds large to small; isolations same region order; core last; reject any composition that revisits a region"
+  },
+  "unilateral_cap": {
+    "default": 1,
+    "practice": 1,
+    "caution_main": 1
+  },
+  "availability": {
+    "default": "common",
+    "requirements": {
+      "medicine_ball": [
+        "medicine_ball",
+        "throwing_space"
+      ],
+      "med_ball": [
+        "medicine_ball",
+        "throwing_space"
+      ],
+      "overhead_carry": [
+        "open_floor"
+      ],
+      "turkish": [
+        "open_floor"
+      ],
+      "sled": [
+        "sled",
+        "sled_lane"
+      ],
+      "battle_rope": [
+        "battle_rope",
+        "open_floor"
+      ],
+      "sandbag": [
+        "sandbag",
+        "open_floor"
+      ],
+      "tire_flip": [
+        "tire",
+        "open_floor"
+      ]
+    }
+  },
+  "caution_policy": {
+    "doc": "Owner ruling 2026-09-27, restated 2026-10-04 11:44: a caution site PREPARES, it does not SWAP. A recorded site never lowers a lift's rank and never takes a main or compound lift off the shortlist (the safety_load grade stays a fact for the split screen, not a ranking penalty). It adds the site's prep drills to every session holding a lift that uses the site (split_model.uses_site), caution drills first, inside the prep budget -- the prep runs before the first lift. The ONLY swaps are `substitutions` (site -> {from: to}, owner-approved rows only): `from` leaves the pool, `to` takes its rank, the plan records replaces/for_site and says it in one summary line; nothing is asked. A lift not in the table keeps its place. `notes` are range/load notes on a kept lift (copy: health.plan.caution_note.<lift>), never swaps; their dose caps stay in knee_precedents.",
+    "site_prep": {
+      "knee": [
+        "adductor_squeeze",
+        "ankle_mobility"
+      ],
+      "shoulder": [
+        "band_external_rotation"
+      ],
+      "elbow": [
+        "band_external_rotation"
+      ],
+      "wrist": [
+        "wrist_circles"
+      ],
+      "hip": [
+        "hip_knee_mobility"
+      ],
+      "ankle": [
+        "ankle_mobility"
+      ],
+      "foot": [
+        "ankle_mobility"
+      ],
+      "back": [
+        "cat_cow"
+      ],
+      "lower_back": [
+        "cat_cow"
+      ]
+    },
+    "substitutions": {
+      "knee": {
+        "walking_lunge": "reverse_lunge"
+      }
+    },
+    "notes": {
+      "knee": [
+        "leg_press",
+        "leg_extension",
+        "single_leg_extension",
+        "single_leg_leg_extension"
+      ]
+    }
+  },
+  "knee_precedents": {
+    "leg_press": {
+      "grade": "low",
+      "cue": "무릎 90도까지만 내려요."
+    },
+    "box_squat": {
+      "grade": "low",
+      "cue": "박스 높이로 깊이를 제한해요."
+    },
+    "v_squat": {
+      "grade": "low",
+      "cue": "통증 없는 깊이로 내려요."
+    },
+    "hack_squat": {
+      "grade": "low",
+      "cue": "통증 없는 깊이로 내려요."
+    },
+    "goblet_squat": {
+      "grade": "medium",
+      "cue": "가벼운 중량으로 깊이를 제한해요."
+    },
+    "reverse_lunge": {
+      "grade": "low",
+      "cue": "워킹 런지 대신 뒤로 디뎌요.",
+      "allow_standing_unilateral": true
+    },
+    "leg_extension": {
+      "grade": "low",
+      "cue": "가볍게 15회 반복해요.",
+      "max_sets": 3,
+      "reps": 15
+    },
+    "single_leg_leg_extension": {
+      "grade": "low",
+      "cue": "가볍게 15회 반복해요.",
+      "max_sets": 3,
+      "reps": 15
+    },
+    "single_leg_extension": {
+      "grade": "low",
+      "cue": "가볍게 15회 반복해요.",
+      "max_sets": 3,
+      "reps": 15
+    },
+    "single_leg_press": {
+      "grade": "low",
+      "cue": "무릎 90도까지만 내려요."
+    }
+  },
+  "prep_by_pattern": {
+    "squat": [
+      "hip_knee_mobility",
+      "glute_bridge"
+    ],
+    "hinge": [
+      "cat_cow",
+      "glute_bridge"
+    ],
+    "horizontal_push": [
+      "shoulder_circles",
+      "bird_dog"
+    ],
+    "vertical_push": [
+      "shoulder_circles",
+      "bird_dog"
+    ],
+    "horizontal_pull": [
+      "thoracic_rotation",
+      "bird_dog"
+    ],
+    "vertical_pull": [
+      "thoracic_rotation",
+      "bird_dog"
+    ]
+  },
+  "main_excluded_name_tokens": [
+    "good_morning",
+    "clean",
+    "swing",
+    "slam",
+    "hip_thrust",
+    "glute_bridge"
+  ],
+  "performance_hinge": {
+    "A": [
+      "deadlift",
+      "sumo_deadlift"
+    ],
+    "B": [
+      "rdl",
+      "trap_bar_deadlift"
+    ],
+    "fallback": [
+      "dumbbell_rdl",
+      "kettlebell_deadlift"
+    ],
+    "sessions": [
+      "뒤",
+      "뒷"
+    ],
+    "condition": {
+      "advanced": true,
+      "performance": true
+    },
+    "except_sites": [
+      "back",
+      "lower_back"
+    ]
+  },
+  "budget": {
+    "default_minutes": 120,
+    "prep_minutes": 5,
+    "cooldown_minutes": 5,
+    "default_cardio_minutes": 20,
+    "compound_minutes": 12,
+    "isolation_minutes": 8,
+    "transition_minutes": 2,
+    "max_lifts": 7,
+    "max_prep": 4,
+    "assumption": "Working sets including rest: compound 12 min, isolation/core 8 min, plus 2 min setup each. Reserve prep 5, cooldown 5 and chosen cardio (20 until chosen). Conservative count cap floor(available/12), max 7; also check summed cost. Use shortest recurring window because rotations can visit every weekday.",
+    "max_prep_per_category": 2,
+    "base_sets": 3,
+    "set_levels": [
+      3,
+      2
+    ],
+    "set_levels_doc": "The session length is the user's (owner 2026-10-01): sessions are composed TO it. compound/isolation minutes are at base_sets working sets; a lift at s sets costs minutes * s / base_sets plus the transition. Composition tries each set level in order (3, then 2) and keeps the first that fits the lift budget AND still trains every major region its sessions offer (fewer sets per lift before fewer lifts), else the first that fits; the level is stored (st.session_sets) and is the prescription's set floor. Nothing is ever composed past the budget."
+  },
+  "fillers": {
+    "forearms_focus_only": true,
+    "calves_sessions": 2,
+    "forearms_goal_tokens": [
+      "전완",
+      "악력",
+      "grip",
+      "forearm"
+    ]
+  },
+  "session_excluded_name_tokens": {
+    "앞": [
+      "reverse_fly",
+      "reverse_pec",
+      "rear_delt",
+      "face_pull"
+    ],
+    "밀기": [
+      "reverse_fly",
+      "reverse_pec",
+      "rear_delt",
+      "face_pull"
+    ]
+  },
+  "slot_priority": [
+    "main",
+    "unilateral_practice",
+    "abs"
+  ],
+  "required_regions": {
+    "앞": [
+      "legs",
+      "chest"
+    ],
+    "뒤": [
+      "legs",
+      "back"
+    ],
+    "뒷": [
+      "legs",
+      "back"
+    ],
+    "상체": [
+      "chest",
+      "back"
+    ],
+    "하체": [
+      "legs"
+    ],
+    "밀기": [
+      "chest"
+    ],
+    "당기기": [
+      "back"
+    ],
+    "전신": [
+      "legs",
+      "chest",
+      "back"
+    ],
+    "가슴": [
+      "chest"
+    ],
+    "등": [
+      "back"
+    ],
+    "어깨·팔": [
+      "shoulders",
+      "arms"
+    ],
+    "어깨": [
+      "shoulders"
+    ],
+    "팔": [
+      "arms"
+    ],
+    "보충": [
+      "chest"
+    ]
+  },
+  "spinal_load": {
+    "deadlift": 3,
+    "sumo_deadlift": 3,
+    "trap_bar_deadlift": 2,
+    "rdl": 2,
+    "barbell_good_morning": 2,
+    "barbell_row": 1,
+    "underhand_barbell_row": 1,
+    "dumbbell_rdl": 1,
+    "kettlebell_deadlift": 1
+  },
+  "technical": {
+    "name_tokens": [
+      "clean",
+      "snatch",
+      "swing",
+      "turkish",
+      "get_up",
+      "jerk",
+      "slam",
+      "throw"
+    ],
+    "classification": "Olympic lifts, kettlebell ballistics and loaded get-ups; throws/slams also require technical opt-in.",
+    "profile_opt_in": "technical"
+  },
+  "practice_patterns": {
+    "앞": [
+      "squat"
+    ],
+    "하체": [
+      "squat",
+      "hinge"
+    ],
+    "뒤": [
+      "hinge",
+      "horizontal_pull"
+    ],
+    "뒷": [
+      "hinge",
+      "horizontal_pull"
+    ],
+    "상체": [
+      "horizontal_push",
+      "vertical_push",
+      "horizontal_pull"
+    ],
+    "밀기": [
+      "horizontal_push",
+      "vertical_push"
+    ],
+    "당기기": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "전신": [
+      "squat",
+      "hinge",
+      "horizontal_push",
+      "horizontal_pull"
+    ],
+    "하체A": [
+      "squat"
+    ],
+    "하체B": [
+      "hinge",
+      "squat"
+    ],
+    "가슴": [
+      "horizontal_push"
+    ],
+    "등": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "어깨·팔": [
+      "isolation"
+    ],
+    "어깨": [
+      "isolation"
+    ],
+    "팔": [
+      "isolation"
+    ],
+    "보충": [
+      "squat",
+      "hinge",
+      "horizontal_push",
+      "horizontal_pull"
+    ]
+  },
+  "set_caps": {
+    "compound": 4,
+    "isolation": 4
+  },
+  "balance_max_difference": 1,
+  "session_pattern_muscle_exceptions": {
+    "앞": {
+      "squat": [
+        "glutes",
+        "adductors"
+      ]
+    }
+  },
+  "practice_equipment_by_pattern": {
+    "horizontal_pull": [
+      "dumbbell",
+      "cable"
+    ],
+    "horizontal_push": [
+      "dumbbell"
+    ],
+    "vertical_push": [
+      "dumbbell"
+    ]
+  },
+  "practice_required_tags": {
+    "어깨·팔": [
+      "unilateral"
+    ],
+    "어깨": [
+      "unilateral"
+    ],
+    "팔": [
+      "unilateral"
+    ]
+  },
+  "practice_effects": {
+    "doc": "Goal practice picks (handoff.practice) the composed program acts on beyond unilateral/core. kind slot = one work-list exercise per session from names (practice-only rows: never offered by any other slot), checked by validate() with error; kind block = a timed block composed by practice_blocks() and checked by validate_blocks(); minutes are reserved from the lift budget. Block positions: flow = before the prep, power = after the prep and before the first lift, finisher / circuit = after the last lift, before cardio and cooldown. end_blocks: at most one end block per session.",
+    "breath_trunk": {
+      "kind": "slot",
+      "slot": "breath_trunk",
+      "doc": "Pilates-faithful: slow, controlled, full-range movement (the roll-down articulates the spine on the breath). A timed hold is not Pilates (kimwog exercise-ideal-pilates-controlled-movement-037), so hollow_hold does not fill this slot; it stays in withheld_names so no other slot starts offering it either (2026-09-30).",
+      "names": [
+        "roll_down"
+      ],
+      "withheld_names": [
+        "hollow_hold"
+      ],
+      "per_session": 1,
+      "error": "E-BREATH-TRUNK",
+      "message": "include exactly one breath+trunk controlled movement (roll-down)"
+    },
+    "whole_body": {
+      "kind": "slot",
+      "slot": "whole_body",
+      "names": [
+        "bear_crawl",
+        "turkish_get_up"
+      ],
+      "per_session": 1,
+      "load": "light",
+      "technical_opt_in": true,
+      "error": "E-WHOLE-BODY",
+      "message": "include exactly one light whole-body linking movement (bear crawl / Turkish get-up)"
+    },
+    "mobility_flow": {
+      "kind": "block",
+      "block": "flow",
+      "when": "start",
+      "minutes": 5,
+      "count": 3,
+      "drills": [
+        "worlds_greatest_stretch",
+        "cat_cow",
+        "thoracic_rotation",
+        "hip_knee_mobility",
+        "leg_swing",
+        "shoulder_circles",
+        "ankle_mobility",
+        "wrist_circles"
+      ],
+      "error": "E-MOBILITY-FLOW",
+      "message": "open with a 5-minute mobility flow of three drills, caution sites first"
+    },
+    "conditioning": {
+      "kind": "block",
+      "block": "finisher",
+      "when": "end",
+      "minutes": 7,
+      "minutes_range": [
+        6,
+        8
+      ],
+      "work_sec": 30,
+      "rest_sec": 30,
+      "rounds": 7,
+      "options": [
+        {
+          "key": "bike",
+          "equipment": "machine",
+          "caution": []
+        },
+        {
+          "key": "row",
+          "equipment": "machine",
+          "caution": [
+            "back",
+            "lower_back"
+          ]
+        },
+        {
+          "key": "mountain_climber",
+          "equipment": "bodyweight",
+          "caution": [
+            "wrist",
+            "shoulder"
+          ]
+        },
+        {
+          "key": "jumping_jack",
+          "equipment": "bodyweight",
+          "caution": [
+            "knee",
+            "ankle",
+            "foot"
+          ]
+        },
+        {
+          "key": "high_knee_march",
+          "equipment": "bodyweight",
+          "caution": [
+            "hip"
+          ]
+        }
+      ],
+      "error": "E-CONDITIONING",
+      "message": "end with a 6-8 minute interval finisher that loads no caution site"
+    },
+    "power": {
+      "kind": "block",
+      "block": "power",
+      "when": "after_prep",
+      "minutes": 5,
+      "doc": "One explosive move per session, after the prep and before the main lifts (fresh, low dose, full rest). The pick is the swing/slam's technical opt-in for this block only; the lift pool is unchanged. First option that the place, the named facilities and the caution sites allow: landing moves avoid knee/ankle/foot, hinge moves avoid back/lower_back/hip. Last resort (of: first_lift): speed sets of the session's first lift at a light load -- that lift already passed the caution screen, so a caution never leaves the pick without an effect.",
+      "options": [
+        {
+          "key": "box_jump",
+          "equipment": "box",
+          "caution": [
+            "knee",
+            "ankle",
+            "foot"
+          ],
+          "sets": 3,
+          "rep_range": [
+            3,
+            5
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "kettlebell_swing",
+          "equipment": "kettlebell",
+          "caution": [
+            "back",
+            "lower_back",
+            "hip",
+            "shoulder"
+          ],
+          "sets": 3,
+          "rep_range": [
+            5,
+            8
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "medicine_ball_slam",
+          "equipment": "medicine_ball",
+          "caution": [
+            "back",
+            "lower_back",
+            "shoulder"
+          ],
+          "requires": [
+            "medicine_ball",
+            "throwing_space"
+          ],
+          "sets": 3,
+          "rep_range": [
+            5,
+            6
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "squat_jump",
+          "equipment": "bodyweight",
+          "caution": [
+            "knee",
+            "ankle",
+            "foot",
+            "hip"
+          ],
+          "sets": 3,
+          "rep_range": [
+            3,
+            5
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "speed_sets",
+          "equipment": null,
+          "caution": [],
+          "of": "first_lift",
+          "sets": 3,
+          "rep_range": [
+            3,
+            3
+          ],
+          "rest_sec": 60
+        }
+      ],
+      "error": "E-POWER",
+      "message": "open the lifts with one low-dose explosive move (box jump / kettlebell swing / med-ball slam) that loads no caution site"
+    },
+    "mixed_circuit": {
+      "kind": "block",
+      "block": "circuit",
+      "when": "end",
+      "minutes": 10,
+      "per_week": [
+        1,
+        2
+      ],
+      "doc": "A 10-minute no-rest circuit after the last lift on 1-2 sessions a week (circuit_sessions: rotation codes spread evenly, count floor(2 x rotation / weekly days), at least 1). Stations in order, one move each, distinct, none a lift of that session, none loading a caution site; a station with no allowed move is dropped (min_stations). Light load: the circuit is breath, not a lift.",
+      "work_sec": 40,
+      "rest_sec": 0,
+      "min_stations": 2,
+      "stations": [
+        {
+          "role": "erg",
+          "options": [
+            {
+              "key": "row",
+              "equipment": "machine",
+              "caution": [
+                "back",
+                "lower_back"
+              ]
+            },
+            {
+              "key": "bike",
+              "equipment": "machine",
+              "caution": []
+            },
+            {
+              "key": "jumping_jack",
+              "equipment": "bodyweight",
+              "caution": [
+                "knee",
+                "ankle",
+                "foot"
+              ]
+            },
+            {
+              "key": "high_knee_march",
+              "equipment": "bodyweight",
+              "caution": [
+                "hip"
+              ]
+            }
+          ]
+        },
+        {
+          "role": "load",
+          "options": [
+            {
+              "key": "kettlebell_deadlift",
+              "equipment": "kettlebell",
+              "caution": [
+                "back",
+                "lower_back",
+                "hip",
+                "knee"
+              ]
+            },
+            {
+              "key": "kettlebell_goblet_squat",
+              "equipment": "kettlebell",
+              "caution": [
+                "knee",
+                "hip",
+                "back",
+                "lower_back"
+              ]
+            },
+            {
+              "key": "step_up",
+              "equipment": "bodyweight",
+              "caution": [
+                "knee",
+                "hip"
+              ]
+            },
+            {
+              "key": "incline_push_up",
+              "equipment": "bodyweight",
+              "caution": [
+                "shoulder",
+                "wrist",
+                "elbow"
+              ]
+            }
+          ]
+        },
+        {
+          "role": "bodyweight",
+          "options": [
+            {
+              "key": "mountain_climber",
+              "equipment": "bodyweight",
+              "caution": [
+                "wrist",
+                "shoulder"
+              ]
+            },
+            {
+              "key": "high_knee_march",
+              "equipment": "bodyweight",
+              "caution": [
+                "hip"
+              ]
+            },
+            {
+              "key": "jumping_jack",
+              "equipment": "bodyweight",
+              "caution": [
+                "knee",
+                "ankle",
+                "foot"
+              ]
+            }
+          ]
+        }
+      ],
+      "error": "E-MIXED-CIRCUIT",
+      "message": "end 1-2 sessions a week with a 10-minute no-rest circuit of at least two stations that load no caution site"
+    },
+    "end_blocks": {
+      "doc": "Both conditioning (finisher) and mixed_circuit (circuit) end a session. They never stack: on a circuit session the circuit replaces the conditioning finisher, every other session keeps the finisher. The lift budget reserves the longest end block once, not their sum. E-END-STACK when a session carries two.",
+      "precedence": [
+        "circuit",
+        "finisher"
+      ],
+      "error": "E-END-STACK",
+      "message": "one end block per session: the circuit replaces the conditioning finisher"
+    }
+  },
+  "practice_dose": {
+    "doc": "Starting dose for practice-only rows (light by design); overrides the pattern rule in program-plan dose().",
+    "roll_down": {
+      "sets": 3,
+      "rep_range": [
+        6,
+        8
+      ]
+    },
+    "bear_crawl": {
+      "sets": 3,
+      "rep_range": [
+        8,
+        12
+      ]
+    },
+    "turkish_get_up": {
+      "sets": 2,
+      "rep_range": [
+        2,
+        3
+      ]
+    }
+  },
+  "muscle_credit": {
+    "doc": "Muscle-set credit of the functional / practice rows (owner ruling 2026-10-04 11:21). A set's purpose decides its ledger: bodyweight control / connection work counts 0 toward the weekly muscle-set band, a functional move carrying real load counts this factor x sets toward its mapped muscles (primary and secondary alike, on top of the role weight), and every row listed here is still said on its own line. loaded = the factor when the slot carries load (weight_kg > 0, or a load that is not bodyweight; a logged set: weight_kg > 0); bodyweight = the factor without it. A row whose implement IS the load (a swing, a slam) carries the same factor in both. Unlisted rows count 1.0; a practice-only row (practice_effects names / withheld_names) left unlisted counts 0. Conditioning blocks (bike / row intervals) are cardio and never reach the work list, so they are never sets.",
+    "exercises": {
+      "roll_down": {
+        "loaded": 0.0,
+        "bodyweight": 0.0
+      },
+      "hollow_hold": {
+        "loaded": 0.0,
+        "bodyweight": 0.0
+      },
+      "bear_crawl": {
+        "loaded": 0.5,
+        "bodyweight": 0.0
+      },
+      "turkish_get_up": {
+        "loaded": 0.5,
+        "bodyweight": 0.0
+      },
+      "kettlebell_swing": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      },
+      "kettlebell_clean": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      },
+      "medicine_ball_slam": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      },
+      "rotational_medicine_ball_throw": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      }
+    }
+  },
+  "split_model": {
+    "major_regions": [
+      "chest",
+      "back",
+      "shoulders",
+      "legs"
+    ],
+    "frequency_floor": {
+      "cut": 2,
+      "grow": 2,
+      "maintain": 1
+    },
+    "phase_aliases": {
+      "cut": "cut",
+      "bulk": "grow",
+      "lean_bulk": "grow",
+      "grow": "grow",
+      "recomp": "grow",
+      "maintain": "maintain"
+    },
+    "weights": {
+      "frequency": 12,
+      "session": 0.5,
+      "caution": 5,
+      "adjacency": 8,
+      "heavy_lower": 1,
+      "leg_rest": 1,
+      "squat_hinge": 3,
+      "evenness": 0.3,
+      "skill": 2,
+      "overlap": 3
+    },
+    "phase_weights": {
+      "cut": {
+        "frequency": 18
+      },
+      "grow": {
+        "frequency": 20,
+        "leg_rest": 0.5
+      },
+      "maintain": {
+        "frequency": 3,
+        "session": 0.4
+      }
+    },
+    "experience_weights": {
+      "novice": {
+        "skill": 12,
+        "frequency": 22
+      },
+      "returner": {
+        "skill": 10,
+        "frequency": 20
+      },
+      "continuous": {}
+    },
+    "menu_size": 3,
+    "loaded_grades": [
+      "medium",
+      "high"
+    ],
+    "heavy_fatigue": [
+      "high"
+    ],
+    "catalog": [
+      {
+        "family": "fb",
+        "rotations": [
+          [
+            "전신"
+          ],
+          [
+            "전신A",
+            "전신B"
+          ]
+        ]
+      },
+      {
+        "family": "ul",
+        "rotations": [
+          [
+            "상체",
+            "하체"
+          ],
+          [
+            "상체A",
+            "하체A",
+            "상체B",
+            "하체B"
+          ]
+        ]
+      },
+      {
+        "family": "ab",
+        "rotations": [
+          [
+            "앞",
+            "뒤"
+          ],
+          [
+            "앞A",
+            "뒤A",
+            "앞B",
+            "뒤B"
+          ]
+        ]
+      },
+      {
+        "family": "ppl",
+        "rotations": [
+          [
+            "밀기",
+            "당기기",
+            "하체"
+          ],
+          [
+            "밀기A",
+            "당기기A",
+            "하체A",
+            "밀기B",
+            "당기기B",
+            "하체B"
+          ]
+        ]
+      },
+      {
+        "family": "bp",
+        "rotations": [
+          [
+            "가슴",
+            "등",
+            "하체",
+            "어깨·팔"
+          ]
+        ]
+      },
+      {
+        "family": "hybrid",
+        "rotations": [
+          [
+            "상체",
+            "하체A",
+            "밀기",
+            "당기기",
+            "하체B"
+          ]
+        ]
+      },
+      {
+        "family": "body",
+        "rotations": [
+          [
+            "가슴",
+            "등",
+            "하체",
+            "어깨",
+            "팔"
+          ]
+        ]
+      },
+      {
+        "family": "supp",
+        "rotations": [
+          [
+            "앞A",
+            "뒤A",
+            "앞B",
+            "뒤B",
+            "보충"
+          ]
+        ]
+      }
+    ],
+    "preview_search_visits": 300,
+    "frequency_reward_cap_multiplier": 1,
+    "session_comfort_ratio": 0.9,
+    "full_body_experience": [
+      "novice",
+      "returner"
+    ]
+  }
+}

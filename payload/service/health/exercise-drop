@@ -1,0 +1,198 @@
+#!/usr/bin/env python3
+"""exercise-drop -- remove a whole exercise from an in-progress session
+(2026-08-25).
+
+THE GAP THIS CLOSES. An exercise_instance is IMPLICIT -- it exists as the
+(exercise_name, slot_num) grouping of workout_sets rows plus a handful of
+filesystem markers (.exercise-entered / .set-table-published / .set-arm-override
+/ .plate-cue / .idrill-arm). `exercise-enter` creates it, `set-table` reads it,
+`set-add --ov-*` updates it. NOTHING deleted it. Entering the wrong slot left a
+permanent phantom exercise in the session with its sets counted into every
+aggregate, and its entered-marker suppressing the entry payload for the exercise
+the owner actually meant to do.
+
+CONFIRMATION IS COUNT-MATCHED, NOT A FLAG. `--confirm-sets <n>` must equal the
+exact number of set rows that will be destroyed. That number is only obtainable
+by first running the verb WITHOUT it and reading the refusal, so a model firing
+this casually cannot satisfy it -- it has to have seen what it is destroying.
+(n=0 IS guessable, and that is fine: zero sets means nothing is destroyed.)
+
+REFUSALS (exit 3, nothing written, dependents NAMED):
+  EXERCISE_DROP_UNCONFIRMED  --confirm-sets missing/mismatched; every set named
+  EXERCISE_DROP_CLOSED       session already tagged (closed) -> --force-closed
+  EXERCISE_DROP_HISTORICAL   not the active/most-recent session -> --force-historical
+
+Usage:
+  exercise-drop <session_id> <exercise_name>
+                [--confirm-sets <n>] [--force-closed] [--force-historical]
+                [--db PATH] [--no-pin-clear] [--dry-run]
+
+Exit: 0 dropped / 1 usage or not found / 3 REFUSED (nothing written).
+stdlib only.
+"""
+
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import undo_lib as U  # noqa: E402
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="exercise-drop",
+        description="Remove one exercise (its sets + its markers) from a session.")
+    p.add_argument("session_id", type=int)
+    p.add_argument("exercise_name")
+    p.add_argument("--confirm-sets", type=int, default=None,
+                   help="exact number of set rows to destroy (from the refusal)")
+    p.add_argument("--force-closed", action="store_true")
+    p.add_argument("--force-historical", action="store_true")
+    p.add_argument("--db", default=None)
+    p.add_argument("--no-pin-clear", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    a = p.parse_args(argv)
+
+    db = U.resolve_db(a.db)
+    conn = U.open_db(db)
+    try:
+        srow = U.session_row(conn, a.session_id)
+        if srow is None:
+            print("ERROR: no workouts row with id=%s" % a.session_id,
+                  file=sys.stderr)
+            return 1
+        date, _note, stype = srow
+
+        rows = U.sets_of(conn, a.session_id, a.exercise_name)
+        entered = os.path.join(U.ENTERED_DIR, "%s.%s"
+                               % (a.session_id, U.safe_token(a.exercise_name)))
+        has_marker = os.path.exists(entered)
+        if not rows and not has_marker:
+            names = ", ".join(n for n, _c, _s in U.exercises_of(conn,
+                                                                a.session_id))
+            print("EXERCISE_DROP_NOT_FOUND session=%s exercise=%s "
+                  "session_exercises=%s" % (a.session_id, a.exercise_name,
+                                            names or "none"))
+            print("ERROR: session %s has no sets and no entered-marker for %r. "
+                  "Exercises in this session: %s. Nothing was deleted."
+                  % (a.session_id, a.exercise_name, names or "none"),
+                  file=sys.stderr)
+            return 1
+
+        base = "exercise-drop %s %s" % (a.session_id, a.exercise_name)
+        arms = U.arm_files_for(a.session_id, a.exercise_name)
+
+        # -- REFERENCE SAFETY 1: a TAGGED session is a closed, real session.
+        if stype and not a.force_closed:
+            U.refuse(
+                "EXERCISE_DROP_CLOSED",
+                "session=%s date=%s session_type=%s exercise=%s sets=%s"
+                % (a.session_id, date, stype, a.exercise_name, len(rows)),
+                [("set", "%s\t%s" % (a.exercise_name, U.fmt_set(r)))
+                 for r in rows],
+                "⚠️ %s(%s)은 이미 %s로 마감된 세션입니다. 그래도 %s %s세트를 "
+                "통째로 지울까요?" % (a.session_id, date, stype,
+                                    a.exercise_name, len(rows)),
+                "refusing to drop an exercise from a CLOSED session: "
+                "workouts.session_type_id=%r means session-closeout already "
+                "finalised it, so these %d set row(s) are settled history "
+                "feeding volume/e1RM aggregates, not an in-progress mistake."
+                % (stype, len(rows)),
+                "%s --force-closed --confirm-sets %d" % (base, len(rows)))
+
+        # -- REFERENCE SAFETY 2: is this the session in play?
+        active = U.marker_read(U.ACTIVE_MARKER)
+        tomb = U.marker_read(U.CLOSED_TOMBSTONE)
+        newest = U.newest_session_id(conn)
+        if a.session_id not in (active, tomb, newest) and not a.force_historical:
+            U.refuse(
+                "EXERCISE_DROP_HISTORICAL",
+                "session=%s date=%s exercise=%s sets=%s active=%s "
+                "tombstoned=%s newest=%s" % (a.session_id, date,
+                                             a.exercise_name, len(rows),
+                                             active, tomb, newest),
+                [("set", "%s\t%s" % (a.exercise_name, U.fmt_set(r)))
+                 for r in rows],
+                "⚠️ %s(%s)은 지금 진행 중인 세션이 아닙니다. 그래도 그 날의 %s "
+                "%s세트를 지울까요?" % (a.session_id, date, a.exercise_name,
+                                     len(rows)),
+                "refusing to mutate a session that is neither active (%s) nor "
+                "tombstoned-latest (%s) nor the newest row (%s) -- a stale "
+                "session id is the likeliest cause." % (active, tomb, newest),
+                "%s --force-historical --confirm-sets %d" % (base, len(rows)))
+
+        # -- REFERENCE SAFETY 3: count-matched confirmation.
+        if a.confirm_sets is None or a.confirm_sets != len(rows):
+            deps = [("set", "%s\t%s" % (a.exercise_name, U.fmt_set(r)))
+                    for r in rows]
+            if has_marker:
+                deps.append(("exercise-entered", entered))
+            deps += [("idrill-arm", "%s\tset_seq=%s" % (pth, pl.get("set_seq")))
+                     for pth, pl in arms]
+            forced = ("%s%s" % (" --force-closed" if a.force_closed else "",
+                                " --force-historical" if a.force_historical
+                                else ""))
+            U.refuse(
+                "EXERCISE_DROP_UNCONFIRMED",
+                "session=%s date=%s exercise=%s sets=%s armed=%s "
+                "entered_marker=%s given=%s"
+                % (a.session_id, date, a.exercise_name, len(rows), len(arms),
+                   "yes" if has_marker else "no",
+                   "none" if a.confirm_sets is None else a.confirm_sets),
+                deps,
+                "⚠️ %s %s세트(%s)를 통째로 지웁니다 — 되돌릴 수 없습니다. "
+                "진행할까요?"
+                % (a.exercise_name, len(rows),
+                   " / ".join(U.fmt_set_ko(r) for r in rows) or "기록된 세트 없음"),
+                "refusing an unconfirmed multi-row delete: %d set row(s) of %r "
+                "in session %s (%s) would be destroyed permanently%s. The "
+                "confirmation is COUNT-MATCHED on purpose -- echo back the "
+                "number you just read, so a casual call cannot satisfy it."
+                % (len(rows), a.exercise_name, a.session_id, date,
+                   ", plus %d armed keyboard(s)" % len(arms) if arms else ""),
+                "%s%s --confirm-sets %d" % (base, forced, len(rows)))
+
+        # -- COMMIT
+        arch = U.archive("exercise-drop-%s-%s"
+                         % (a.session_id, U.safe_token(a.exercise_name)),
+                         {"verb": "exercise-drop", "db": db,
+                          "session_id": a.session_id, "date": date,
+                          "exercise_name": a.exercise_name,
+                          "rows": U.rows_as_dicts(rows)}, a.dry_run)
+        if not a.dry_run:
+            cur = conn.execute(
+                "DELETE FROM workout_sets WHERE session_id=? AND "
+                "exercise_name=?;", (a.session_id, a.exercise_name))
+            conn.commit()
+            deleted = cur.rowcount
+        else:
+            deleted = len(rows)
+
+        left = U.exercises_of(conn, a.session_id)
+        print("%sEXERCISE_DROPPED session=%s date=%s exercise=%s "
+              "rows_deleted=%s remaining_exercises=%s"
+              % ("DRY_RUN " if a.dry_run else "", a.session_id, date,
+                 a.exercise_name, deleted,
+                 ",".join("%s:%d" % (n, c) for n, c, _s in left) or "none"))
+        for r in rows:
+            print("  DESTROYED set\t%s\t%s" % (a.exercise_name, U.fmt_set(r)))
+        print("ARCHIVE %s" % (arch or ("(dry-run)" if a.dry_run
+                                       else "FAILED -- rows are gone, not saved")))
+        # drop_entry=True: the exercise instance itself is being removed, so its
+        # entered-marker must go or the owner can never re-enter that slot.
+        for kind, path in U.invalidate_session_scoped(
+                a.session_id, a.exercise_name,
+                clear_pin=not a.no_pin_clear, drop_entry=True,
+                dry_run=a.dry_run):
+            print("  INVALIDATED %s\t%s" % (kind, path))
+        print("DROP_SAY: ✅ %s를 이번 세션에서 통째로 뺐습니다 (%s세트 삭제). "
+              "남은 종목: %s" % (a.exercise_name, deleted,
+                               ", ".join(n for n, _c, _s in left) or "없음"))
+        return 0
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

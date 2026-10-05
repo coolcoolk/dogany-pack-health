@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+"""Record completed cardio with watch active kcal, or a bodyweight estimate.
+
+The kit workout row is the diet card's exercise-day calorie source. This verb
+uses the same workout-add/workout-upd facade as hk-ingest. If a HealthKit row
+is already present, its active kcal wins. A later HealthKit pass can replace
+an estimated value (see hk-ingest.fill_fields).
+"""
+import argparse
+import datetime
+import os
+import sqlite3
+import subprocess
+import sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+# 2024 Adult Compendium of Physical Activities, codes 02065, 12150, 17034,
+# 01200, 02071. https://pacompendium.com/conditioning-exercise/
+# https://pacompendium.com/running/ https://pacompendium.com/walking/
+# https://pacompendium.com/bicycling/
+# MET is gross energy; subtract resting 1 MET for active kcal, as the kit
+# workout kcal field requires.
+from movement_catalog import CARDIO_CATALOG
+MET = {key: item['met'] for key, item in CARDIO_CATALOG.items()}
+SUBTYPE = {"stepmill": "계단 오르기", "run": "러닝",
+           "incline_walk": "경사 걷기", "bike": "사이클", "row": "로잉"}
+WATCH_TYPES = {"stepmill": ("stairClimbing", "stairStepper"),
+               "run": ("running",), "incline_walk": ("walking",),
+               "bike": ("cycling",), "row": ("rowing",)}
+
+
+def estimate(modality, minutes, weight_kg):
+    if modality not in MET or minutes <= 0 or weight_kg <= 0:
+        raise ValueError("modality, minutes and bodyweight required")
+    return round((MET[modality] - 1) * weight_kg * minutes / 60)
+
+
+def bodyweight(conn, day):
+    row = conn.execute("SELECT value FROM metric_log WHERE metric='weight_kg' "
+                       "AND date<=? ORDER BY date DESC LIMIT 1", (day,)).fetchone()
+    return row[0] if row else None
+
+
+def record(db, kit, day, modality, minutes):
+    conn = sqlite3.connect("file:%s?mode=ro" % db, uri=True)
+    try:
+        rows = conn.execute(
+            "SELECT w.id,w.kcal,COALESCE(w.note,'') FROM workouts w "
+            "WHERE w.date=? ORDER BY w.id", (day,)).fetchall()
+        # The ingest path stores a source id and active_energy_kcal in this row.
+        watch = next((r for r in rows if 'hk:' in r[2]
+                      and any(('healthkit ' + kind + ' ') in r[2]
+                              for kind in WATCH_TYPES[modality])), None)
+        if watch and watch[1] is not None and 'cardio-estimate:' not in watch[2]:
+            return {"source": "watch", "kcal": watch[1], "id": watch[0]}
+        weight = bodyweight(conn, day)
+    finally:
+        conn.close()
+    if weight is None:
+        raise ValueError("bodyweight reading required for an estimate")
+    kcal = estimate(modality, minutes, weight)
+    prior = watch or next((r for r in rows if 'cardio-estimate:' in r[2]
+                           and ('cardio-estimate:' + modality) in r[2]), None)
+    cmd = ([kit, 'workout-upd', str(prior[0]), 'minutes=%s' % minutes,
+            'kcal=%s' % kcal, 'kcal_origin=computed',
+            'note=%s' % ((prior[2] + ' cardio-estimate:' + modality)
+                         if watch and 'cardio-estimate:' not in prior[2]
+                         else prior[2])] if prior else
+           [kit, 'workout-add', day, '유산소', SUBTYPE[modality], str(minutes),
+            str(kcal), 'cardio-estimate:' + modality, '', '--new',
+            '--kcal-origin', 'computed'])
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    if result.returncode:
+        raise RuntimeError(result.stderr.strip())
+    return {"source": "estimate", "kcal": kcal}
+
+
+if __name__ == '__main__':
+    ap = argparse.ArgumentParser()
+    ap.add_argument('modality', choices=MET)
+    ap.add_argument('minutes', type=int)
+    ap.add_argument('--date', default=datetime.date.today().isoformat())
+    ap.add_argument('--db', required=True)
+    ap.add_argument('--kit', default=os.environ.get('KIT_LIFE_SH', 'kit_life.sh'))
+    args = ap.parse_args()
+    print(record(args.db, args.kit, args.date, args.modality, args.minutes))

@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""set-undo -- remove ONE mis-logged set row (2026-08-25).
+
+THE GAP THIS CLOSES. `set-add --correct` OVERWRITES in place: the row count
+never changes. So a mis-tap that invents a set -- set_seq=4 logged on a 3-set
+exercise, the classic double-tap on the in-place keyboard -- was PERMANENT, and
+it inflated every volume / tonnage / e1RM aggregate that session feeds. There
+was no DELETE for a set anywhere in the codebase. This is it.
+
+WHAT IT DOES BEYOND THE ROW. A set is not just a row; downstream state was armed
+off its existence. On a successful undo this verb also:
+  * removes the exercise's .idrill-arm files -- INCLUDING THE NEXT SET'S ARM,
+    whose baked `cmd` argv names a set_seq that is now wrong (tapping it would
+    write against a stale count);
+  * cancels any live rest countdown (removing the control file is the bridge's
+    documented CANCEL) -- a timer counting down to a set that no longer exists;
+  * drops the 표2 published flag so the corrected table is re-rendered;
+  * drops the .plate-cue "last cued weight" memory (a wrong delta baseline now);
+  * clears the pinned 표3 종목카드 (it shows the old set count).
+It deliberately does NOT drop .exercise-entered: the exercise WAS entered, and
+removing that marker trips set-add's auto-enter recovery mid-exercise.
+
+RE-SEQUENCING: the removed seq leaves a HOLE. Full reasoning: undo_lib.hole_note.
+
+REFUSALS (exit 3, nothing written, dependents NAMED):
+  SET_UNDO_NOT_LAST     later sets exist in the same lane -> --allow-hole
+  SET_UNDO_HISTORICAL   not the active/most-recent session -> --force-historical
+
+Usage:
+  set-undo <session_id> <exercise_name> <set_seq>
+           [--allow-hole] [--force-historical]
+           [--db PATH] [--no-pin-clear] [--dry-run]
+
+Exit: 0 undone / 1 usage or not found / 3 REFUSED (nothing written).
+stdlib only.
+"""
+
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import undo_lib as U  # noqa: E402
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="set-undo", description="Remove one mis-logged workout_sets row.")
+    p.add_argument("session_id", type=int)
+    p.add_argument("exercise_name")
+    p.add_argument("set_seq", type=int,
+                   help="the seq to remove (negatives are ramp/warm-up rungs)")
+    p.add_argument("--allow-hole", action="store_true",
+                   help="proceed although later sets exist in the same lane; "
+                        "the removed seq stays a hole (never renumbered)")
+    p.add_argument("--force-historical", action="store_true",
+                   help="proceed although this is not the active/most-recent "
+                        "session")
+    p.add_argument("--db", default=None)
+    p.add_argument("--no-pin-clear", action="store_true")
+    p.add_argument("--dry-run", action="store_true",
+                   help="report exactly what would be removed; write nothing")
+    a = p.parse_args(argv)
+
+    db = U.resolve_db(a.db)
+    conn = U.open_db(db)
+    try:
+        srow = U.session_row(conn, a.session_id)
+        if srow is None:
+            print("ERROR: no workouts row with id=%s" % a.session_id,
+                  file=sys.stderr)
+            return 1
+        date, _note, stype = srow
+
+        rows = U.sets_of(conn, a.session_id, a.exercise_name)
+        target = [r for r in rows if int(r[4]) == a.set_seq]
+        if not target:
+            have = ",".join(str(r[4]) for r in rows) or "none"
+            print("SET_UNDO_NOT_FOUND session=%s exercise=%s set_seq=%s "
+                  "existing_seqs=%s" % (a.session_id, a.exercise_name,
+                                        a.set_seq, have))
+            print("ERROR: no workout_sets row at (session=%s, exercise=%s, "
+                  "set_seq=%s). Stored seqs for this exercise: %s. Nothing was "
+                  "deleted." % (a.session_id, a.exercise_name, a.set_seq, have),
+                  file=sys.stderr)
+            return 1
+        target = target[0]
+
+        base = ("set-undo %s %s %s" % (a.session_id, a.exercise_name, a.set_seq))
+
+        # -- REFERENCE SAFETY 1: later sets in the SAME lane depend on this
+        #    row's position. Working (>=1) and ramp (<=0) are numbered
+        #    independently, so "is this the last one" is a per-lane question.
+        lane = U.lane_of(a.set_seq)
+        later = [r for r in rows
+                 if U.lane_of(r[4]) == lane
+                 and (int(r[4]) > a.set_seq if lane == "working"
+                      else int(r[4]) < a.set_seq)]
+        if later and not a.allow_hole:
+            arms = U.arm_files_for(a.session_id, a.exercise_name)
+            deps = [("set", "%s\t%s" % (a.exercise_name, U.fmt_set(r)))
+                    for r in later]
+            deps += [("idrill-arm", "%s\tset_seq=%s"
+                      % (pth, pl.get("set_seq"))) for pth, pl in arms]
+            U.refuse(
+                "SET_UNDO_NOT_LAST",
+                "session=%s date=%s exercise=%s set_seq=%s lane=%s later=%s "
+                "armed=%s" % (a.session_id, date, a.exercise_name, a.set_seq,
+                              lane, ",".join(str(r[4]) for r in later),
+                              len(arms)),
+                deps,
+                "⚠️ %s %s세트는 마지막 세트가 아닙니다 — 뒤에 %s가 남아 있어서, "
+                "지우면 %s세트 자리는 빈 번호로 남습니다(뒤 세트를 다시 매기지 "
+                "않습니다). 그대로 지울까요?"
+                % (a.exercise_name, a.set_seq,
+                   " / ".join(U.fmt_set_ko(r) for r in later), a.set_seq),
+                "refusing a MID-SEQUENCE set delete without an explicit "
+                "acknowledgement. %d later set(s) in the %s lane (%s) and %d "
+                "armed keyboard(s) reference this exercise's numbering; the "
+                "removed seq will be left as a HOLE and NOT renumbered (%s)."
+                % (len(later), lane, ",".join(str(r[4]) for r in later),
+                   len(arms), U.hole_note()),
+                "%s --allow-hole" % base)
+
+        # -- REFERENCE SAFETY 2: is this even the session in play? Undoing a
+        #    set on a session from days ago is almost always a wrong sid.
+        active = U.marker_read(U.ACTIVE_MARKER)
+        tomb = U.marker_read(U.CLOSED_TOMBSTONE)
+        newest = U.newest_session_id(conn)
+        in_play = a.session_id in (active, tomb, newest)
+        if not in_play and not a.force_historical:
+            U.refuse(
+                "SET_UNDO_HISTORICAL",
+                "session=%s date=%s session_type=%s active=%s tombstoned=%s "
+                "newest=%s" % (a.session_id, date, stype or "untagged",
+                               active, tomb, newest),
+                [("set", "%s\t%s" % (a.exercise_name, U.fmt_set(target)))],
+                "⚠️ %s(%s)은 지금 진행 중인 세션이 아닙니다. 그래도 그 날의 "
+                "%s %s를 지울까요?"
+                % (a.session_id, date, a.exercise_name,
+                   U.fmt_set_ko(target)),
+                "refusing to mutate a session that is neither active (%s) nor "
+                "tombstoned-latest (%s) nor the newest row (%s) -- a stale "
+                "session id is the likeliest cause, and this row is settled "
+                "history feeding volume/e1RM aggregates."
+                % (active, tomb, newest),
+                "%s --force-historical" % base)
+
+        # -- COMMIT
+        arch = U.archive("set-undo-%s-%s-%s"
+                         % (a.session_id, U.safe_token(a.exercise_name),
+                            a.set_seq),
+                         {"verb": "set-undo", "db": db, "session_id":
+                          a.session_id, "date": date,
+                          "rows": U.rows_as_dicts([target])}, a.dry_run)
+        if not a.dry_run:
+            cur = conn.execute("DELETE FROM workout_sets WHERE id=?;",
+                               (int(target[0]),))
+            conn.commit()
+            removed = cur.rowcount
+        else:
+            removed = 1
+
+        remaining = U.sets_of(conn, a.session_id, a.exercise_name)
+        print("%sSET_UNDONE session=%s date=%s exercise=%s removed=%s "
+              "rows_deleted=%s remaining_seqs=%s hole=%s"
+              % ("DRY_RUN " if a.dry_run else "", a.session_id, date,
+                 a.exercise_name, U.fmt_set(target), removed,
+                 ",".join(str(r[4]) for r in remaining) or "none",
+                 "yes" if later else "no"))
+        print("ARCHIVE %s" % (arch or ("(dry-run)" if a.dry_run
+                                       else "FAILED -- row is gone, not saved")))
+        for kind, path in U.invalidate_session_scoped(
+                a.session_id, a.exercise_name,
+                clear_pin=not a.no_pin_clear, drop_entry=False,
+                dry_run=a.dry_run):
+            print("  INVALIDATED %s\t%s" % (kind, path))
+        print("UNDO_SAY: ✅ %s %s 기록을 지웠습니다 — 남은 세트: %s%s"
+              % (a.exercise_name, U.fmt_set_ko(target),
+                 ", ".join(U.fmt_set_ko(r) for r in remaining) or "없음",
+                 " (%s세트 번호는 비워 둡니다)" % a.set_seq if later else ""))
+        return 0
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

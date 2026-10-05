@@ -1,0 +1,7 @@
+# pack_health -> config/agent.conf fragment (contract surface, DGN-1467).
+# pack_install.sh strips comment and blank lines, then appends the rest inside
+# a "# DOGANY-PACK:pack_health:BEGIN/END" marker pair; --upgrade replaces the
+# block. Readers: knowledge_selftest.sh G3 and dogany-memory-search.
+# The value must equal pack-manifest.json knowledge_warehouse and name the
+# shipped directory payload/knowledge/<value>/.
+KNOWLEDGE_WAREHOUSE=kimwog

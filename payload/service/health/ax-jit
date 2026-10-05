@@ -1,0 +1,167 @@
+#!/usr/bin/env python3
+# ax-jit -- AX JIT gate CLI (DGN-782 J1-J4, pack payload).
+#
+# The tool-level forcing-point: projection off an unregistered/incomplete
+# machine is BLOCKED, the needed fields are asked, stored to the registry, and
+# auto-reused thereafter. Absorbs the interim rx-calc F17 forcing-point
+# (needs_lattice) at the primitive DB layer.
+#
+# Subcommands:
+#   probe --machine <ulid> --load-type <machine|cable|freeweight|bodyweight>
+#         [--db PATH] [--json]
+#       J1/J2: check whether a machine is projectable. Exit 0 = ok; exit 2 =
+#       blocked (needs-fields JSON on stdout). This is the gate a projection
+#       tool consults before prescribing.
+#   register-machine --label <L> [--gym <place_id>] [--brand B]
+#         [--loading-method M] [--loading-side S] [--smith-type T]
+#         [--cable-lines C] [--available-plates JSON] [--lattice-base F]
+#         [--lattice-step F] [--db PATH] [--json]
+#       J3/J4: find-first upsert a machine into ax_machine (auto-reuse on
+#       repeat). provisional is auto-set from completeness.
+#   register-tag --group <G> --value <V> [--note N] [--db PATH] [--json]
+#       J4: register an open-tag (grip/muscle/injury/equipment/...) on first
+#       sight. find-first upsert.
+#
+# Exit codes: 0 = ok / registered; 1 = error; 2 = probe blocked (needs-fields).
+#
+# stdlib only.
+
+import os
+import sys
+import json
+import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ax_engine as AX
+
+
+def cmd_probe(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=True)
+    try:
+        gate = AX.jit_probe(conn, args.machine, args.load_type)
+    finally:
+        conn.close()
+    if gate.get("ok"):
+        if args.json:
+            print(json.dumps(gate, ensure_ascii=True))
+        else:
+            print("OK machine=%s%s" % (
+                gate.get("machine_ref"),
+                " (was_provisional)" if gate.get("was_provisional") else ""))
+        return 0
+    # blocked: needs-fields on stdout, exit 2
+    print(json.dumps(gate, ensure_ascii=True))
+    print("[ax-jit] BLOCKED %s machine=%s needs=%s" % (
+        gate.get("reason"), gate.get("machine_ref"), gate.get("needs")),
+        file=sys.stderr)
+    return 2
+
+
+def _plates(v):
+    if v is None:
+        return None
+    try:
+        parsed = json.loads(v)
+        if not isinstance(parsed, list):
+            raise ValueError
+        return json.dumps(parsed)
+    except Exception:
+        raise SystemExit("[ax-jit] ERROR: --available-plates must be a JSON "
+                         "array, got: %s" % v)
+
+
+def cmd_register_machine(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=False)
+    fields = {
+        "label": args.label,
+        "gym_id": int(args.gym) if args.gym is not None else None,
+        "brand": args.brand,
+        "loading_method": args.loading_method,
+        "loading_side": args.loading_side,
+        "smith_type": args.smith_type,
+        "cable_lines": args.cable_lines,
+        "available_plates": _plates(args.available_plates),
+        "lattice_base": float(args.lattice_base) if args.lattice_base else None,
+        "lattice_step": float(args.lattice_step) if args.lattice_step else None,
+    }
+    try:
+        ulid = AX.jit_register_machine(conn, fields)
+    except (ValueError, FileNotFoundError) as e:
+        print("[ax-jit] ERROR: %s" % e, file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps({"machine_ref": ulid}, ensure_ascii=True))
+    else:
+        print("REGISTERED_MACHINE %s label=%s" % (ulid, args.label))
+    return 0
+
+
+def cmd_register_tag(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=False)
+    try:
+        ulid = AX.jit_register_tag(conn, args.group, args.value, args.note)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps({"tag_ref": ulid}, ensure_ascii=True))
+    else:
+        print("REGISTERED_TAG %s group=%s value=%s" % (
+            ulid, args.group, args.value))
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="ax-jit",
+                                description="AX JIT gate (J1-J4).")
+    sub = p.add_subparsers(dest="cmd")
+
+    pb = sub.add_parser("probe", help="check machine projectability")
+    pb.add_argument("--machine", default=None, help="ax_machine ulid")
+    pb.add_argument("--load-type", required=True,
+                    choices=["machine", "cable", "freeweight", "bodyweight"])
+    pb.add_argument("--db", default=None)
+    pb.add_argument("--json", action="store_true")
+    pb.set_defaults(fn=cmd_probe)
+
+    pm = sub.add_parser("register-machine", help="find-first upsert a machine")
+    pm.add_argument("--label", required=True)
+    pm.add_argument("--gym", default=None, help="place.id (gym scope)")
+    pm.add_argument("--brand", default=None)
+    pm.add_argument("--loading-method", default=None)
+    pm.add_argument("--loading-side", default=None,
+                    choices=["single", "per_side", "stack", None])
+    pm.add_argument("--smith-type", default=None,
+                    choices=["vertical", "angled", None])
+    pm.add_argument("--cable-lines", default=None,
+                    choices=["single", "dual", None])
+    pm.add_argument("--available-plates", default=None,
+                    help="JSON array of plate kg")
+    pm.add_argument("--lattice-base", default=None)
+    pm.add_argument("--lattice-step", default=None)
+    pm.add_argument("--db", default=None)
+    pm.add_argument("--json", action="store_true")
+    pm.set_defaults(fn=cmd_register_machine)
+
+    pt = sub.add_parser("register-tag", help="register an open tag")
+    pt.add_argument("--group", required=True,
+                    help="tag_group (grip|muscle|injury|equipment|...)")
+    pt.add_argument("--value", required=True)
+    pt.add_argument("--note", default=None)
+    pt.add_argument("--db", default=None)
+    pt.add_argument("--json", action="store_true")
+    pt.set_defaults(fn=cmd_register_tag)
+
+    args = p.parse_args(argv)
+    if not getattr(args, "fn", None):
+        p.print_help()
+        return 1
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

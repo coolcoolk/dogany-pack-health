@@ -1,0 +1,78 @@
+{
+  "version": 1,
+  "_ruling": "owner 2026-09-30: prescribe from e1RM when an exercise has enough observed data; otherwise keep the last-load progression exactly. Replaces the 2026-07-28 display-only exclusion.",
+  "sufficiency": {
+    "min_sessions": 3,
+    "_why": "owner ruling: >= 3 distinct sessions with a working set carrying weight+reps. One or two sessions is a point, not a trend."
+  },
+  "estimate": {
+    "window_sessions": 3,
+    "statistic": "median",
+    "_why": "median of the last 3 session top-set e1RMs. Best-of would chase one lucky/mis-logged session upward (the unsafe direction); a plain mean is dragged by one bad day. Median of 3 ignores one outlier either way and still moves within ~2 sessions of a real change."
+  },
+  "condition": {
+    "flag_column": "session_condition",
+    "flag_excluded": [
+      "bad_condition",
+      "early_stop",
+      "pain_stop"
+    ],
+    "note_keywords": [
+      "컨디션 저조",
+      "컨디션 난조",
+      "컨디션 안 좋",
+      "컨디션 나쁨",
+      "조기종료"
+    ],
+    "treatment": "raise_only",
+    "_why": "owner ruling 2026-09-30 13:28: a session run in bad condition or cut short must not drag the estimate. ONE predicate (e1rm_rx.session_exclusion) reads it. flag_column is the structured kit column (not in the kit yet): when the column exists and the row carries a value, that value decides alone (excluded iff in flag_excluded) and the note is not read. When the column is missing or NULL, workouts.note is matched against note_keywords (whitespace-insensitive, so '조기 종료' = '조기종료'). On the owner's history this excludes 2026-07-23, 08-11, 08-20, 08-21 (조기종료) and 09-01 (컨디션 저조). An excluded session counts neither toward sufficiency nor in the window's statistic. treatment raise_only (pack review 2026-09-30): the ruling's intent is 'a bad day must not DRAG the estimate', so an excluded session inside the window span is a lower bound -- it may raise the estimate, never lower it. Measured: 'drop' removed rdl 2026-08-21 (early stop AFTER rdl's 4 sets were done, e1RM 146.7) and pushed rdl to 100x9, below the 105 it already had. 'drop' restores plain exclusion."
+  },
+  "censor": {
+    "ceiling": "range_top",
+    "treatment": "raise_only",
+    "_why": "owner ruling 2026-09-30 13:28: many past sets stopped at the rep ceiling the old coach prescribed at a load he set too low -- the reps were capped, so the e1RM is a LOWER BOUND (capacity >= it), not a measurement. A session whose top set reached rep_range top is 'censored'. It COUNTS toward the 3-session sufficiency (it did prove the lift) and stays in the window, but treatment raise_only runs the statistic over the measured (uncensored) points only and then takes the max with the censored values: a lower bound above the measurements raises the estimate (the capacity is at least that), one below them is dropped (it says nothing). Censored points only -> the highest of them. This keeps the median's protection against one lucky MEASURED day (which can overstate) while letting a lower bound -- which cannot overstate unless mislogged -- lift a lagging estimate. 'none' restores the plain 7dbaff1 statistic. The rep-reserve the owner logged at the ceiling is already inside the e1RM (reps+RIR); censoring adds the fact that the reps themselves were cut off."
+  },
+  "remeasure": {
+    "enabled": true,
+    "cutover": "2026-09-30",
+    "rir": [
+      1,
+      2
+    ],
+    "same_session": true,
+    "_why": "owner ruling 2026-09-30 13:28: the first session a lift is prescribed on the e1RM basis, its FIRST working set is a check set -- the load back-solved from the filtered estimate, open reps, stop when rir (1-2) reps remain. Its e1RM becomes the lift's ANCHOR and supersedes the older history from then on: the estimate is then the anchor set plus the trusted sessions after it (same window/statistic/censoring). 'Already re-measured' is DERIVED, no schema change: the anchor is the first TRUSTED session dated >= cutover that had >= sufficiency.min_sessions trusted sessions before it -- from the cutover on, exactly those sessions were prescribed with measure=true, so that session's first working set IS the check set. An anchor session later marked bad/early-stop is not trusted, so the next session re-measures. same_session: once today's check set is logged, the rest of today's sets are prescribed from it (the open session becomes today's anchor) instead of from the pre-measure estimate. RELEASE NOTE: cutover must be the date this rule reaches the owner's install -- a session before that ran on the old coach and would otherwise be read as the check set."
+  },
+  "formula": {
+    "with_rir": "epley_rir",
+    "without_rir": "epley_reps",
+    "_why": "epley_rir: w*(1+(reps+rir)/30). epley_reps: w*(1+reps/30) -- Epley on the reps actually done. Numerically equal to rir=0 but it does NOT claim the set went to failure: it is a lower bound (the set proved at least that many reps), and no default RIR is ever imputed. Each estimate carries rir_known so a reader can see how many window sessions were lower bounds."
+  },
+  "backsolve": {
+    "reps": "range_bottom",
+    "rir": "band_high",
+    "rir_default": 2,
+    "_why": "working load = e1rm / (1 + (T+R)/30) with T = rep_range BOTTOM (the heaviest load the range allows) and R = the HIGH end of the slot's target-RIR band (rir_floor already applied, G19), then target reps are recomputed at the rounded load and clamped to the range. Measured on the owner's history (24 lifts with >= 3 sessions, 2026-09-30): range TOP + band low put 17/24 prescriptions BELOW the load the owner had just lifted -- the 'working load set low' failure this ruling removes; range bottom + band high lands 12 below / 6 equal / 6 above. The extra reserve of band_high absorbs Epley's high-rep overestimate while staying inside the declared band. rir_default only when the slot has no band."
+  },
+  "rounding": {
+    "mode": "nearest",
+    "_why": "same snap the engine already uses (lattice nearest, ties up; no lattice -> nearest multiple of the slot's increment). The target reps are then recomputed AT the rounded load, so rounding up lowers the rep target; if the rounded load leaves fewer than rep_range bottom reps it steps down one increment."
+  },
+  "ramp": {
+    "pct_of_e1rm": [
+      0.4,
+      0.55,
+      0.7
+    ],
+    "barbell_step_kg": 5.0,
+    "max_frac_of_working": 0.9,
+    "_why": "warm-up rungs as % of e1RM instead of % of the (possibly low) working load. Rungs at or above the working load are dropped by the existing ceiling gate. Barbell rungs round to 5 kg total (one 2.5 kg plate per side) before the declared grid snap, so no micro-plate rung. A rung above max_frac_of_working of today's working load is dropped too: on the owner's v_squat (e1RM 162.5, working 120) the 70% rung is 115 = 96% of the working set -- a second working set, not a warm-up."
+  },
+  "insufficient": {
+    "up_reps": "range_bottom",
+    "_why": "the load path is unchanged; the only change is that the session right after a load increase targets the rep_range bottom instead of the top (double-progression reset), so reps move down when the load moves up."
+  },
+  "machine": {
+    "enabled": true,
+    "_why": "ticket 2026-09-30 per-machine cable lattice (kit 062): two cable machines with different pin stacks must not share one e1RM. When the lift's machine is CONFIRMED (picked this session, or the machine of the newest logged set; a static ax_exercise binding is not a confirmation) the estimate, the progression base and the miss streak read only the sets logged on that machine (workout_sets.machine_ref). Unattributed history (machine_ref NULL) is never assigned to a machine. The first trusted session on a machine is its anchor (its first working set was the check set). A machine with no trusted session CALIBRATES: today's first working set is a check set (rx_basis.measure) starting from the pooled history as a labelled seed (rx_basis.machine.state=calibrate). Histories are not merged; a merge rule would be a data rule added here, never asked. false restores the pooled estimate."
+  }
+}

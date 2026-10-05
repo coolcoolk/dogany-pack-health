@@ -1,0 +1,55 @@
+#!/usr/bin/env python3
+# machine-pick -- hold THIS session's machine for one exercise (kit 062).
+#
+# The tap behind exercise-enter's MACHINE_OPTION / MACHINE_OTHER lines: the
+# owner answers "어느 케이블이에요?" with one button, and every set of that
+# exercise in this session then carries workout_sets.machine_ref (set-add fills
+# it from this choice). `--new LABEL` registers a machine the owner just named
+# through the kit's own machine-register (find-first on the label: the same
+# name at the same gym is the same machine). Nothing is seeded; a machine
+# exists because the owner named it.
+#
+# Usage:
+#   machine-pick <session_id> <exercise_name> <machine_ulid> [--db PATH]
+#   machine-pick <session_id> <exercise_name> --new "<label>" [--gym ID] [--db PATH]
+#
+# stdout: MACHINE_PICK exercise=<e> machine=<ulid> kind=PICK|SAME|NEW
+# Exit: 0 ok, 1 error (nothing held).
+import argparse
+import os
+import sys
+
+sys.dont_write_bytecode = True
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import machine_capture as MC                                     # noqa: E402
+
+DEFAULT_DB = os.path.join(HERE, "..", "..", "database", "kit_life.db")
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="machine-pick")
+    p.add_argument("session_id", type=int)
+    p.add_argument("exercise_name")
+    p.add_argument("machine", nargs="?")
+    p.add_argument("--new", dest="new_label")
+    p.add_argument("--gym", type=int)
+    p.add_argument("--db", default=DEFAULT_DB)
+    a = p.parse_args(argv)
+    if bool(a.machine) == bool(a.new_label):
+        print("ERROR: give a machine ulid OR --new LABEL", file=sys.stderr)
+        return 1
+    try:
+        kind, ulid = MC.pick(os.path.abspath(a.db), a.session_id,
+                             a.exercise_name, ulid=a.machine,
+                             new_label=a.new_label, gym=a.gym)
+    except Exception as e:  # noqa: BLE001
+        print("ERROR: machine-pick: %s" % e, file=sys.stderr)
+        return 1
+    print("MACHINE_PICK exercise=%s machine=%s kind=%s"
+          % (a.exercise_name, ulid, kind))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

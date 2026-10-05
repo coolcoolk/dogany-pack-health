@@ -1,0 +1,1952 @@
+#!/usr/bin/env python3
+# program-init -- the DETERMINISTIC CARRIER for the owner's program card.
+#
+# THE WALL THIS REMOVES (measured on a fresh mint, 2026-09-13 and again
+# 2026-09-14). The owner says "운동 시작" on a finished install and gets:
+#
+#     ERROR: program.yaml not found: .../files/program/program.yaml
+#     session-ensure: session-open exit=1 (task gate continues)
+#     CREATED	1	헬스
+#
+# and one step past it, with a program card in place:
+#
+#     ERROR: unknown session_type code '가A' (valid: )
+#
+# Both halves were the SAME hole. `files/program/program.yaml` had no template
+# and no creator anywhere in the tree -- the only copy shipped was
+# tests/fixtures/program.yaml, whose own header says "Not anyone's training."
+# `session_type` had no production writer: only test fixtures inserted rows, so
+# the birth tag failed and every card afterwards carried
+#     SESSION_UNTAGGED ... the split shown was INFERRED, not read
+# The rotation codes ARE program.yaml's `rotation:` list. A design that produces
+# the file but leaves the table to some other hand has not removed the wall, it
+# has moved it one step right. So ONE path produces both, and the DB write is a
+# side effect of the file write, not a second errand.
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS IS NOT: a default program (D1 -- the user owns Why)
+# ---------------------------------------------------------------------------
+# There is no shipped 5x5 here and there never will be. Every training decision
+# in the output -- which days exist, what they are called, which lifts, how many
+# sets, what rep range, what weight -- comes from the owner's answers and from
+# nowhere else. This file owns the PATH those answers travel and the GUARANTEE
+# that the path completes; it does not own their content. The one thing it adds
+# on its own is equipment MECHANICS already declared by the pack's own shipped
+# taxonomy (which lattice a barbell is on), and every such derivation is
+# announced in the written file and overridable by an explicit answer.
+#
+# ---------------------------------------------------------------------------
+# WHY A CLI AND NOT A SENTENCE IN A SKILL (D2 -- mechanism > discretion)
+# ---------------------------------------------------------------------------
+# workout-program/SKILL.md already said "Generate files/program/program.yaml per
+# the program.yaml spec below" and had said it for as long as the pack existed.
+# On a fresh mint the file was still absent. A model that is ASKED to write a
+# file at the end of an interview sometimes does not, and nothing notices --
+# which is the failure mode of every one of the nine gaps the 2026-09-12 audit
+# found. The repair is the D2 enforcement ladder, rung 1: tool-enforced
+# semantics.
+#
+#   * the model never writes program.yaml. It ANSWERS; this file writes.
+#   * the write is not a step the interview can skip: it FIRES AS THE SIDE
+#     EFFECT of the last required answer landing (`answer` -> WROTE + SYNCED).
+#     There is no "and then write it" instruction left to forget.
+#   * a partial interview produces NO FILE AT ALL. Never a half-program that
+#     session-open would happily open and prescribe from.
+#   * what is still missing is a QUERY, not a memory: `next` says what to ask,
+#     `check` says whether the install is finished, and both are read by the
+#     install lane and by session-open's banner.
+#
+# ---------------------------------------------------------------------------
+# THE LANE SEAM, NAMED (D10 -- assign each step a lane at design time)
+# ---------------------------------------------------------------------------
+#   LLM lane   -- asking the owner, in his language, one question at a time;
+#                 hearing "펜들레이 로우 60키로 3세트" and turning it into
+#                 {name, display, weight_kg, sets}; judging the G19 RIR roster
+#                 (whose single home is workout-program/SKILL.md, not here).
+#   RULE lane  -- the SCHEMA those answers must satisfy (`schema`); WHICH
+#                 question is outstanding (`next`, a state machine over a draft
+#                 file, not the model's recollection); validation (`answer`
+#                 refuses and names the field); the equipment derivations;
+#                 the WRITE; the session_type derivation; the verdict (`check`).
+#   The seam   -- `answer`. Everything upstream of it is judgment, everything
+#                 downstream of it is arithmetic, and it is a typed boundary
+#                 that either accepts a well-formed answer or refuses it by
+#                 name. Per D10's test: "same input -> same required output?"
+#                 is NO for the interview (that is why it stays LLM) and YES for
+#                 everything after the answer document exists (that is why none
+#                 of it is left in prose).
+#   Verify rung-- one derivation is judgment the rule lane must NOT make: the
+#                 G19 RIR floor. So the rule lane does not compute it; it
+#                 CHECKS COVERAGE and names every slot in the G19 target class
+#                 that carries no floor (W-G19-UNSET). Rule outputs stay
+#                 value|gate|verify; a claim about the owner's training stays
+#                 in the LLM lane with provenance.
+#
+# ---------------------------------------------------------------------------
+# THE WRITE IS ROUND-TRIPPED, NOT ASSUMED
+# ---------------------------------------------------------------------------
+# program.yaml is read by a HAND-ROLLED parser (rx-calc.load_yaml) -- not PyYAML
+# -- so "we emitted a dict" is not evidence the engine will read that dict back.
+# Every write goes: render -> write to a temp file -> load it back THROUGH
+# rx-calc's own loader -> compare the reloaded structure against the intended
+# one -> only then os.replace() into place. A mismatch is E-ROUNDTRIP and the
+# live file is never touched. This is what makes "fails loudly at write time
+# rather than at session-open time" true rather than hoped.
+#
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+#   program-init schema  [--json]        the answer contract, machine-readable
+#   program-init status  [--json]        where this instance is
+#   program-init next    [--json]        the next outstanding stage, or done
+#   program-init answer  --stage <s> --json <inline|@file|->
+#                                        validate + record; the LAST required
+#                                        stage also WRITES and SYNCS
+#   program-init write   --answers <@file|-|inline>
+#                                        one-shot: a whole answer document
+#   program-init sync    [--dry-run]     derive routine + session_type rows
+#                                        + the us_step rows serve resolves
+#   program-init validate [--program P]  validate an existing card
+#   program-init check                   verdict for the install lane
+#   program-init reset                   discard the draft (never the card)
+#
+#   common: --db PATH --program PATH --draft PATH --force
+#
+# Exit codes (shared by every subcommand):
+#   0  ok / complete
+#   1  usage or environment error (unreadable DB, bad argument)
+#   2  REFUSED -- the answer or the card is invalid; every error is named
+#   3  UNMET -- nothing is wrong, the work has not been done yet (`check`,
+#      `next` with an outstanding stage). Mirrors health_taxonomy_seed.py
+#      --check, which the install lane already speaks.
+#   4  the card was written but the DB derivation failed. The card is real and
+#      valid; session_type is not. Reported, never swallowed.
+#
+# stdout is machine-parseable TAB lines; prose goes to stderr.
+# stdlib only. ASCII source except where a user-visible Korean literal is
+# unavoidable (the makeup code, which comes from the kit's own vocabulary).
+
+import argparse
+import json
+import os
+import re
+import sqlite3
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+DEFAULT_DRAFT = os.path.join(DATA_DIR, ".program-draft.json")
+DEFAULT_DB = os.path.join(PROJECT_ROOT, "database", "kit_life.db")
+
+# The makeup session class. Not a rotation day and never derived from one --
+# session-open resolves this exact code when it tags a makeup session, so the
+# row has to exist or a makeup session is born untagged for the same reason a
+# regular one used to be. Kept in step with session-open.MAKEUP_CODE.
+MAKEUP_CODE = "보충"            # 보충
+# rotation-current and rx-calc._makeup_type_ids both read the rotation cycle as
+# "session_type rows with sort < 99". 99 is therefore the OUT-OF-CYCLE sort, and
+# the makeup row takes it.
+MAKEUP_SORT = 99
+
+EXIT_OK, EXIT_ERR, EXIT_REFUSED, EXIT_UNMET, EXIT_PARTIAL = 0, 1, 2, 3, 4
+
+# ---------------------------------------------------------------------------
+# the answer contract
+# ---------------------------------------------------------------------------
+# Kept as data, not prose, because `schema` serves it to the interviewing model
+# verbatim -- the contract the LLM lane reads and the contract the rule lane
+# enforces are the same object, so they cannot drift into two rules for one
+# fact.
+STAGE_ROTATION = "rotation"
+DAY_STAGE_PREFIX = "day:"
+
+PROGRESSIONS = ("double", "linear", "hold")
+# What a slot's rep_range counts (A1, 2026-09-30). Stamped on EVERY slot so the
+# hold class is read from structure (rx-calc _is_isometric_hold), never from a
+# null weight: the progression base now follows the last logged load, and a
+# hold that once got a logged weight must stay a hold.
+REP_UNITS = ("reps", "sec")
+# exercise_movement_grip.movement values whose work is SECONDS of hold.
+# Mirrors rx-calc / ax_engine / exercise_catalog HOLD_MOVEMENTS
+# (test-hold-class holds them equal).
+HOLD_MOVEMENTS = ("plank", "wall_sit")
+LATTICE_TYPES = ("standard", "even", "stack")
+ROLES = ("main", "accessory")
+
+# A rotation code becomes a YAML mapping key read by a hand-rolled parser and a
+# session_type.code read back by three CLIs. Refuse anything that would make
+# either ambiguous. Length 1..16; no whitespace and none of the YAML flow /
+# comment punctuation the parser splits on.
+ROTATION_CODE_BAD = re.compile(r"[\s:#\{\}\[\],'\"]")
+EXERCISE_NAME_RE = re.compile(r"^[a-z][a-z0-9_]{1,63}$")
+# The focus-area starter vocabulary (the menu offered to the owner). An area
+# is expanded into muscles by the kit's muscle TREE (kit 063 muscle-focus,
+# mirrored in rx-calc _resolve_area) -- there is no code dict any more. Kept as
+# a literal here only so `schema` can print it without a DB; test-program-plan
+# P8 pins it equal to program-plan's menu and checks every area resolves in
+# the seeded tree.
+FOCUS_AREA_VOCAB = ("shoulders", "chest", "back", "arms", "legs", "calves",
+                    "abs", "glutes")
+# What every session carries beyond the lifts (owner rehearsal 2026-09-26,
+# functional direction): program-plan's CARE_ITEMS keys and when each one
+# runs. Written onto the card so session-open reads it at every session start
+# (the plan state alone dies with the first build). `sites` are the safety
+# ledger's own keys (injury_<site>[_l|_r]) -- the joint prep includes them.
+CARE_KEYS = ("joint_prep", "cooldown_stretch", "bracing_cue", "body_signal")
+CARE_WHEN = ("before", "after", "heavy_sets", "anytime")
+CARE_SITE_RE = re.compile(r"^injury_[a-z][a-z_]{0,40}$")
+CARE_FIELDS = ("key", "when", "minutes", "sites")
+
+ANSWER_SCHEMA = {
+    "stages": [
+        {
+            "stage": STAGE_ROTATION,
+            "asks": "the split itself: which training days the owner's week "
+                    "rotates through, in the order he runs them, in HIS "
+                    "naming. Do not propose codes; record the ones he uses.",
+            "payload": {
+                "rotation": "list[str], required, >=1, unique, in rotation "
+                            "order. These become the session_type rows. "
+                            "'%s' is reserved (the makeup class) and is "
+                            "refused here." % MAKEUP_CODE,
+                "weekly_frequency": "int, optional -- sessions per week. "
+                                    "Defaults to len(rotation).",
+                "routine_name": "str, optional -- what the owner calls this "
+                                "program. Defaults to a name derived from the "
+                                "rotation codes.",
+                "time_plan": "object, optional -- settled time decision; "
+                             "lift_minutes maps MON..SUN to lift-only budgets. "
+                             "A shrink decision applies only at session birth.",
+                "focus_areas": "list[str], optional -- the body areas the "
+                               "owner chose to give extra work (starter "
+                               "vocabulary: %s). Written onto the card "
+                               "itself: since the round-2 goal interview "
+                               "there is no long-goal row to hang them on, "
+                               "and rx-calc reads them from here first."
+                               % ", ".join(FOCUS_AREA_VOCAB),
+                "care": "list[obj], optional -- what every session carries "
+                        "beyond the lifts: {key: %s, when: %s, minutes?: "
+                        "int 1..30, sites?: [injury_<site>[_l|_r]]}. Read by "
+                        "session-open at every session start."
+                        % ("|".join(CARE_KEYS), "|".join(CARE_WHEN)),
+            },
+        },
+        {
+            "stage": DAY_STAGE_PREFIX + "<code>",
+            "asks": "one stage PER rotation code: the lifts he actually does "
+                    "on that day, in the order he does them, with the weight "
+                    "he actually lifts (or null if it has to be calibrated).",
+            "payload": {
+                "exercises": "list[obj], required, >=1, in performance order",
+            },
+            "exercise": {
+                "name": "str, required -- the canonical snake_case slug "
+                        "(^[a-z][a-z0-9_]{1,63}$). Prefer a name the pack's "
+                        "shipped taxonomy already knows; an unknown name is "
+                        "ACCEPTED (it may be the owner's own lift) but is "
+                        "reported as W-UNKNOWN-EXERCISE with what goes dark.",
+                "display": "str, optional -- the Korean name the owner uses. "
+                           "Defaults to `name`, reported as W-NO-DISPLAY.",
+                "weight_kg": "number|null, required KEY (null = calibration "
+                             "pending, which is the normal first answer).",
+                "sets": "int, required, 1..20",
+                "rep_range": "[int, int], required, low<=high, 1..300. For a "
+                             "hold lift these are SECONDS.",
+                "progression": "str, optional -- double|linear|hold. Derived "
+                               "from the taxonomy's `measure` when omitted.",
+                "role": "str, optional -- main|accessory. Derived from the "
+                        "taxonomy's movement class when omitted.",
+                "lattice": "obj, optional -- {type, base, step}. Derived from "
+                           "the taxonomy's equipment class when omitted (and "
+                           "then written with derived: true, so rx-calc reads "
+                           "it as the class grid, below a machine's own); see "
+                           "LATTICE_BY_EQUIPMENT in this file for what is and "
+                           "is not derivable.",
+                "rir_floor": "int, optional, 0..5 -- the G19 compound-freeweight "
+                             "RIR floor. NOT derived here: G19's roster has one "
+                             "home, workout-program/SKILL.md, and a second copy "
+                             "in code would be a second home. This tool CHECKS "
+                             "that every G19-class slot carries one and names "
+                             "the misses (W-G19-UNSET).",
+                "rest_sec": "int, optional, 10..600 -- per-slot override. Omit "
+                            "and rx-calc's rest model decides.",
+                "safety_note": "str, optional -- an active ledger_constraint "
+                               "class='safety' substitution, per slot.",
+                "loading": "str, optional -- per_side|total|stack. The owner's "
+                           "marking that this is a discrete-load machine; it is "
+                           "what arms rx-calc's needs_lattice JIT ask.",
+                "priority": "int, optional -- ascends with slot order. Derived "
+                            "as (slot * 10) when omitted; rx-calc orders the "
+                            "day by this, not by file order.",
+            },
+        },
+    ],
+}
+
+# Equipment class -> the lattice the pack can honestly derive.
+#
+# THE DIVIDING LINE IS "is this a fact about the CLASS of equipment, or about
+# ONE GYM'S ONE MACHINE". The first is shipped taxonomy and is derived here; the
+# second is measured at the machine by the F17 JIT lane that already exists
+# (rx-calc.needs_lattice -> workout-session/reference/lattice-jit.md ->
+# service/health/lattice-set), and this tool does not pre-empt it with a guess.
+#
+#   barbell            an Olympic bar is 20kg everywhere and plates come in
+#                      2.5kg pairs -> the full standard grid, floor = the empty
+#                      bar. This is also the one class the PLATE CUE runs on.
+#   ez_bar / t_bar     the 2.5kg plate grid is the same, but the BAR's own
+#                      weight is not universal (EZ bars run 7-12kg) -> type
+#                      only, no base. snap_to_lattice then floors at 0.0, which
+#                      under-constrains rather than lying about the floor.
+#   dumbbell           fixed bells are even-kg -> `even`, whose own defaults
+#                      (base 0.0 / step 2.0) are exactly the class fact. This
+#                      entry is also what keeps the #39-B pair fixed: `even` is
+#                      a NON_PLATE_LATTICE_TYPE, so a dumbbell press never gets
+#                      a "바 20kg + 양쪽 4kg" cue even though ax_exercise
+#                      correctly calls it compound+freeweight.
+#   bodyweight_assist  an assist stack: type known, grid measured at the machine.
+#   machine / cable /  base+step ARE the specific machine. snap_to_lattice
+#   smith / v_squat    refuses to guess a malformed stack ("do not guess") and
+#                      needs_lattice raises the JIT ask once the owner marks
+#                      `loading`. Emitting a made-up base here would silence
+#                      both.
+LATTICE_BY_EQUIPMENT = {
+    "barbell":           {"type": "standard", "base": 20.0, "step": 2.5},
+    "ez_bar":            {"type": "standard", "step": 2.5},
+    "t_bar":             {"type": "standard", "step": 2.5},
+    "dumbbell":          {"type": "even"},
+    "bodyweight_assist": {"type": "stack"},
+    "machine":           {"type": "stack"},
+    "cable":             {"type": "stack"},
+    "smith_machine":     {"type": "stack"},
+    "v_squat_machine":   {"type": "stack"},
+}
+
+# G19 target class, condition 2: "프리웨이트(바벨·덤벨·자기체중)라 궤적을
+# 리프터가 직접 안정화한다. 스택 머신/케이블 제외." Condition 1 is "pattern is
+# not isolation/core". Condition 3 (the torso is not braced by the equipment) is
+# NOT machine-readable from any shipped table, which is exactly why this tool
+# WARNS instead of deciding -- see rir_floor in the schema above.
+G19_FREEWEIGHT_EQUIPMENT = ("barbell", "dumbbell", "ez_bar", "t_bar",
+                            "bodyweight_assist")
+G19_EXEMPT_PATTERNS = ("isolation", "core")
+
+
+# ---------------------------------------------------------------------------
+# taxonomy facts -- the only thing this tool reads out of the DB to derive with
+# ---------------------------------------------------------------------------
+def taxonomy_facts(db_path):
+    """{exercise_name: {equipment, pattern, movement, measure, load_type}} for
+    every lift the pack's shipped taxonomy knows on THIS db.
+
+    Read-only and best-effort: an unseeded or unreadable DB returns {}, which
+    turns every derivation off and reports it (W-NO-TAXONOMY) rather than
+    guessing. The card is still written -- a missing seed must not be able to
+    hold the owner's program hostage."""
+    facts = {}
+    try:
+        conn = sqlite3.connect(
+            "file:%s?mode=ro" % os.path.abspath(db_path), uri=True)
+    except sqlite3.Error:
+        return facts
+    try:
+        for table, cols, keys in (
+                ("exercise_movement_grip",
+                 "exercise_name, equipment, movement",
+                 ("equipment", "grip_movement")),
+                ("exercise_pattern", "exercise_name, pattern", ("pattern",)),
+                ("ax_exercise",
+                 "exercise_name, movement, measure, load_type",
+                 ("movement", "measure", "load_type"))):
+            try:
+                sql = "SELECT %s FROM %s" % (cols, table)
+                if table == "ax_exercise":
+                    sql += " WHERE status='active'"
+                for row in conn.execute(sql).fetchall():
+                    ent = facts.setdefault(row[0], {})
+                    for i, k in enumerate(keys):
+                        if ent.get(k) is None:
+                            ent[k] = row[i + 1]
+            except sqlite3.Error:
+                continue
+    finally:
+        conn.close()
+    return facts
+
+
+# ---------------------------------------------------------------------------
+# validation -- every refusal is a NAMED code with a path
+# ---------------------------------------------------------------------------
+class Finding(object):
+    __slots__ = ("code", "path", "msg")
+
+    def __init__(self, code, path, msg):
+        self.code, self.path, self.msg = code, path, msg
+
+    def line(self):
+        return "%s\t%s\t%s" % (self.code, self.path, self.msg)
+
+
+def _is_num(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool)
+
+
+def _is_int(v):
+    return isinstance(v, int) and not isinstance(v, bool)
+
+
+def validate_rotation(doc, errs):
+    rot = doc.get("rotation")
+    if rot is None:
+        errs.append(Finding("E-ROTATION-MISSING", "rotation",
+                            "no `rotation` -- the split codes are the whole "
+                            "answer to stage 1 and every session_type row is "
+                            "derived from them"))
+        return []
+    if not isinstance(rot, list) or not rot:
+        errs.append(Finding("E-ROTATION-EMPTY", "rotation",
+                            "`rotation` must be a non-empty list of codes, in "
+                            "the order the owner runs them"))
+        return []
+    seen, clean = set(), []
+    for i, code in enumerate(rot):
+        p = "rotation[%d]" % i
+        if not isinstance(code, str) or not code.strip():
+            errs.append(Finding("E-ROTATION-BADCODE", p,
+                                "a rotation code must be a non-empty string"))
+            continue
+        code = code.strip()
+        if len(code) > 16:
+            errs.append(Finding("E-ROTATION-BADCODE", p,
+                                "%r is longer than 16 characters" % code))
+            continue
+        if ROTATION_CODE_BAD.search(code):
+            errs.append(Finding(
+                "E-ROTATION-BADCODE", p,
+                "%r carries whitespace or YAML punctuation (: # { } [ ] , "
+                "quote). It becomes a YAML mapping key AND a session_type.code; "
+                "either would read it back wrong" % code))
+            continue
+        if code == MAKEUP_CODE:
+            errs.append(Finding(
+                "E-ROTATION-RESERVED", p,
+                "%r is the makeup session CLASS, not a rotation day. It is "
+                "registered automatically at sort %d and must not consume a "
+                "rotation slot -- rx-calc excludes it from the rotation basis "
+                "by exactly that difference" % (MAKEUP_CODE, MAKEUP_SORT)))
+            continue
+        if code in seen:
+            errs.append(Finding("E-ROTATION-DUP", p,
+                                "%r appears twice; session_type is UNIQUE on "
+                                "(routine_id, code)" % code))
+            continue
+        seen.add(code)
+        clean.append(code)
+    wf = doc.get("weekly_frequency")
+    if wf is not None and not (_is_int(wf) and 1 <= wf <= 14):
+        errs.append(Finding("E-FREQUENCY", "weekly_frequency",
+                            "weekly_frequency must be an int 1..14, got %r"
+                            % (wf,)))
+    rn = doc.get("routine_name")
+    if rn is not None and not (isinstance(rn, str) and rn.strip()):
+        errs.append(Finding("E-ROUTINE-NAME", "routine_name",
+                            "routine_name must be a non-empty string"))
+    return clean
+
+
+def validate_exercise(ex, path, errs, warns, facts):
+    if not isinstance(ex, dict):
+        errs.append(Finding("E-EX-SHAPE", path, "an exercise must be an object"))
+        return None
+    name = ex.get("name")
+    if not isinstance(name, str) or not EXERCISE_NAME_RE.match(name or ""):
+        errs.append(Finding(
+            "E-EX-NAME", path + ".name",
+            "name must be the canonical snake_case slug matching %s, got %r"
+            % (EXERCISE_NAME_RE.pattern, name)))
+        return None
+    fact = facts.get(name) or {}
+    if facts and not fact:
+        warns.append(Finding(
+            "W-UNKNOWN-EXERCISE", path + ".name",
+            "%r is in no shipped taxonomy table on this DB. Accepted (it may "
+            "be the owner's own lift), but with no row these are OFF for it "
+            "and will not say so on the card: the muscle line, the fatigue "
+            "cost, the ramp class and the plate cue. Either use the canonical "
+            "slug or register the lift" % name))
+    elif fact and not fact.get("equipment"):
+        warns.append(Finding(
+            "W-NO-EQUIPMENT", path + ".name",
+            "%r has a taxonomy row but no exercise_movement_grip.equipment on "
+            "this DB, so its equipment CLASS is unknown: no lattice is derived "
+            "and the weight is never snapped to a loadable value. Answer "
+            "`lattice` explicitly if this lift is loaded" % name))
+    disp = ex.get("display")
+    if disp is None:
+        warns.append(Finding("W-NO-DISPLAY", path + ".display",
+                             "no Korean display name -- the card will read "
+                             "%r" % name))
+    elif not (isinstance(disp, str) and disp.strip()):
+        errs.append(Finding("E-EX-DISPLAY", path + ".display",
+                            "display must be a non-empty string when present"))
+    if "weight_kg" not in ex:
+        errs.append(Finding(
+            "E-EX-WEIGHT-KEY", path + ".weight_kg",
+            "the weight_kg KEY is required. Use null for 'calibration "
+            "pending' -- omitting it makes 'not asked' and 'asked, unknown' "
+            "the same state, and the second is a real answer"))
+    else:
+        w = ex["weight_kg"]
+        if w is not None and not (_is_num(w) and 0 < w <= 500):
+            errs.append(Finding("E-EX-WEIGHT", path + ".weight_kg",
+                                "weight_kg must be null or a number in "
+                                "(0, 500], got %r" % (w,)))
+    sets = ex.get("sets")
+    if not (_is_int(sets) and 1 <= sets <= 20):
+        errs.append(Finding("E-EX-SETS", path + ".sets",
+                            "sets must be an int 1..20, got %r" % (sets,)))
+    rr = ex.get("rep_range")
+    if not (isinstance(rr, list) and len(rr) == 2 and _is_int(rr[0])
+            and _is_int(rr[1]) and 1 <= rr[0] <= rr[1] <= 300):
+        errs.append(Finding("E-EX-REPRANGE", path + ".rep_range",
+                            "rep_range must be [low, high] ints with "
+                            "1 <= low <= high <= 300, got %r" % (rr,)))
+    unit = ex.get("rep_unit")
+    if unit is not None and unit not in REP_UNITS:
+        errs.append(Finding("E-EX-REPUNIT", path + ".rep_unit",
+                            "rep_unit must be one of %s, got %r"
+                            % ("|".join(REP_UNITS), unit)))
+    prog = ex.get("progression")
+    if prog is not None and prog not in PROGRESSIONS:
+        errs.append(Finding("E-EX-PROGRESSION", path + ".progression",
+                            "progression must be one of %s, got %r"
+                            % ("|".join(PROGRESSIONS), prog)))
+    role = ex.get("role")
+    if role is not None and role not in ROLES:
+        errs.append(Finding("E-EX-ROLE", path + ".role",
+                            "role must be one of %s, got %r"
+                            % ("|".join(ROLES), role)))
+    lat = ex.get("lattice")
+    if lat is not None:
+        if not isinstance(lat, dict):
+            errs.append(Finding("E-EX-LATTICE", path + ".lattice",
+                                "lattice must be an object {type, base, step}"))
+        else:
+            if lat.get("type") not in LATTICE_TYPES:
+                errs.append(Finding("E-EX-LATTICE-TYPE",
+                                    path + ".lattice.type",
+                                    "lattice.type must be one of %s, got %r"
+                                    % ("|".join(LATTICE_TYPES),
+                                       lat.get("type"))))
+            for k in ("base", "step"):
+                v = lat.get(k)
+                if v is not None and not (_is_num(v) and v >= 0):
+                    errs.append(Finding("E-EX-LATTICE-NUM",
+                                        path + ".lattice." + k,
+                                        "lattice.%s must be a number >= 0, "
+                                        "got %r" % (k, v)))
+            if _is_num(lat.get("step")) and lat.get("step") <= 0:
+                errs.append(Finding("E-EX-LATTICE-NUM", path + ".lattice.step",
+                                    "lattice.step must be > 0"))
+            if "derived" in lat and not isinstance(lat["derived"], bool):
+                errs.append(Finding("E-EX-LATTICE-DERIVED",
+                                    path + ".lattice.derived",
+                                    "lattice.derived must be true/false, "
+                                    "got %r" % (lat["derived"],)))
+    rf = ex.get("rir_floor")
+    if rf is not None and not (_is_int(rf) and 0 <= rf <= 5):
+        errs.append(Finding("E-EX-RIRFLOOR", path + ".rir_floor",
+                            "rir_floor must be an int 0..5, got %r" % (rf,)))
+    rs = ex.get("rest_sec")
+    if rs is not None and not (_is_int(rs) and 10 <= rs <= 600):
+        errs.append(Finding("E-EX-RESTSEC", path + ".rest_sec",
+                            "rest_sec must be an int 10..600, got %r" % (rs,)))
+    pr = ex.get("priority")
+    if pr is not None and not _is_int(pr):
+        errs.append(Finding("E-EX-PRIORITY", path + ".priority",
+                            "priority must be an int, got %r" % (pr,)))
+    for k in ("safety_note", "loading"):
+        v = ex.get(k)
+        if v is not None and not (isinstance(v, str) and v.strip()):
+            errs.append(Finding("E-EX-STR", path + "." + k,
+                                "%s must be a non-empty string when present"
+                                % k))
+    # G19 coverage -- a VERIFY output, not a value. See rir_floor in the schema.
+    if rf is None and fact:
+        eq, pat = fact.get("equipment"), fact.get("pattern")
+        if eq in G19_FREEWEIGHT_EQUIPMENT and pat and \
+                pat not in G19_EXEMPT_PATTERNS:
+            warns.append(Finding(
+                "W-G19-UNSET", path + ".rir_floor",
+                "%r is a multi-joint FREEWEIGHT lift (pattern=%s, "
+                "equipment=%s) -- the G19 class. It carries no rir_floor, so "
+                "the RIR 2-3 safety floor is OFF for it. Read the G19 roster "
+                "in workout-program/SKILL.md and answer rir_floor, or record "
+                "why this lift is excluded" % (name, pat, eq)))
+    return name
+
+
+def validate_care(care, errs):
+    """The optional `care` list: known keys once each, a known `when`, whole
+    minutes, safety-ledger site keys. A wrong entry would be read at every
+    session start, so it is refused, not carried."""
+    if care is None:
+        return
+    if not isinstance(care, list):
+        errs.append(Finding("E-CARE-SHAPE", "care",
+                            "`care` must be a list of {key, when, ...}"))
+        return
+    seen = set()
+    for i, it in enumerate(care):
+        p = "care[%d]" % i
+        if not isinstance(it, dict):
+            errs.append(Finding("E-CARE-SHAPE", p, "each care item is an "
+                                "object"))
+            continue
+        extra = sorted(set(it) - set(CARE_FIELDS))
+        if extra:
+            errs.append(Finding("E-CARE-FIELD", p, "unknown field(s) %s"
+                                % ", ".join(extra)))
+        k = it.get("key")
+        if k not in CARE_KEYS:
+            errs.append(Finding("E-CARE-KEY", p + ".key",
+                                "%r is not one of %s" % (k, ", ".join(
+                                    CARE_KEYS))))
+        elif k in seen:
+            errs.append(Finding("E-CARE-DUP", p + ".key", "%r twice" % k))
+        seen.add(k)
+        if it.get("when") not in CARE_WHEN:
+            errs.append(Finding("E-CARE-WHEN", p + ".when",
+                                "%r is not one of %s" % (it.get("when"),
+                                                         ", ".join(CARE_WHEN))))
+        m = it.get("minutes")
+        if m is not None and not (_is_int(m) and 1 <= m <= 30):
+            errs.append(Finding("E-CARE-MINUTES", p + ".minutes",
+                                "minutes must be an int 1..30, got %r" % (m,)))
+        sites = it.get("sites")
+        if sites is not None and not (
+                isinstance(sites, list) and sites and all(
+                    isinstance(x, str) and CARE_SITE_RE.match(x)
+                    for x in sites)):
+            errs.append(Finding("E-CARE-SITES", p + ".sites",
+                                "sites must be a non-empty list of safety "
+                                "keys injury_<site>[_l|_r], got %r"
+                                % (sites,)))
+
+
+def derive_care(care):
+    """The card's `care` list: fields in CARE_FIELDS order, nothing else."""
+    return [{f: it[f] for f in CARE_FIELDS if it.get(f) is not None}
+            for it in care or ()]
+
+
+def validate_answers(doc, facts, require_all_days=True):
+    """(errors, warnings, clean_rotation). Errors REFUSE; warnings are named
+    and carried through."""
+    errs, warns = [], []
+    if not isinstance(doc, dict):
+        errs.append(Finding("E-SHAPE", "<root>",
+                            "the answer document must be a JSON object"))
+        return errs, warns, []
+    rotation = validate_rotation(doc, errs)
+    fa = doc.get("focus_areas")
+    if fa is not None:
+        if not isinstance(fa, list) or not all(
+                isinstance(a, str) and a.strip() for a in fa):
+            errs.append(Finding("E-FOCUS-SHAPE", "focus_areas",
+                                "`focus_areas` must be a list of area names"))
+        else:
+            for i, a in enumerate(fa):
+                if a not in FOCUS_AREA_VOCAB:
+                    errs.append(Finding(
+                        "E-FOCUS-UNKNOWN", "focus_areas[%d]" % i,
+                        "%r is not an area rx-calc can expand into muscles "
+                        "(%s). A free-text area would be carried and never "
+                        "read" % (a, ", ".join(FOCUS_AREA_VOCAB))))
+    validate_care(doc.get("care"), errs)
+    from session_day_trim import validate_time_plan
+    try:
+        validate_time_plan(doc.get("time_plan"))
+    except ValueError as exc:
+        errs.append(Finding("E-TIME-PLAN", "time_plan", str(exc)))
+    days = doc.get("days")
+    if days is None:
+        errs.append(Finding("E-DAYS-MISSING", "days",
+                            "no `days` -- a rotation with no day plans is a "
+                            "split with no training in it"))
+        days = {}
+    elif not isinstance(days, dict):
+        errs.append(Finding("E-DAYS-SHAPE", "days",
+                            "`days` must be an object keyed by rotation code"))
+        days = {}
+    for code in sorted(days.keys()):
+        if rotation and code not in rotation:
+            errs.append(Finding(
+                "E-DAY-UNKNOWN", "days.%s" % code,
+                "%r is not in `rotation`. Every day plan must name a day the "
+                "rotation runs -- otherwise it is never served and nothing "
+                "says so" % code))
+    if require_all_days:
+        for code in rotation:
+            if code not in days:
+                errs.append(Finding(
+                    "E-DAY-MISSING", "days.%s" % code,
+                    "rotation declares %r but no day plan was given for it. "
+                    "session-open would open that day with an empty lineup"
+                    % code))
+    for code in rotation:
+        plan = days.get(code)
+        if plan is None:
+            continue
+        p = "days.%s" % code
+        if not isinstance(plan, dict):
+            errs.append(Finding("E-DAY-SHAPE", p,
+                                "a day plan must be an object with "
+                                "`exercises`"))
+            continue
+        items = plan.get("exercises")
+        if not isinstance(items, list) or not items:
+            errs.append(Finding("E-DAY-EMPTY", p + ".exercises",
+                                "a rotation day must carry at least one "
+                                "exercise"))
+            continue
+        seen = set()
+        for i, ex in enumerate(items):
+            nm = validate_exercise(ex, "%s.exercises[%d]" % (p, i),
+                                   errs, warns, facts)
+            if nm is None:
+                continue
+            if nm in seen:
+                errs.append(Finding(
+                    "E-EX-DUP", "%s.exercises[%d].name" % (p, i),
+                    "%r appears twice on %s. set-arm and set-table resolve a "
+                    "slot BY NAME within the day; two slots with one name is "
+                    "an ambiguous lookup, not a superset" % (nm, code)))
+            seen.add(nm)
+    if not facts:
+        warns.append(Finding(
+            "W-NO-TAXONOMY", "<db>",
+            "the taxonomy tables answered nothing on this DB, so NOTHING was "
+            "derived (lattice, role, progression, and the G19 coverage check "
+            "are all off). Run the install lane "
+            "(routines/bundle/health-install-ensure.sh) and re-write, or "
+            "answer those fields explicitly"))
+    return errs, warns, rotation
+
+
+# ---------------------------------------------------------------------------
+# derivation -- equipment mechanics only, every one of them announced
+# ---------------------------------------------------------------------------
+def derive_slot(ex, index, facts):
+    """(slot_dict, [derivation_note, ...]). The owner's answer always wins;
+    a derivation only fills a key he did not answer."""
+    name = ex["name"]
+    fact = facts.get(name) or {}
+    notes = []
+    out = {}
+    out["slot"] = index + 1
+    out["name"] = name
+    out["display"] = ex.get("display") or name
+    if ex.get("priority") is not None:
+        out["priority"] = ex["priority"]
+    else:
+        out["priority"] = (index + 1) * 10
+        notes.append("priority=slot*10 (ascends with slot order)")
+    role = ex.get("role")
+    if role is None:
+        movement = fact.get("movement")
+        pattern = fact.get("pattern")
+        if movement == "compound":
+            role, why = "main", "ax_exercise.movement=compound"
+        elif movement == "isolation":
+            role, why = "accessory", "ax_exercise.movement=isolation"
+        elif pattern in G19_EXEMPT_PATTERNS and pattern:
+            role, why = "accessory", "exercise_pattern.pattern=%s" % pattern
+        elif pattern:
+            role, why = "main", "exercise_pattern.pattern=%s" % pattern
+        else:
+            role, why = None, None
+        if role:
+            notes.append("role=%s from %s" % (role, why))
+    if role:
+        out["role"] = role
+    out["weight_kg"] = ex.get("weight_kg")
+    out["sets"] = ex["sets"]
+    out["rep_range"] = list(ex["rep_range"])
+    unit = ex.get("rep_unit")
+    if unit is None:
+        if fact.get("measure") == "hold_sec":
+            unit = "sec"
+            notes.append("rep_unit=sec from ax_exercise.measure=hold_sec")
+        elif fact.get("grip_movement") in HOLD_MOVEMENTS:
+            unit = "sec"
+            notes.append("rep_unit=sec from movement=%s"
+                         % fact["grip_movement"])
+        else:
+            unit = "reps"
+    out["rep_unit"] = unit
+    prog = ex.get("progression")
+    if prog is None:
+        if unit == "sec":
+            prog = "hold"
+            notes.append("progression=hold (a seconds hold)")
+        else:
+            prog = "double"
+            notes.append("progression=double (the pack default)")
+    out["progression"] = prog
+    if ex.get("rir_floor") is not None:
+        out["rir_floor"] = ex["rir_floor"]
+    if ex.get("rest_sec") is not None:
+        out["rest_sec"] = ex["rest_sec"]
+    if ex.get("loading") is not None:
+        out["loading"] = ex["loading"]
+    lat = ex.get("lattice")
+    if lat is None:
+        eq = fact.get("equipment")
+        derived = LATTICE_BY_EQUIPMENT.get(eq)
+        if derived is not None:
+            # marked so rx-calc.resolve_lattice reads it as the class
+            # grid, not as an owner answer that beats a machine's own grid
+            lat = dict(derived, derived=True)
+            notes.append("lattice=%s from equipment=%s"
+                         % (lat.get("type"), eq))
+        elif eq:
+            notes.append("NO lattice: equipment=%s has no derivable class "
+                         "grid" % eq)
+        else:
+            notes.append("NO lattice: equipment unknown for this lift")
+    if lat is not None:
+        out["lattice"] = lat
+    if ex.get("safety_note") is not None:
+        out["safety_note"] = ex["safety_note"]
+    return out, notes
+
+
+def derive_program(doc, facts):
+    """(program_dict, {slot_path: [notes]}). Pure: same answers + same
+    taxonomy -> same card, byte for byte."""
+    rotation = [c.strip() for c in doc["rotation"]]
+    program = {
+        "rotation": rotation,
+        "weekly_frequency": doc.get("weekly_frequency") or len(rotation),
+        "days": {},
+    }
+    # The routine's NAME is on the card because `sync` reads only the card:
+    # `write` registered the routine under the answered name, and a later sync
+    # that could not see it derived "<rotation> ..." instead, matched nothing,
+    # created a second routine, demoted the first and minted new session_type
+    # ids (test-program-init idempotency, measured 2026-10-02).
+    if (doc.get("routine_name") or "").strip():
+        program["routine_name"] = doc["routine_name"].strip()
+    if doc.get("focus_areas"):
+        program["focus_areas"] = list(doc["focus_areas"])
+    if doc.get("care"):
+        program["care"] = derive_care(doc["care"])
+    if doc.get("time_plan") is not None:
+        program["time_plan"] = json.loads(json.dumps(doc["time_plan"]))
+    notes = {}
+    for code in rotation:
+        items = doc["days"][code]["exercises"]
+        slots = []
+        for i, ex in enumerate(items):
+            slot, n = derive_slot(ex, i, facts)
+            slots.append(slot)
+            if n:
+                notes["%s/%s" % (code, slot["name"])] = n
+        program["days"][code] = {"exercises": slots}
+    return program, notes
+
+
+# ---------------------------------------------------------------------------
+# rendering -- into the dialect rx-calc.load_yaml actually reads
+# ---------------------------------------------------------------------------
+def _scalar(v):
+    if v is None:
+        return "null"
+    if v is True:
+        return "true"
+    if v is False:
+        return "false"
+    if isinstance(v, float):
+        return repr(round(v, 4))
+    if isinstance(v, int):
+        return str(v)
+    s = str(v)
+    # Quote anything the hand-rolled reader could take for structure. A bare
+    # Korean display name round-trips fine; one with a colon in it does not.
+    if s == "" or re.search(r"[:#\{\}\[\],'\"]", s) or s != s.strip():
+        return '"%s"' % s.replace('"', "'")
+    return s
+
+
+def _flow_map(d, order):
+    parts = ["%s: %s" % (k, _scalar(d[k])) for k in order if k in d]
+    return "{ %s }" % ", ".join(parts)
+
+
+HEADER = """\
+# program.yaml -- THE OWNER'S TRAINING. Written by service/health/program-init.
+#
+# This file is OWNER DATA, not pack content. Every training decision in it --
+# the rotation codes, the lifts, the sets, the rep ranges, the weights -- was
+# CONFIRMED by the owner. A first program built through program-plan proposes
+# its doses from the pack's declared rule tables (owner-confirmed intensity
+# scheme + 3-set floor), shows them day by day, and writes only what he
+# accepted. No number here was composed by a model (D1: the user owns Why).
+#
+# DO NOT HAND-EDIT THE STRUCTURE. Three readers parse this with a hand-rolled
+# parser (rx-calc.load_yaml) and the session_type rows in kit_life.db are
+# DERIVED from `rotation:` below. Re-run program-init (or workout-program's
+# revise path) so the file and the table cannot disagree:
+#
+#     service/health/program-init sync        # re-derive session_type rows
+#     service/health/program-init validate    # check this file, loudly
+#
+# Slot fields marked DERIVED in the per-slot comments were filled from the
+# pack's shipped equipment taxonomy, not from the owner -- answer the field
+# explicitly to override any of them.
+"""
+
+
+def render_program(program, notes):
+    out = [HEADER]
+    out.append("rotation: [%s]"
+               % ", ".join(_scalar(c) for c in program["rotation"]))
+    out.append("weekly_frequency: %d" % program["weekly_frequency"])
+    if program.get("routine_name"):
+        out.append("routine_name: %s" % _scalar(program["routine_name"]))
+    if program.get("focus_areas"):
+        out.append("focus_areas: [%s]"
+                   % ", ".join(_scalar(a) for a in program["focus_areas"]))
+    if program.get("time_plan") is not None:
+        out.append("time_plan: " + json.dumps(program["time_plan"], ensure_ascii=True))
+    if program.get("care"):
+        out.append("care:")
+        for it in program["care"]:
+            lead = "  - "
+            for f in CARE_FIELDS:
+                if f not in it:
+                    continue
+                v = it[f]
+                val = ("[%s]" % ", ".join(_scalar(x) for x in v)
+                       if isinstance(v, list) else _scalar(v))
+                out.append("%s%s: %s" % (lead, f, val))
+                lead = "    "
+    out.append("days:")
+    for code in program["rotation"]:
+        out.append("  %s:" % _scalar(code))
+        out.append("    exercises:")
+        for slot in program["days"][code]["exercises"]:
+            n = notes.get("%s/%s" % (code, slot["name"]))
+            if n:
+                for ln in n:
+                    out.append("      # DERIVED: %s" % ln)
+            first = True
+            # Field ORDER mirrors tests/fixtures/program.yaml -- the shape
+            # every hand-authored card in this fleet already has, so a diff
+            # between a written card and an edited one reads as a content
+            # diff and not as a re-ordering. rep_range and lattice render as
+            # FLOW collections for the same reason; set-add / set-arm /
+            # set-table all read them through the one parsed slot, so there is
+            # no second grammar to keep in step.
+            for key in ("slot", "name", "display", "priority", "role",
+                        "weight_kg", "sets", "rep_range", "rep_unit",
+                        "progression",
+                        "rir_floor", "rest_sec", "loading", "lattice",
+                        "safety_note"):
+                if key not in slot:
+                    continue
+                lead = "      - " if first else "        "
+                first = False
+                if key == "rep_range":
+                    out.append("%srep_range: [%d, %d]"
+                               % (lead, slot["rep_range"][0],
+                                  slot["rep_range"][1]))
+                elif key == "lattice":
+                    out.append("%slattice: %s"
+                               % (lead, _flow_map(slot["lattice"],
+                                                  ("type", "base", "step",
+                                                   "derived"))))
+                else:
+                    out.append("%s%s: %s" % (lead, key, _scalar(slot[key])))
+    return "\n".join(out) + "\n"
+
+
+# ---------------------------------------------------------------------------
+# the round-trip gate
+# ---------------------------------------------------------------------------
+def _load_rx():
+    """rx-calc as a module -- it is the loader every consumer uses, so it is the
+    loader the write is proved against. A hyphenated filename with no .py
+    extension needs the explicit loader dance."""
+    import importlib.util
+    import importlib.machinery
+    path = os.path.join(HERE, "rx-calc")
+    loader = importlib.machinery.SourceFileLoader("rx_calc_for_init", path)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def _normalize(obj):
+    """Comparable shape: ints and floats that mean the same number compare
+    equal (the reader turns `3` into int and `60.0` into float; both are
+    correct)."""
+    if isinstance(obj, dict):
+        return {k: _normalize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalize(v) for v in obj]
+    if isinstance(obj, bool) or obj is None:
+        return obj
+    if isinstance(obj, (int, float)):
+        return float(obj)
+    return obj
+
+
+def roundtrip_check(text, program):
+    """[] if rx-calc's own loader reads the rendered text back as the program we
+    intended, else a list of Findings. This is the whole reason a malformed card
+    cannot reach disk."""
+    errs = []
+    fd, tmp = tempfile.mkstemp(prefix=".program-roundtrip-", suffix=".yaml")
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+        try:
+            rx = _load_rx()
+        except Exception as e:                      # noqa: BLE001
+            return [Finding("E-ROUNDTRIP-LOADER", "<rx-calc>",
+                            "cannot load rx-calc to verify the write: %s" % e)]
+        try:
+            got = rx.load_yaml(tmp)
+        except Exception as e:                      # noqa: BLE001
+            return [Finding("E-ROUNDTRIP-PARSE", "<program.yaml>",
+                            "the rendered card does not parse with the loader "
+                            "every consumer uses: %s" % e)]
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+    want_rot = _normalize(program["rotation"])
+    if _normalize(got.get("rotation")) != want_rot:
+        errs.append(Finding("E-ROUNDTRIP", "rotation",
+                            "read back %r, intended %r"
+                            % (got.get("rotation"), program["rotation"])))
+    if got.get("routine_name") != program.get("routine_name"):
+        errs.append(Finding("E-ROUNDTRIP", "routine_name",
+                            "read back %r, intended %r"
+                            % (got.get("routine_name"),
+                               program.get("routine_name"))))
+    if _normalize(got.get("focus_areas")) != _normalize(
+            program.get("focus_areas")):
+        errs.append(Finding("E-ROUNDTRIP", "focus_areas",
+                            "read back %r, intended %r"
+                            % (got.get("focus_areas"),
+                               program.get("focus_areas"))))
+    if _normalize(got.get("care")) != _normalize(program.get("care")):
+        errs.append(Finding("E-ROUNDTRIP", "care",
+                            "read back %r, intended %r"
+                            % (got.get("care"), program.get("care"))))
+    if got.get("time_plan") != program.get("time_plan"):
+        errs.append(Finding("E-ROUNDTRIP", "time_plan", "weekday budgets changed"))
+    for code in program["rotation"]:
+        want = program["days"][code]["exercises"]
+        back = ((got.get("days") or {}).get(code) or {}).get("exercises")
+        if not isinstance(back, list) or len(back) != len(want):
+            errs.append(Finding(
+                "E-ROUNDTRIP", "days.%s.exercises" % code,
+                "read back %s slots, intended %d"
+                % (len(back) if isinstance(back, list) else "no",
+                   len(want))))
+            continue
+        # The loader orders by `priority`; we render in slot order and derive
+        # priority ascending, so the two agree -- compare by slot number so a
+        # future ordering change fails here instead of in a live session.
+        by_slot = {}
+        for item in back:
+            if isinstance(item, dict):
+                by_slot[item.get("slot")] = item
+        for w in want:
+            g = by_slot.get(w["slot"])
+            if g is None:
+                errs.append(Finding("E-ROUNDTRIP",
+                                    "days.%s.slot%s" % (code, w["slot"]),
+                                    "slot did not read back at all"))
+                continue
+            for k, v in w.items():
+                if _normalize(g.get(k)) != _normalize(v):
+                    errs.append(Finding(
+                        "E-ROUNDTRIP",
+                        "days.%s.slot%s.%s" % (code, w["slot"], k),
+                        "read back %r, intended %r" % (g.get(k), v)))
+    return errs
+
+
+def atomic_write(path, text):
+    d = os.path.dirname(os.path.abspath(path))
+    if not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".program-init-", dir=d)
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, path)
+    except BaseException:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+        raise
+
+
+# ---------------------------------------------------------------------------
+# session_type derivation -- the SAME source, the SAME call
+# ---------------------------------------------------------------------------
+def sync_session_types(db_path, program, routine_name=None, dry_run=False):
+    """Derive the rotation registry in kit_life.db from the card's `rotation:`.
+
+    Returns a report dict. Reconcile-before-write throughout (D3): every write
+    is find-first, so a second run is a no-op and an existing row is never
+    clobbered -- including a row the owner renamed by hand.
+
+    WHY THIS LIVES IN THE SAME CALL AS THE WRITE. `session_type` rows ARE the
+    rotation, in the DB. Producing the file and leaving the table to another
+    hand does not remove the wall, it moves it one step right: session-open
+    would still fail its birth tag and every card would still say the split was
+    INFERRED, not read. One source, one path.
+
+    WHAT IS DELIBERATELY NOT WRITTEN. `session_muscle` (session_type_id ->
+    workout_types) has NO reader anywhere in this pack or the kit -- measured
+    by grep across both payloads on 2026-09-14. Writing rows nothing reads
+    would be inventing a fact about the owner's training to fill a table. The
+    card's per-slot muscles already come from exercise_muscle_map, which the
+    taxonomy seed fills."""
+    rep = {"routine": None, "routine_action": None, "created": [],
+           "present": [], "stale": [], "makeup": None, "error": None}
+    rotation = program["rotation"]
+    name = (routine_name or "").strip() or \
+        ("%s 분할" % "/".join(rotation))
+    try:
+        conn = sqlite3.connect(os.path.abspath(db_path))
+    except sqlite3.Error as e:
+        rep["error"] = "cannot open db: %s" % e
+        return rep
+    try:
+        conn.execute("PRAGMA foreign_keys=ON;")
+        # ---- the routine row (match by the card's name, not find-first) ---
+        # Exactly one routine is active at a time (D-model). Matching on
+        # status alone (the old find-first) lands a different card's rows on
+        # whichever routine happens to be active; matching by `name`
+        # (derived from the card above) is what keeps a card's writes on ITS
+        # OWN routine.
+        row = conn.execute(
+            "SELECT id, name FROM routine WHERE status='active' AND name=?",
+            (name,)).fetchone()
+        others = [r[0] for r in conn.execute(
+            "SELECT id FROM routine WHERE status='active' AND name!=?",
+            (name,)).fetchall()]
+        if row:
+            rid, rep["routine"], rep["routine_action"] = row[0], row[1], "existing"
+        elif dry_run:
+            rid, rep["routine"], rep["routine_action"] = None, name, "would_create"
+            if others:
+                rep["routine_action"] += "+would_demote:%s" % ",".join(
+                    str(i) for i in others)
+        else:
+            if others:
+                # Demote, never delete: past `workouts` reference
+                # session_type ids on the old routine, and deleting the
+                # routine (or its session_type rows) would break that
+                # history. Same transaction as the INSERT below (commit is
+                # at the bottom of this function).
+                conn.execute(
+                    "UPDATE routine SET status='retired' "
+                    "WHERE status='active' AND name!=?", (name,))
+            cur = conn.execute(
+                "INSERT INTO routine (name, style, status, note) "
+                "VALUES (?, ?, 'active', ?)",
+                (name, "split",
+                 "derived from files/program/program.yaml by program-init"))
+            rid, rep["routine"], rep["routine_action"] = \
+                cur.lastrowid, name, "created"
+            if others:
+                rep["routine_action"] += "+demoted:%s" % ",".join(
+                    str(i) for i in others)
+        # ---- one session_type row per rotation code, in rotation order -----
+        want = [(c, i) for i, c in enumerate(rotation)]
+        want.append((MAKEUP_CODE, MAKEUP_SORT))
+        for code, sort in want:
+            hit = None
+            if rid is not None:
+                hit = conn.execute(
+                    "SELECT id, sort FROM session_type "
+                    "WHERE routine_id=? AND code=?", (rid, code)).fetchone()
+            if hit:
+                if hit[1] != sort and not dry_run:
+                    # The CYCLE ORDER is derived, so it follows the card. The
+                    # row's identity (its id, everything joined to it) does
+                    # not move -- rotation-current reads `sort < 99 ORDER BY
+                    # sort`, so a reordered split has to re-sort or the queue
+                    # serves yesterday's order forever.
+                    conn.execute("UPDATE session_type SET sort=? WHERE id=?",
+                                 (sort, hit[0]))
+                    rep["present"].append("%s(resorted %s->%s)"
+                                          % (code, hit[1], sort))
+                else:
+                    rep["present"].append(code)
+                continue
+            if dry_run or rid is None:
+                rep["created"].append("%s(would)" % code)
+                continue
+            conn.execute(
+                "INSERT INTO session_type (routine_id, code, display_name, "
+                "sort, note) VALUES (?, ?, ?, ?, ?)",
+                (rid, code, code, sort,
+                 "makeup class" if code == MAKEUP_CODE
+                 else "rotation day, derived from program.yaml"))
+            rep["created"].append(code)
+        # ---- codes on this routine the card no longer declares --------------
+        if rid is not None:
+            known = set(rotation) | {MAKEUP_CODE}
+            for (c,) in conn.execute(
+                    "SELECT code FROM session_type WHERE routine_id=?",
+                    (rid,)).fetchall():
+                if c not in known:
+                    rep["stale"].append(c)
+        if dry_run:
+            conn.rollback()
+        else:
+            conn.commit()
+        rep["makeup"] = MAKEUP_CODE
+    except sqlite3.Error as e:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        rep["error"] = str(e)
+    finally:
+        conn.close()
+    return rep
+
+
+# ---------------------------------------------------------------------------
+# us_step derivation -- the working-weight seam, from the SAME card
+# ---------------------------------------------------------------------------
+# WHY (G17, re-measured 2026-09-30). `ax-project serve --session <day> --slot
+# <n>` is the only path a working weight reaches the owner
+# (workout-session/reference/weight-realization.md), and it resolves the slot
+# through a `us_step` row. Nothing in production wrote those rows: the only
+# writer was us_reseed.py, a manual script hard-wired to a retired instance
+# rotation. On a freshly composed program every serve exited 1
+# ("no working us_step"), so the first real session could not settle a single
+# working weight. And where rows DID exist they were a snapshot that drifted
+# from program.yaml (the original G17 symptom: slot 8 served last month's lift).
+#
+# The repair is the session_type one again: the rows are DERIVED from the card
+# in the same call that writes the card, so there is no second errand to
+# forget and no snapshot to go stale. session-open re-runs the same derivation
+# at birth, so a hand-edited card is reconciled before the first set.
+#
+# Row rules (same conventions us_reseed.py established):
+#   seq            = the slot's 1-based position in rx-calc's priority order
+#                    (rx-calc.load_yaml sorts by `priority`; that position is
+#                    the --slot the skill passes to serve).
+#   step_type      = 'hold' when ax_exercise.measure is hold_sec, else working.
+#   target         = "lo-hi" (reps / tempo) or "lo-his" (hold seconds).
+#   rest_sec       = the slot's own rest_sec, else 150 compound / 90 isolation.
+#   display_key    = the card's Korean `display` (exercise_derived rows may
+#                    carry one; us_render shows it instead of the English key).
+#   ulid           = a fixed function of (owner, day, seq): re-running upserts
+#                    in place, so ax_projection_slot history (FK, ON DELETE
+#                    CASCADE) survives a re-sync of an unchanged slot.
+# A slot whose lift has no active ax_exercise row (a machine/cable lift not yet
+# JIT-registered) cannot carry a us_step (exercise_ref is NOT NULL + FK). It is
+# REPORTED by name, never invented; the other slots are still seeded.
+US_STEP_CREATED_AT = "1970-01-01T00:00:00Z"
+
+
+def us_step_ulid(owner, code, seq):
+    """Deterministic 26-char id for (owner, rotation code, seq)."""
+    import base64
+    import hashlib
+    h = hashlib.sha1(("%s|%s|%d" % (owner, code, seq)).encode("utf-8"))
+    return "US" + base64.b32encode(h.digest()).decode("ascii")[:24]
+
+
+def _us_owner(conn):
+    try:
+        import ax_engine as AXE
+        return AXE.owning_agent_for(conn)
+    except Exception:                                    # noqa: BLE001
+        return "warg"  # estate-scrub:allow(legacy DB slug value, a data contract kept for pre-049 DBs)
+
+
+def _resolve_exercise(conn, name, owner):
+    return conn.execute(
+        "SELECT ulid, exercise_name, movement, measure, load_type "
+        "FROM ax_exercise WHERE exercise_name=? AND status='active' "
+        "ORDER BY (owning_agent=?) DESC, ulid LIMIT 1",
+        (name, owner)).fetchone()
+
+
+def derive_us_rows(conn, code, slots, owner):
+    """([row, ...], [(seq, name), ...unresolved]) for one rotation day.
+    `slots` are in rx-calc priority order."""
+    rows, unresolved = [], []
+    for i, slot in enumerate(slots):
+        seq = i + 1
+        name = slot.get("name")
+        ax = _resolve_exercise(conn, name, owner) if name else None
+        if ax is None:
+            unresolved.append((seq, name))
+            continue
+        measure = ax[3]
+        rr = slot.get("rep_range") or []
+        if len(rr) == 2:
+            target = "%d-%d%s" % (int(rr[0]), int(rr[1]),
+                                  "s" if measure == "hold_sec" else "")
+        else:
+            target = None
+        rest = slot.get("rest_sec")
+        if rest is None:
+            rest = 150 if ax[2] == "compound" else 90
+        rows.append({
+            "ulid": us_step_ulid(owner, code, seq),
+            "owning_agent": owner,
+            "session_ref": code,
+            "seq": seq,
+            "exercise_ref": ax[0],
+            "step_type": "hold" if measure == "hold_sec" else "working",
+            "group_id": None,
+            "display_source": "exercise_derived",
+            "display_key": slot.get("display") or None,
+            "equipment_need": ("bodyweight" if ax[4] == "bodyweight"
+                               else "equipment"),
+            "measure": measure,
+            "target": target,
+            "rest_sec": int(rest),
+            "suppress_alert": 0,
+            "next_hint": None,
+            "created_at": US_STEP_CREATED_AT,
+        })
+    return rows, unresolved
+
+
+_US_UPSERT = (
+    "INSERT INTO us_step (ulid, owning_agent, session_ref, seq, exercise_ref, "
+    "step_type, group_id, display_source, display_key, equipment_need, "
+    "measure, target, rest_sec, suppress_alert, next_hint, created_at) "
+    "VALUES (:ulid, :owning_agent, :session_ref, :seq, :exercise_ref, "
+    ":step_type, :group_id, :display_source, :display_key, :equipment_need, "
+    ":measure, :target, :rest_sec, :suppress_alert, :next_hint, :created_at) "
+    "ON CONFLICT(ulid) DO UPDATE SET exercise_ref=excluded.exercise_ref, "
+    "step_type=excluded.step_type, display_source=excluded.display_source, "
+    "display_key=excluded.display_key, "
+    "equipment_need=excluded.equipment_need, measure=excluded.measure, "
+    "target=excluded.target, rest_sec=excluded.rest_sec")
+
+_US_COLS = ("exercise_ref", "step_type", "display_key", "equipment_need",
+            "measure", "target", "rest_sec")
+
+
+def sync_us_steps(db_path, program, codes=None, dry_run=False):
+    """Derive us_step rows for every rotation day (or only `codes`) from the
+    card. `program` = {"rotation": [...], "days": {code: {"exercises": [...]}}}
+    with each day's exercises ALREADY in rx-calc priority order.
+
+    Returns {"owner", "seeded": {code: n}, "changed": [...], "removed": [...],
+             "unresolved": [(code, seq, name)], "collisions": [code],
+             "error": str|None}. Idempotent: an unchanged card changes nothing.
+    """
+    rep = {"owner": None, "seeded": {}, "changed": [], "removed": [],
+           "unresolved": [], "collisions": [], "error": None}
+    try:
+        conn = sqlite3.connect(os.path.abspath(db_path))
+    except sqlite3.Error as e:
+        rep["error"] = "cannot open db: %s" % e
+        return rep
+    try:
+        conn.execute("PRAGMA foreign_keys=ON;")
+        cols = {r[1] for r in conn.execute("PRAGMA table_info(us_step)")}
+        if not cols:
+            rep["error"] = "no us_step table on this DB (kit too old)"
+            return rep
+        owner = _us_owner(conn)
+        rep["owner"] = owner
+        rotation = list(program.get("rotation") or [])
+        touched = []
+        for code in rotation:
+            if codes is not None and code not in codes:
+                continue
+            slots = ((program.get("days") or {}).get(code) or {}).get(
+                "exercises") or []
+            rows, unresolved = derive_us_rows(conn, code, slots, owner)
+            rep["unresolved"].extend((code, s, n) for s, n in unresolved)
+            # UNIQUE(session_ref, seq) is crew-wide, not per owner. A foreign
+            # agent's row under the same day code would make every insert
+            # fail; say so and leave that day alone rather than stomp it.
+            foreign = conn.execute(
+                "SELECT COUNT(*) FROM us_step WHERE session_ref=? AND "
+                "owning_agent<>?", (code, owner)).fetchone()[0]
+            if foreign:
+                rep["collisions"].append(code)
+                continue
+            have = {r[0]: r for r in conn.execute(
+                "SELECT ulid, exercise_ref, step_type, display_key, "
+                "equipment_need, measure, target, rest_sec, seq "
+                "FROM us_step WHERE session_ref=? AND owning_agent=?",
+                (code, owner)).fetchall()}
+            want_ids = set()
+            for r in rows:
+                want_ids.add(r["ulid"])
+                old = have.get(r["ulid"])
+                if old is None or tuple(old[1:8]) != tuple(
+                        r[c] for c in _US_COLS):
+                    rep["changed"].append("%s#%d" % (code, r["seq"]))
+                    if not dry_run:
+                        conn.execute(_US_UPSERT, r)
+            # Slots that no longer exist (roster shrank) or no longer resolve.
+            for ulid, old in have.items():
+                if ulid not in want_ids:
+                    rep["removed"].append("%s#%d" % (code, old[8]))
+                    if not dry_run:
+                        conn.execute("DELETE FROM us_step WHERE ulid=?",
+                                     (ulid,))
+            rep["seeded"][code] = len(rows)
+            touched.append(code)
+        if dry_run:
+            conn.rollback()
+            return rep
+        conn.commit()
+        if rep["changed"] or rep["removed"]:
+            try:
+                import us_render as USR
+                conn.row_factory = sqlite3.Row
+                for code in touched:
+                    USR.materialize_next_hint(conn, code, write=True)
+            except Exception as e:                       # noqa: BLE001
+                rep["error"] = "next_hint materialize failed: %s" % e
+    except sqlite3.Error as e:
+        try:
+            conn.rollback()
+        except sqlite3.Error:
+            pass
+        rep["error"] = str(e)
+    finally:
+        conn.close()
+    return rep
+
+
+def load_card_ordered(path):
+    """The card on disk through rx-calc's own loader (priority-sorted days)."""
+    return _load_rx().load_yaml(path)
+
+
+def report_us_sync(rep):
+    """TAB line + prose. Returns True when every slot that CAN carry a
+    us_step does."""
+    if rep.get("error"):
+        sys.stderr.write(
+            "program-init: us_step derivation FAILED: %s\n"
+            "  `ax-project serve` cannot realize a working weight for this "
+            "card until it succeeds. Re-run: service/health/program-init "
+            "sync\n" % rep["error"])
+        print("USSTEP\tfailed\t%s" % rep["error"])
+        return False
+    print("USSTEP\tok\towner=%s\tseeded=%s\tchanged=%d\tremoved=%d"
+          % (rep["owner"], ",".join("%s:%d" % kv for kv in
+                                    rep["seeded"].items()) or "-",
+             len(rep["changed"]), len(rep["removed"])))
+    if rep["unresolved"]:
+        sys.stderr.write(
+            "program-init: %d slot(s) have no catalog row yet, so serve has "
+            "no us_step for them (a machine/cable lift is registered on first "
+            "use, then `program-init sync` seeds it): %s\n"
+            % (len(rep["unresolved"]), ", ".join(
+                "%s#%s %s" % u for u in rep["unresolved"])))
+        print("USSTEP\tunresolved\t%s" % ",".join(
+            "%s#%s:%s" % u for u in rep["unresolved"]))
+    if rep["collisions"]:
+        sys.stderr.write(
+            "program-init: day code(s) %s already carry another agent's "
+            "us_step rows on this crew DB; left untouched.\n"
+            % ", ".join(rep["collisions"]))
+        print("USSTEP\tcollision\t%s" % ",".join(rep["collisions"]))
+        return False
+    return True
+
+
+def session_type_state(db_path, program=None):
+    """(count, [missing_code, ...], error). What `check` and session-open want:
+    is the registry the card's rotation actually resolvable?"""
+    try:
+        conn = sqlite3.connect(
+            "file:%s?mode=ro" % os.path.abspath(db_path), uri=True)
+    except sqlite3.Error as e:
+        return None, [], str(e)
+    try:
+        n = conn.execute("SELECT COUNT(*) FROM session_type").fetchone()[0]
+        missing = []
+        if program:
+            have = set(r[0] for r in conn.execute(
+                "SELECT code FROM session_type").fetchall())
+            for code in list(program.get("rotation") or []) + [MAKEUP_CODE]:
+                if code not in have:
+                    missing.append(code)
+        return n, missing, None
+    except sqlite3.Error as e:
+        return None, [], str(e)
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# draft state -- what makes `next` a query instead of a memory
+# ---------------------------------------------------------------------------
+def load_draft(path):
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            d = json.load(f)
+        return d if isinstance(d, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def save_draft(path, draft):
+    atomic_write(path, json.dumps(draft, ensure_ascii=False, indent=2) + "\n")
+
+
+def outstanding_stages(draft):
+    """[] when the draft is complete. Order is the ask order."""
+    rot = draft.get("rotation")
+    if not isinstance(rot, list) or not rot:
+        return [STAGE_ROTATION]
+    days = draft.get("days") or {}
+    return [DAY_STAGE_PREFIX + c for c in rot if c not in days]
+
+
+# ---------------------------------------------------------------------------
+# reporting
+# ---------------------------------------------------------------------------
+def emit_findings(findings, stream=sys.stderr):
+    for f in findings:
+        stream.write("%s\n" % f.line())
+
+
+def do_write(doc, args, facts, stage_label="write"):
+    """The one write path. Every entry point lands here."""
+    errs, warns, rotation = validate_answers(doc, facts)
+    if errs:
+        sys.stderr.write(
+            "program-init: REFUSED -- %d error(s). No file was written; "
+            "the previous card (if any) is untouched.\n" % len(errs))
+        emit_findings(errs)
+        emit_findings(warns)
+        print("REFUSED\t%d\t%s" % (len(errs), stage_label))
+        return EXIT_REFUSED
+    program, notes = derive_program(doc, facts)
+    text = render_program(program, notes)
+    rt = roundtrip_check(text, program)
+    if rt:
+        sys.stderr.write(
+            "program-init: REFUSED at the round-trip gate -- the rendered card "
+            "does not read back as intended through rx-calc's own loader. This "
+            "is a program-init defect, not an answer defect. Nothing was "
+            "written.\n")
+        emit_findings(rt)
+        print("REFUSED\t%d\troundtrip" % len(rt))
+        return EXIT_REFUSED
+    existed = os.path.exists(args.program)
+    if existed and not args.force:
+        sys.stderr.write(
+            "program-init: REFUSED -- %s already exists. This tool BUILDS the "
+            "first card; it does not silently replace a program the owner is "
+            "training on. Pass --force once the replacement is the confirmed "
+            "intent (workout-program's revise path owns reconciliation).\n"
+            % args.program)
+        print("REFUSED\t1\texists")
+        return EXIT_REFUSED
+    atomic_write(args.program, text)
+    print("WROTE\t%s\t%d day(s)\t%d slot(s)"
+          % (args.program, len(rotation),
+             sum(len(program["days"][c]["exercises"]) for c in rotation)))
+    if warns:
+        sys.stderr.write("program-init: %d warning(s) -- the card was written "
+                         "and each of these is a real, named degrade:\n"
+                         % len(warns))
+        emit_findings(warns)
+    rep = sync_session_types(args.db, program,
+                             routine_name=doc.get("routine_name"))
+    rc = report_sync(rep, program, args)
+    # us_step rows come from the card AS WRITTEN, read back through the
+    # engine's loader, so their seq is the priority position serve is asked
+    # for -- not the answer document's list order.
+    try:
+        ordered = load_card_ordered(args.program)
+    except Exception as e:                              # noqa: BLE001
+        ordered = None
+        sys.stderr.write("program-init: cannot re-read the card for us_step "
+                         "derivation: %s\n" % e)
+        print("USSTEP\tfailed\treread")
+    us_ok = ordered is not None and report_us_sync(
+        sync_us_steps(args.db, ordered))
+    if rc == EXIT_OK and not us_ok:
+        return EXIT_PARTIAL
+    return rc
+
+
+def report_sync(rep, program, args):
+    if rep.get("error"):
+        sys.stderr.write(
+            "program-init: the card is written and valid, but the session_type "
+            "derivation FAILED: %s\n"
+            "  Until it succeeds, session-open's birth tag has nothing to "
+            "point at and every card will say the split was INFERRED, not "
+            "read. Re-run: service/health/program-init sync\n"
+            % rep["error"])
+        print("SYNC\tfailed\t%s" % rep["error"])
+        return EXIT_PARTIAL
+    print("SYNC\tok\troutine=%s(%s)\tcreated=%s\tpresent=%s"
+          % (rep["routine"], rep["routine_action"],
+             ",".join(rep["created"]) or "-",
+             ",".join(rep["present"]) or "-"))
+    if rep["stale"]:
+        sys.stderr.write(
+            "program-init: %d session_type row(s) on this routine are not in "
+            "the card's rotation and were LEFT IN PLACE: %s. They are history "
+            "-- old sessions are tagged with them -- so they are reported, "
+            "never deleted.\n" % (len(rep["stale"]), ", ".join(rep["stale"])))
+    n, missing, err = session_type_state(args.db, program)
+    if err or missing:
+        sys.stderr.write(
+            "program-init: POST-WRITE RE-CHECK says the registry is still not "
+            "complete (%s). The verdict is measured, not inferred from the "
+            "insert's exit.\n" % (err or "missing: " + ", ".join(missing)))
+        print("SYNC\tunmet\t%s" % (err or ",".join(missing)))
+        return EXIT_PARTIAL
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# argument plumbing
+# ---------------------------------------------------------------------------
+def read_payload(spec):
+    """--json accepts inline JSON, @file, or - for stdin."""
+    if spec is None:
+        raise ValueError("no payload given (--json <inline|@file|->)")
+    if spec == "-":
+        raw = sys.stdin.read()
+    elif spec.startswith("@"):
+        with open(spec[1:], "r", encoding="utf-8") as f:
+            raw = f.read()
+    else:
+        raw = spec
+    return json.loads(raw)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="program-init", add_help=True,
+        description="Build the owner's program.yaml and the session_type "
+                    "rotation registry it implies, from his own answers.")
+    ap.add_argument("command",
+                    choices=("schema", "status", "next", "answer", "write",
+                             "sync", "validate", "check", "reset"))
+    ap.add_argument("--db", default=DEFAULT_DB)
+    ap.add_argument("--program", default=DEFAULT_PROGRAM)
+    ap.add_argument("--draft", default=DEFAULT_DRAFT)
+    ap.add_argument("--stage")
+    ap.add_argument("--json", dest="payload")
+    ap.add_argument("--answers", dest="answers")
+    ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--json-out", dest="json_out", action="store_true",
+                    help="machine-readable output for status/next/schema")
+    args = ap.parse_args(argv)
+    cmd = args.command
+
+    if cmd == "schema":
+        if args.json_out:
+            print(json.dumps(ANSWER_SCHEMA, ensure_ascii=False, indent=2))
+        else:
+            print(json.dumps(ANSWER_SCHEMA, ensure_ascii=False, indent=2))
+        return EXIT_OK
+
+    facts = taxonomy_facts(args.db)
+
+    if cmd == "reset":
+        if os.path.exists(args.draft):
+            os.unlink(args.draft)
+            print("RESET\t%s" % args.draft)
+        else:
+            print("RESET\tnone")
+        return EXIT_OK
+
+    if cmd == "status":
+        draft = load_draft(args.draft)
+        out = outstanding_stages(draft)
+        card = os.path.exists(args.program)
+        n, missing, err = session_type_state(args.db)
+        st = {
+            "program_yaml": args.program,
+            "program_present": card,
+            "draft_stages_outstanding": out,
+            "session_type_rows": n,
+            "session_type_error": err,
+            "taxonomy_known_exercises": len(facts),
+        }
+        if args.json_out:
+            print(json.dumps(st, ensure_ascii=False, indent=2))
+        else:
+            print("PROGRAM\t%s\t%s" % ("present" if card else "absent",
+                                       args.program))
+            print("DRAFT\t%s" % (",".join(out) or "complete"))
+            print("SESSION_TYPE\t%s" % (err or n))
+            print("TAXONOMY\t%d known exercise(s)" % len(facts))
+        return EXIT_OK if card else EXIT_UNMET
+
+    if cmd == "next":
+        draft = load_draft(args.draft)
+        out = outstanding_stages(draft)
+        if not out:
+            if args.json_out:
+                print(json.dumps({"done": True}, ensure_ascii=False))
+            else:
+                print("DONE\tevery stage answered -- `answer` already wrote "
+                      "the card")
+            return EXIT_OK
+        stage = out[0]
+        spec = ANSWER_SCHEMA["stages"][0 if stage == STAGE_ROTATION else 1]
+        blob = {"done": False, "stage": stage, "remaining": len(out),
+                "asks": spec["asks"], "payload": spec["payload"]}
+        if stage != STAGE_ROTATION:
+            blob["day"] = stage[len(DAY_STAGE_PREFIX):]
+            blob["exercise"] = spec["exercise"]
+        if args.json_out:
+            print(json.dumps(blob, ensure_ascii=False, indent=2))
+        else:
+            print("NEXT\t%s\t%d remaining" % (stage, len(out)))
+            print(json.dumps(blob, ensure_ascii=False, indent=2))
+        return EXIT_UNMET
+
+    if cmd == "answer":
+        if not args.stage:
+            sys.stderr.write("program-init: answer needs --stage\n")
+            return EXIT_ERR
+        try:
+            payload = read_payload(args.payload)
+        except (ValueError, OSError) as e:
+            sys.stderr.write("program-init: unreadable --json payload: %s\n" % e)
+            return EXIT_ERR
+        draft = load_draft(args.draft)
+        stage = args.stage
+        if stage == STAGE_ROTATION:
+            probe = dict(payload)
+            probe.setdefault("days", {})
+            errs, _w, rot = validate_answers(probe, facts,
+                                             require_all_days=False)
+            errs = [e for e in errs if not e.code.startswith("E-DAY")]
+            if errs:
+                sys.stderr.write("program-init: REFUSED stage %s -- %d "
+                                 "error(s). Nothing recorded.\n"
+                                 % (stage, len(errs)))
+                emit_findings(errs)
+                print("REFUSED\t%d\t%s" % (len(errs), stage))
+                return EXIT_REFUSED
+            draft["rotation"] = rot
+            for k in ("weekly_frequency", "routine_name", "focus_areas",
+                      "care", "time_plan"):
+                if payload.get(k) is not None:
+                    draft[k] = payload[k]
+            # A re-answered rotation drops day plans for codes it removed --
+            # they can never be served again and keeping them would let a stale
+            # day silently outlive the split it belonged to.
+            draft["days"] = {c: v for c, v in (draft.get("days") or {}).items()
+                             if c in rot}
+        elif stage.startswith(DAY_STAGE_PREFIX):
+            code = stage[len(DAY_STAGE_PREFIX):]
+            rot = draft.get("rotation") or []
+            if not rot:
+                sys.stderr.write(
+                    "program-init: REFUSED -- stage `%s` before `%s`. The "
+                    "rotation decides which days exist; a day plan for a day "
+                    "no split declares is never served.\n"
+                    % (stage, STAGE_ROTATION))
+                print("REFUSED\t1\torder")
+                return EXIT_REFUSED
+            if code not in rot:
+                sys.stderr.write(
+                    "program-init: REFUSED -- %r is not in the answered "
+                    "rotation %s\n" % (code, rot))
+                print("REFUSED\t1\tunknown-day")
+                return EXIT_REFUSED
+            probe = {"rotation": rot, "days": {code: payload}}
+            errs, warns, _r = validate_answers(probe, facts,
+                                               require_all_days=False)
+            if errs:
+                sys.stderr.write("program-init: REFUSED stage %s -- %d "
+                                 "error(s). Nothing recorded.\n"
+                                 % (stage, len(errs)))
+                emit_findings(errs)
+                print("REFUSED\t%d\t%s" % (len(errs), stage))
+                return EXIT_REFUSED
+            if warns:
+                emit_findings(warns)
+            draft.setdefault("days", {})[code] = payload
+        else:
+            sys.stderr.write("program-init: unknown stage %r (use `next`)\n"
+                             % stage)
+            return EXIT_ERR
+        save_draft(args.draft, draft)
+        out = outstanding_stages(draft)
+        print("ANSWERED\t%s\t%d remaining" % (stage, len(out)))
+        if out:
+            return EXIT_UNMET
+        # THE SEAM. The last answer does not return "now write it" -- it writes.
+        rc = do_write(draft, args, facts, stage_label=stage)
+        if rc == EXIT_OK:
+            try:
+                os.unlink(args.draft)
+            except OSError:
+                pass
+        return rc
+
+    if cmd == "write":
+        try:
+            doc = read_payload(args.answers or args.payload)
+        except (ValueError, OSError) as e:
+            sys.stderr.write("program-init: unreadable --answers payload: %s\n"
+                             % e)
+            return EXIT_ERR
+        return do_write(doc, args, facts)
+
+    if cmd in ("validate", "sync", "check"):
+        if not os.path.exists(args.program):
+            if cmd == "check":
+                print("PROGRAM\tunmet\tabsent\t%s" % args.program)
+                sys.stderr.write(
+                    "program-init: files/program/program.yaml is ABSENT. "
+                    "session-open exits 1 and no session can be born. The card "
+                    "is the owner's own training and is built with him: "
+                    "`service/health/program-init next` asks the first "
+                    "question.\n")
+                return EXIT_UNMET
+            sys.stderr.write("program-init: no card at %s\n" % args.program)
+            print("REFUSED\t1\tabsent")
+            return EXIT_REFUSED
+        try:
+            rx = _load_rx()
+            loaded = rx.load_yaml(args.program)
+        except Exception as e:                      # noqa: BLE001
+            sys.stderr.write("program-init: %s does not parse: %s\n"
+                             % (args.program, e))
+            print("REFUSED\t1\tparse")
+            return EXIT_REFUSED
+        # Validate the CARD ON DISK with the same rules the answers face, so a
+        # hand-edit is held to the contract the writer is held to.
+        doc = {"rotation": loaded.get("rotation"),
+               "weekly_frequency": loaded.get("weekly_frequency"),
+               "days": {}}
+        if loaded.get("routine_name") is not None:
+            doc["routine_name"] = loaded.get("routine_name")
+        if loaded.get("focus_areas") is not None:
+            doc["focus_areas"] = loaded.get("focus_areas")
+        if loaded.get("care") is not None:
+            doc["care"] = loaded.get("care")
+        if loaded.get("time_plan") is not None:
+            doc["time_plan"] = loaded.get("time_plan")
+        for code, plan in (loaded.get("days") or {}).items():
+            items = (plan or {}).get("exercises")
+            doc["days"][code] = {"exercises": items}
+            if isinstance(items, list):
+                for ex in items:
+                    if isinstance(ex, dict) and "weight_kg" not in ex:
+                        ex["weight_kg"] = None
+        errs, warns, rotation = validate_answers(doc, facts)
+        if cmd == "validate":
+            emit_findings(warns)
+            if errs:
+                emit_findings(errs)
+                print("INVALID\t%d\t%s" % (len(errs), args.program))
+                return EXIT_REFUSED
+            print("VALID\t%s\t%d day(s)" % (args.program, len(rotation)))
+            return EXIT_OK
+        if errs:
+            sys.stderr.write(
+                "program-init: %s is INVALID -- refusing to derive "
+                "session_type rows from a card the engine cannot trust.\n"
+                % args.program)
+            emit_findings(errs)
+            print("REFUSED\t%d\tinvalid-card" % len(errs))
+            return EXIT_REFUSED
+        program = {"rotation": rotation, "days": doc["days"]}
+        if cmd == "check":
+            n, missing, err = session_type_state(args.db, program)
+            if err:
+                print("SESSION_TYPE\tunknown\t%s" % err)
+                return EXIT_ERR
+            if missing:
+                print("PROGRAM\tok\t%s" % args.program)
+                print("SESSION_TYPE\tunmet\tmissing=%s" % ",".join(missing))
+                sys.stderr.write(
+                    "program-init: the card declares %d rotation day(s) but "
+                    "the registry is missing %s. session-open's birth tag "
+                    "cannot resolve them -- every card will say the split was "
+                    "INFERRED, not read. Fix: service/health/program-init "
+                    "sync\n" % (len(rotation), ", ".join(missing)))
+                return EXIT_UNMET
+            print("PROGRAM\tok\t%s" % args.program)
+            print("SESSION_TYPE\tok\t%d row(s)" % n)
+            # us_step: a dry-run derivation that would change anything means
+            # the rows are absent or have drifted from the card (G17).
+            us = sync_us_steps(args.db, program, dry_run=True)
+            if us.get("error") or us["changed"] or us["removed"] \
+                    or us["collisions"]:
+                print("USSTEP\tunmet\t%s" % (
+                    us.get("error") or ",".join(
+                        us["changed"] + us["removed"] + us["collisions"])))
+                sys.stderr.write(
+                    "program-init: us_step rows are missing or drifted from "
+                    "the card, so `ax-project serve` would serve a stale slot "
+                    "or none. Fix: service/health/program-init sync\n")
+                return EXIT_UNMET
+            print("USSTEP\tok\t%s" % (",".join(
+                "%s:%d" % kv for kv in us["seeded"].items()) or "-"))
+            return EXIT_OK
+        rep = sync_session_types(args.db, program,
+                                 routine_name=loaded.get("routine_name"),
+                                 dry_run=args.dry_run)
+        if args.dry_run:
+            print("SYNC\tdryrun\troutine=%s(%s)\twould_create=%s\tpresent=%s"
+                  % (rep["routine"], rep["routine_action"],
+                     ",".join(rep["created"]) or "-",
+                     ",".join(rep["present"]) or "-"))
+            us = sync_us_steps(args.db, program, dry_run=True)
+            print("USSTEP\tdryrun\twould_change=%s\twould_remove=%s"
+                  % (",".join(us["changed"]) or "-",
+                     ",".join(us["removed"]) or "-"))
+            return EXIT_OK if not rep.get("error") else EXIT_PARTIAL
+        rc = report_sync(rep, program, args)
+        us_ok = report_us_sync(sync_us_steps(args.db, program))
+        if rc == EXIT_OK and not us_ok:
+            return EXIT_PARTIAL
+        return rc
+
+    sys.stderr.write("program-init: unhandled command %r\n" % cmd)
+    return EXIT_ERR
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(EXIT_ERR)

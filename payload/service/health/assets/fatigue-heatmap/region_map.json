@@ -1,0 +1,268 @@
+{
+ "_doc": "v8 fatigue heatmap regions (region = a G:<region> field in masks.npz) -> kit muscle nodes. value = max ratio over `nodes` present, else over `fallback` (the parent). Region-named nodes that the kit does not emit yet (rect_fem, vast_med, hams_lateral, ...) are forward-compatible: the parent paints them until then. Replace together with masks.npz/meta.json/base_*.png.",
+ "chest_upper": {
+  "nodes": [
+   "chest_upper"
+  ],
+  "fallback": [
+   "chest"
+  ]
+ },
+ "chest_mid": {
+  "nodes": [
+   "chest_mid"
+  ],
+  "fallback": [
+   "chest"
+  ]
+ },
+ "chest_lower": {
+  "nodes": [
+   "chest_lower"
+  ],
+  "fallback": [
+   "chest"
+  ]
+ },
+ "serratus": {
+  "nodes": [
+   "serratus"
+  ],
+  "fallback": [
+   "chest"
+  ]
+ },
+ "front_delt": {
+  "nodes": [
+   "front_delt"
+  ],
+  "fallback": [
+   "shoulders"
+  ]
+ },
+ "side_delt": {
+  "nodes": [
+   "side_delt"
+  ],
+  "fallback": [
+   "shoulders"
+  ]
+ },
+ "rear_delt": {
+  "nodes": [
+   "rear_delt"
+  ],
+  "fallback": [
+   "shoulders"
+  ]
+ },
+ "rotator_cuff": {
+  "nodes": [
+   "rotator_cuff"
+  ],
+  "fallback": [
+   "shoulders"
+  ]
+ },
+ "traps_upper": {
+  "nodes": [
+   "back_upper"
+  ],
+  "fallback": [
+   "back"
+  ]
+ },
+ "traps_mid": {
+  "nodes": [
+   "back_upper"
+  ],
+  "fallback": [
+   "back"
+  ]
+ },
+ "traps_lower": {
+  "nodes": [
+   "back_upper"
+  ],
+  "fallback": [
+   "back"
+  ]
+ },
+ "rhomboid_teres": {
+  "nodes": [
+   "back_upper"
+  ],
+  "fallback": [
+   "back"
+  ]
+ },
+ "back_lats": {
+  "nodes": [
+   "back_lats"
+  ],
+  "fallback": [
+   "back"
+  ]
+ },
+ "back_erectors": {
+  "nodes": [
+   "back_erectors"
+  ],
+  "fallback": [
+   "back"
+  ]
+ },
+ "biceps": {
+  "nodes": [
+   "biceps_prox",
+   "biceps_distal"
+  ],
+  "fallback": [
+   "biceps"
+  ]
+ },
+ "brachialis": {
+  "nodes": [
+   "brachialis"
+  ],
+  "fallback": [
+   "biceps"
+  ]
+ },
+ "triceps_long": {
+  "nodes": [
+   "triceps_long"
+  ],
+  "fallback": [
+   "triceps"
+  ]
+ },
+ "triceps_lat_med": {
+  "nodes": [
+   "triceps_lat_med"
+  ],
+  "fallback": [
+   "triceps"
+  ]
+ },
+ "forearm_flexors": {
+  "nodes": [
+   "forearm_flexors"
+  ],
+  "fallback": [
+   "forearms"
+  ]
+ },
+ "forearm_extensors": {
+  "nodes": [
+   "forearm_extensors"
+  ],
+  "fallback": [
+   "forearms"
+  ]
+ },
+ "brachioradialis": {
+  "nodes": [
+   "brachioradialis"
+  ],
+  "fallback": [
+   "forearms"
+  ]
+ },
+ "rectus_abd": {
+  "nodes": [
+   "abs",
+   "abs_lower"
+  ]
+ },
+ "obliques": {
+  "nodes": [
+   "obliques"
+  ],
+  "fallback": [
+   "abs"
+  ]
+ },
+ "glute_max": {
+  "nodes": [
+   "glute_max"
+  ],
+  "fallback": [
+   "glutes"
+  ]
+ },
+ "glute_med": {
+  "nodes": [
+   "glute_med"
+  ],
+  "fallback": [
+   "glutes"
+  ]
+ },
+ "rect_fem": {
+  "nodes": [
+   "rect_fem"
+  ],
+  "fallback": [
+   "quads"
+  ]
+ },
+ "vast_lat": {
+  "nodes": [
+   "vast_lat"
+  ],
+  "fallback": [
+   "quads"
+  ]
+ },
+ "vast_med": {
+  "nodes": [
+   "vast_med"
+  ],
+  "fallback": [
+   "quads"
+  ]
+ },
+ "adductors": {
+  "nodes": [
+   "adductors"
+  ]
+ },
+ "hams_lateral": {
+  "nodes": [
+   "hams_lateral"
+  ],
+  "fallback": [
+   "hamstrings"
+  ]
+ },
+ "hams_medial": {
+  "nodes": [
+   "hams_medial"
+  ],
+  "fallback": [
+   "hamstrings"
+  ]
+ },
+ "gastroc": {
+  "nodes": [
+   "calf_gastroc"
+  ],
+  "fallback": [
+   "calves"
+  ]
+ },
+ "soleus": {
+  "nodes": [
+   "calf_soleus"
+  ],
+  "fallback": [
+   "calves"
+  ]
+ },
+ "tibialis": {
+  "nodes": [
+   "tibialis_anterior"
+  ]
+ }
+}
