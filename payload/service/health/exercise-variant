@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+# exercise-variant -- the owner's answer to the entry's implement question.
+#
+# live 2026-10-08 07:49 (session 1, bicep_curl): owner, "ask barbell or EZ
+# bar from the start". exercise-enter now asks the lift's real implement variants
+# (VARIANT_ASK / VARIANT_OPTION, from exercise_movement_grip via
+# entry_setup.py) as ONE question before any weight; this is the tap behind
+# each option. It holds the pick for the session (and remembers it for the
+# next one), shows the variant's name on the table (the F19 override
+# `display`, merged -- the slot keeps its identity, exactly as a substitution
+# always has), then re-runs the entry so the estimate, the grid, the setup cue
+# and the table are re-derived for the implement actually in the owner's hands.
+#
+# Usage:
+#   exercise-variant <session_id> <slot_exercise> <variant_exercise>
+#                    [--db PATH] [--program PATH]
+#
+# stdout: VARIANT_PICK exercise=<slot> variant=<v> label="<ko>"
+#         ... then exercise-enter's own stdout for the slot.
+# Exit: 0 ok, 1 unknown variant / error (nothing held).
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import entry_setup as ES                                         # noqa: E402
+import live_load as LL                                           # noqa: E402
+
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+DEFAULT_DB = os.path.join(HERE, "..", "..", "database", "kit_life.db")
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="exercise-variant")
+    p.add_argument("session_id", type=int)
+    p.add_argument("exercise_name")
+    p.add_argument("variant")
+    p.add_argument("--db", default=DEFAULT_DB)
+    p.add_argument("--program", default=DEFAULT_PROGRAM)
+    a = p.parse_args(argv)
+    db = os.path.abspath(a.db)
+    opts = ES.variants(db, a.exercise_name)
+    hit = [o for o in opts if o[0] == a.variant or o[2] == a.variant]
+    if not hit:
+        print("ERROR: %s is not an implement variant of %s (options: %s)"
+              % (a.variant, a.exercise_name,
+                 ", ".join(o[0] for o in opts) or "none"), file=sys.stderr)
+        return 1
+    variant, _equip, label = hit[0]
+    ES.record_pick(a.session_id, a.exercise_name, variant)
+    ov = LL.read_override(a.session_id, a.exercise_name)
+    if variant != a.exercise_name:
+        ov["display"] = ES._ko(variant)
+    else:
+        ov.pop("display", None)
+    # An estimate armed for another implement is not this one's: drop it so
+    # the re-entry re-estimates (a measured / owner-named weight stays).
+    if ov.get("decision") == LL.DECISION_ESTIMATE:
+        for k in ("weight_kg", "decision", "say", "reason", "reason_source",
+                  "by", "source", "at"):
+            ov.pop(k, None)
+    os.makedirs(LL.OVERRIDE_DIR, exist_ok=True)
+    path = LL.override_path(a.session_id, a.exercise_name)
+    tmp = path + ".tmp"
+    with open(tmp, "w") as fh:
+        json.dump(ov, fh, ensure_ascii=False)
+    os.rename(tmp, path)
+    print('VARIANT_PICK exercise=%s variant=%s label="%s"'
+          % (a.exercise_name, variant, label))
+    ent = subprocess.run(
+        [os.path.join(HERE, "exercise-enter"), str(a.session_id),
+         a.exercise_name, "--db", db, "--program",
+         os.path.abspath(a.program)], capture_output=True, text=True,
+        timeout=300)
+    sys.stdout.write(ent.stdout)
+    if ent.stderr:
+        sys.stderr.write(ent.stderr)
+    return 0 if ent.returncode == 0 else ent.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

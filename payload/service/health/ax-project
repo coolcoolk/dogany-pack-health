@@ -1,0 +1,233 @@
+#!/usr/bin/env python3
+# ax-project -- AX projection engine CLI (DGN-782 P1-P4, pack payload).
+#
+# Evaluate ax_projection_rule rows against an (exercise, machine) pair and write
+# the realized loadable setting into ax_projection_slot. Supersedes/absorbs the
+# interim rx-calc F17 (needs_lattice + lattice snap) at the primitive DB
+# layer. Interface = CLI + exit code (no in-process API).
+#
+# Subcommands:
+#   project --exercise <ulid> [--machine <ulid>] [--target <float>]
+#           [--step <us_step_ulid>] [--step-type <class>]
+#           [--db PATH] [--dry-run] [--json]
+#       Run rules + JIT gate + actions; write an ax_projection_slot (unless
+#       --dry-run). If the JIT gate BLOCKS on an incomplete/unregistered
+#       machine, prints a structured needs-fields JSON and exits 2 (no slot
+#       written) -- the tool-level F17 forcing-point.
+#   rules [--db PATH] [--json]
+#       List active projection rules (priority order) -- inspection.
+#   serve --session <rotation_day> --slot <seq> [--target <float>]
+#         [--db PATH] [--dry-run] [--json]
+#       Session/slot last-mile bridge for the live workout skill: resolve the
+#       working us_step for (session, slot), run the projection linked to it so
+#       ax_projection_slot MATERIALIZES (unless --dry-run), and emit the skill-
+#       facing response (realized_value / provisional / gate_needs / exercise_
+#       name / warmup / equipment). A blocked JIT gate returns gate_needs (no
+#       slot written) and exits 2.
+#
+# Exit codes:
+#   0 = projected (slot written / dry-run printed)
+#   1 = error (bad args / missing exercise / DB error)
+#   2 = JIT gate blocked (needs machine registration; fields on stdout as JSON)
+#   3 = CONFIG DEFECT: this pack's taxonomy seed has never run on this DB, so
+#       ax_projection_rule is empty and there is no projection to report. Added
+#       2026-09-12: `rules` used to print NOTHING and exit 0 on a fresh install,
+#       and `project`/`serve` used to hand back the RAW target unrounded with
+#       fired_rules=[] and no empty-bar ramp. An empty result set is an answer
+#       only when a non-empty one was possible; a never-seeded table could not
+#       produce one. See ax_engine.py, section TAXONOMY SEED STATE.
+#
+# stdlib only.
+
+import os
+import sys
+import json
+import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ax_engine as AX
+
+# Exit code for "this install is incomplete", kept apart from 1 ("the command
+# failed") and 2 ("the machine needs registering"). Three different repairs.
+RC_NOT_SEEDED = 3
+
+
+def _not_seeded(exc, as_json, subject=None):
+    """One rendering of the taxonomy refusal for every subcommand.
+
+    JSON goes to stdout so a programmatic caller gets a parseable object rather
+    than a bare [] it would read as 'no rules exist'; the prose block goes to
+    stderr where a session agent sees it beside the failing command."""
+    if as_json:
+        print(json.dumps({"error": "taxonomy_not_seeded",
+                          "verdict": exc.report.get("verdict"),
+                          "tables": exc.report.get("tables"),
+                          "empty": exc.report.get("empty"),
+                          "missing": exc.report.get("missing"),
+                          "db": exc.report.get("db"),
+                          "fix": AX.taxonomy_seed_command(exc.report)},
+                         ensure_ascii=True))
+    print(AX.taxonomy_diagnostic(exc.report, subject), file=sys.stderr)
+    return RC_NOT_SEEDED
+
+
+def _fnum(v):
+    if v is None:
+        return None
+    try:
+        return float(v)
+    except ValueError:
+        raise SystemExit("[ax-project] ERROR: not a number: %s" % v)
+
+
+def cmd_project(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=False)
+    try:
+        res = AX.project(conn, args.exercise, args.machine,
+                         _fnum(args.target), step_ref=args.step,
+                         write=(not args.dry_run),
+                         step_type=args.step_type)
+    except AX.TaxonomyNotSeeded as e:
+        return _not_seeded(e, args.json, "project exercise=%s" % args.exercise)
+    except (ValueError, FileNotFoundError) as e:
+        print("[ax-project] ERROR: %s" % e, file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    if res.get("blocked"):
+        # J2: structured needs-fields signal on stdout, exit 2.
+        out = {"blocked": True, "gate": res["gate"],
+               "exercise_ref": res["exercise_ref"]}
+        print(json.dumps(out, ensure_ascii=True))
+        print("[ax-project] JIT gate blocked: machine %s (%s); needs=%s"
+              % (res["gate"].get("machine_ref"), res["gate"].get("reason"),
+                 res["gate"].get("needs")), file=sys.stderr)
+        return 2
+    if args.json:
+        print(json.dumps(res, ensure_ascii=True))
+    else:
+        print("PROJECTED exercise=%s machine=%s target_raw=%s realized=%s "
+              "rules=%s provisional=%d%s" % (
+                  res["exercise_ref"], res["machine_ref"], res["target_raw"],
+                  res["realized_value"], ",".join(res["fired_rules"]) or "-",
+                  res["provisional"],
+                  (" slot=%s" % res["slot_ulid"]) if "slot_ulid" in res
+                  else " (dry-run)"))
+    return 0
+
+
+def cmd_rules(args):
+    """List active projection rules.
+
+    TWO EMPTIES, TOLD APART (2026-09-12). Before this, a fresh install printed
+    nothing here and exited 0 -- indistinguishable from a seeded DB whose rules
+    a reader had deliberately retired. `rules` reports the whole table, so a
+    zero-row result can only mean the seed never ran; that is a config defect
+    and it now says so and exits 3. A seeded table that a FILTER empties (none
+    active, say) still prints its rows with their status, which is the honest
+    "seeded, nothing matches" answer."""
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=True)
+    try:
+        try:
+            AX.require_taxonomy(conn, "ax_projection_rule")
+        except AX.TaxonomyNotSeeded as e:
+            return _not_seeded(e, args.json, "rules")
+        rows = conn.execute(
+            "SELECT code, priority, action_kind, match_movement, "
+            "match_load_type, match_loading, match_cable_lines, "
+            "match_measure, match_has_injury, status FROM ax_projection_rule "
+            "ORDER BY priority ASC, code ASC;").fetchall()
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps([dict(r) for r in rows], ensure_ascii=True))
+    else:
+        for r in rows:
+            print("%3d  %-22s %-20s %s" % (
+                r["priority"], r["code"], r["action_kind"], r["status"]))
+    return 0
+
+
+def cmd_serve(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=False)
+    try:
+        resp = AX.serve(conn, args.session, args.slot, _fnum(args.target),
+                        write=(not args.dry_run))
+    except AX.TaxonomyNotSeeded as e:
+        return _not_seeded(e, args.json,
+                           "serve session=%s slot=%s" % (args.session,
+                                                         args.slot))
+    except (ValueError, FileNotFoundError) as e:
+        print("[ax-project] ERROR: %s" % e, file=sys.stderr)
+        return 1
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps(resp, ensure_ascii=True))
+    else:
+        if resp.get("blocked"):
+            print("BLOCKED session=%s slot=%s exercise=%s gate=%s needs=%s" % (
+                resp["session_ref"], resp["slot"], resp["exercise_name"],
+                resp.get("gate_reason"), ",".join(resp["gate_needs"]) or "-"))
+        else:
+            print("SERVED session=%s slot=%s exercise=%s realized=%s "
+                  "provisional=%d warmup=%d%s" % (
+                      resp["session_ref"], resp["slot"], resp["exercise_name"],
+                      resp["realized_value"], resp["provisional"],
+                      len(resp["warmup"]),
+                      (" slot=%s" % resp["slot_ulid"]) if "slot_ulid" in resp
+                      else " (dry-run)"))
+    if resp.get("blocked"):
+        return 2
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="ax-project",
+                                description="AX projection engine (P1-P4).")
+    sub = p.add_subparsers(dest="cmd")
+
+    pp = sub.add_parser("project", help="project a rule set onto a slot")
+    pp.add_argument("--exercise", required=True, help="ax_exercise ulid")
+    pp.add_argument("--machine", default=None, help="ax_machine ulid")
+    pp.add_argument("--target", default=None, help="rx-calc raw target weight")
+    pp.add_argument("--step", default=None, help="us_step ulid (slot link)")
+    pp.add_argument("--step-type", default=None,
+                    dest="step_type",
+                    choices=["prep", "warmup", "ramp", "working", "hold"],
+                    help="set class for the freeweight micro-grid gate "
+                         "(overrides the us_step-derived value)")
+    pp.add_argument("--db", default=None, help="kit_life.db path override")
+    pp.add_argument("--dry-run", action="store_true",
+                    help="compute but do not write the slot")
+    pp.add_argument("--json", action="store_true")
+    pp.set_defaults(fn=cmd_project)
+
+    pr = sub.add_parser("rules", help="list active projection rules")
+    pr.add_argument("--db", default=None)
+    pr.add_argument("--json", action="store_true")
+    pr.set_defaults(fn=cmd_rules)
+
+    ps = sub.add_parser("serve",
+                        help="session/slot last-mile bridge for the skill")
+    ps.add_argument("--session", required=True, help="rotation day (session_ref)")
+    ps.add_argument("--slot", required=True, type=int, help="slot number (seq)")
+    ps.add_argument("--target", default=None, help="rx-calc raw target weight")
+    ps.add_argument("--db", default=None, help="kit_life.db path override")
+    ps.add_argument("--dry-run", action="store_true",
+                    help="compute but do not write the slot")
+    ps.add_argument("--json", action="store_true")
+    ps.set_defaults(fn=cmd_serve)
+
+    args = p.parse_args(argv)
+    if not getattr(args, "fn", None):
+        p.print_help()
+        return 1
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

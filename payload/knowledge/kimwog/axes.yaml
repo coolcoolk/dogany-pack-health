@@ -1,0 +1,209 @@
+# Axes ledger (DGN-119 A-track LOCKED 2026-07-06; canonical set proposed DGN-172).
+#
+# Two tiers of axis names, both append-only, both validated by lint:
+#   1. core   -- framework-owned standard axis names (~20). Packs MUST prefer
+#      these. Shipped/updated via framework releases.
+#   2. pack   -- pack-namespaced extensions using the F2 domain-scope grammar
+#      (namespace/name, e.g. fitness/max_hr). Third-party publishers need zero
+#      central coordination.
+#
+# aliases: an off-ledger name that redirects to a canonical name. Reads resolve
+# the alias; writes should use the canonical (lint accepts an alias WITH A
+# WARNING, rejects a fully unknown name). This mirrors the domain-registry merge
+# machinery (core-promotion path: recurring pack axis -> core name + old pack
+# name becomes an alias redirect).
+#
+# An item's applicability.axes[].key MUST be a core name, a pack-namespaced
+# name, or a known alias. refract.py (DGN-172) owns the full deterministic
+# resolution; the vessel lint enforces the name discipline + the per-axis
+# tiering below (M-3: axes required, notes/scaling optional, SAFETY full-spec).
+#
+# ---------------------------------------------------------------------------
+# PROPOSED (pending grill sign-off, DGN-172). The 20 core NAMES + fields below
+# are this ticket's proposed canonical set (DGN-170 flagged DGN-172 owns them).
+# They are machine-valid NOW (lint green); the `proposed: true` flag marks the
+# SET as awaiting adversarial grill before it is declared frozen-canonical.
+# Do NOT rename after a real pack ships against a name (append-only contract).
+# ---------------------------------------------------------------------------
+proposed: true
+proposed_ticket: DGN-172
+proposed_note: >
+  Core-name canonicalization pending grill. Names are stable enough to lint and
+  to author sample items against; the grill may add axes (append-only) or move a
+  pack axis into core (alias-redirect), never rename a shipped core name.
+
+# Per-axis fields (schema, enforced by lint):
+#   name        (required) -- the canonical axis name (core: bare; pack: ns/name).
+#   source      (required) -- kit_life | profile. Which store answers the axis at
+#                             refraction time (measured vs stated). HYBRID routing
+#                             is DATA here, not hardcoded (DGN-119 2026-07-03).
+#   type        (required) -- numeric | categorical | boolean.
+#   unit        (numeric only) -- the scale unit (kg, years, cm, hours, pct...).
+#   volatility  (required) -- stable | an integer max_age_days. A volatile axis
+#                             may be re-asked only after max_age_days (DGN-119
+#                             Need protocol); stable axes are asked at most once.
+#   safety      (required) -- true when unknown/refused must gate specific numbers
+#                             (block_specifics). SAFETY axes are FULL-SPEC (M-3):
+#                             they additionally require baseline_text.
+#   baseline_text (required IFF safety, else optional) -- the stated-baseline
+#                             population string the answer-first fallback speaks
+#                             when the axis is missing (DGN-119: "answer first
+#                             with the stated baseline"). DATA, not hardcoded in
+#                             code -- the model reads it, never invents it. This
+#                             is where a locale-specific baseline (e.g. the
+#                             Korean "trained young male baseline") lives as data.
+
+core:
+  # --- identity / demographic (stated) -----------------------------------
+  - name: age_years
+    source: profile
+    type: numeric
+    unit: years
+    volatility: 365        # drifts one year per year; refresh annually
+    safety: false
+    baseline_text: "general adult baseline"
+  - name: birth_year
+    source: profile
+    type: numeric
+    unit: year
+    volatility: stable     # birth year never changes; age derives from it
+    safety: false
+  - name: sex
+    source: profile
+    type: categorical
+    volatility: stable
+    safety: false
+    baseline_text: "male-referenced baseline unless stated"
+  - name: height_cm
+    source: profile
+    type: numeric
+    unit: cm
+    volatility: stable
+    safety: false
+
+  # --- body composition (measured by kit_life) ----------------------------
+  - name: body_weight_kg
+    source: kit_life
+    type: numeric
+    unit: kg
+    volatility: 30         # re-read monthly; a scaling input for dose math
+    safety: false
+  - name: body_fat_pct
+    source: kit_life
+    type: numeric
+    unit: pct
+    volatility: 90
+    safety: false
+
+  # --- training / goal (stated) ------------------------------------------
+  - name: training_status
+    source: profile
+    type: categorical
+    volatility: 180        # untrained -> trained shifts over months
+    safety: false
+    baseline_text: "resistance-trained young adult baseline"
+  - name: training_age_years
+    source: profile
+    type: numeric
+    unit: years
+    volatility: 365
+    safety: false
+  - name: primary_goal
+    source: profile
+    type: categorical
+    volatility: 180        # goals cycle (cut/bulk/maintain)
+    safety: false
+  - name: activity_level
+    source: profile
+    type: categorical
+    volatility: 90
+    safety: false
+
+  # --- SAFETY axes (full-spec: block_specifics + baseline_text) ----------
+  - name: injury_history
+    source: profile
+    type: categorical
+    volatility: stable     # history is cumulative; re-ask only on new injury
+    safety: true
+    baseline_text: "no reported injury history"
+  - name: pregnancy_status
+    source: profile
+    type: categorical
+    volatility: 30         # volatile: re-confirm monthly for dosing gates
+    safety: true
+    baseline_text: "not-pregnant baseline"
+  - name: renal_condition
+    source: profile
+    type: categorical
+    volatility: 180
+    safety: true
+    baseline_text: "no known renal impairment"
+  - name: cardiovascular_condition
+    source: profile
+    type: categorical
+    volatility: 180
+    safety: true
+    baseline_text: "no known cardiovascular condition"
+  - name: allergen_list
+    source: profile
+    type: categorical
+    volatility: stable
+    safety: true
+    baseline_text: "no reported allergies"
+  - name: medication_list
+    source: profile
+    type: categorical
+    volatility: 90         # prescriptions change; re-confirm quarterly
+    safety: true
+    baseline_text: "no reported medications"
+
+  # --- diet / sensitivity (stated) ---------------------------------------
+  - name: dietary_pattern
+    source: profile
+    type: categorical
+    volatility: 180
+    safety: false
+    baseline_text: "omnivore baseline"
+  - name: caffeine_sensitivity
+    source: profile
+    type: categorical
+    volatility: stable
+    safety: false
+    baseline_text: "average caffeine tolerance"
+
+  # --- sleep (measured + stated) -----------------------------------------
+  - name: sleep_baseline_hours
+    source: kit_life
+    type: numeric
+    unit: hours
+    volatility: 30
+    safety: false
+  - name: chronotype
+    source: profile
+    type: categorical
+    volatility: stable
+    safety: false
+    baseline_text: "intermediate chronotype baseline"
+
+# Pack-namespaced extension axes (namespace/name). Kimwog is a fitness-flavored
+# warehouse; these demonstrate the pack extension slot. A third-party pack would
+# add its own namespace here without touching core. Pack axes carry the same
+# per-axis schema (SAFETY pack axes are full-spec too).
+pack:
+  - name: fitness/max_hr
+    source: kit_life
+    type: numeric
+    unit: bpm
+    volatility: 365
+    safety: false
+  - name: fitness/one_rep_max_kg
+    source: kit_life
+    type: numeric
+    unit: kg
+    volatility: 60
+    safety: false
+
+# Aliases: off-ledger name -> canonical on-ledger name.
+aliases:
+  age: age_years
+  weight_kg: body_weight_kg

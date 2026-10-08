@@ -1,0 +1,743 @@
+#!/usr/bin/env python3
+# session-cursor -- deterministic in-session position resolver.
+#
+# 2026-10-08: the set-result PARSER (`parse`, the lever-b fast-path primitive)
+# is REMOVED with the text fast path (owner ruling 2026-10-08: drop it).
+# A bare "31.25" answering a weight question was parsed as REPS and logged. No
+# code path turns owner TEXT into a set row any more; sets are written only by
+# tool calls and by keyboard taps.
+#
+# NO new source of truth: day is read from workouts.session_type_id -> program
+# day; slot order + planned sets from program.yaml; logged sets from
+# workout_sets. This is the SAME state set-table renders from -- the cursor just
+# reads it forward instead of drawing it.
+#
+# Usage:
+#   session-cursor resolve [<session_id>] [--db P] [--program P] [--marker P]
+#       Emit the current POSITION (machine key=value block). Answers from any
+#       band -- working, ramp, prep, or "nothing logged yet". exit 0 =
+#       position pinned; 2 = position genuinely unknowable (FALLBACK reason on
+#       stdout); 1 = bad args / missing files.
+#
+#   session-cursor mark <session_id> [--marker P]     write the active-session marker
+#   session-cursor clear [--marker P]                 remove the active-session marker
+#   session-cursor get [--marker P]                   print active session id (exit 0) or exit 2
+#
+# session_id defaults to the active-session marker (files/program/.active-session)
+# when omitted. Marker missing AND no id -> FALLBACK no_active_session.
+#
+# Reuse: imports set-table (same dir, no .py ext) via importlib for
+# find_day_and_slot / fetch_current_sets / load_rx_calc; set-table's __main__
+# guard means import runs no side effects.
+#
+# stdlib only. ASCII source.
+
+import sys
+import os
+import sqlite3
+import argparse
+import importlib.util
+import importlib.machinery
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+# Per-process connection reuse (db_pool.py): the kit schema is parsed once per
+# process, not once per lookup. Import failure -> plain sqlite3.connect.
+# sys.path is left exactly as found (sibling-import resolution must not move).
+try:
+    sys.path.insert(0, HERE)
+    try:
+        from db_pool import connect as _db_connect
+    finally:
+        sys.path.remove(HERE)
+except Exception:              # noqa: BLE001 -- degrade to a new connection per call
+    _db_connect = sqlite3.connect
+DEFAULT_DB = os.path.join(HERE, "..", "..", "database", "kit_life.db")
+# LIVE-SAFETY: runtime-state root -- see set-arm. Tests MUST export
+# LIFEKIT_HEALTH_STATE_DIR=<temp dir>; unset means the LIVE marker surface.
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+# 2026-08-25: STATE_DIR no longer follows the SCRIPT DIRECTORY.
+# The runtime marker surface is pinned to files/program/ INDEPENDENTLY of where
+# this file lives, because bridge/bot.py:4239 reads .idrill-arm/ from that exact
+# path and IDRILL-ARM-CONTRACT.md declares it the single pack<->bridge surface.
+# Before this, `or HERE`/`or SCRIPT_DIR` worked only by the coincidence that code
+# and state shared one directory. Moving the engine to service/health/ dissolves
+# that coincidence and would silently kill EVERY inline button (arm written to the
+# new dir, bridge still reading the old one -> IDRILL_ARM_EXPIRED, no error).
+# Unset LIFEKIT_HEALTH_STATE_DIR resolves byte-identically to the pre-change behaviour.
+STATE_DIR = (os.environ.get("LIFEKIT_HEALTH_STATE_DIR")
+             or os.path.join(PROJECT_ROOT, "files", "program"))
+# 2026-08-25: program.yaml / prep.yaml are OWNER DATA (their slots, loads,
+# rulings), not product. They stay in files/program/ when the engine moves to
+# service/health/, so resolve them off DATA_DIR, never off SCRIPT_DIR --
+# otherwise an install would cp -f a packaged copy over their real program.
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+DEFAULT_MARKER = os.path.join(STATE_DIR, ".active-session")
+
+
+def _load_module(name, filename):
+    """Import a sibling script that has no .py extension as a module."""
+    path = os.path.join(HERE, filename)
+    spec = importlib.util.spec_from_loader(
+        name, importlib.machinery.SourceFileLoader(name, path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+# ---------------------------------------------------------------------------
+# marker (session-active gate carrier) -- mirrors the .water-last sentinel
+# pattern already in files/program/. Holds the active workouts.id, one integer.
+# ---------------------------------------------------------------------------
+def marker_read(marker_path):
+    try:
+        with open(marker_path) as fh:
+            txt = fh.read().strip()
+        return int(txt) if txt else None
+    except (OSError, ValueError):
+        return None
+
+
+def marker_write(marker_path, session_id):
+    try:
+        with open(marker_path, "w") as fh:
+            fh.write("%d" % int(session_id))
+        return True
+    except OSError:
+        return False
+
+
+def marker_clear(marker_path):
+    try:
+        os.remove(marker_path)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
+# day resolution -- the primary (tagged) path of set-table.find_day_and_slot,
+# WITHOUT the exercise-name fallback (the cursor does not yet know the exercise).
+# A session that is not tagged with a real program day has no cursor.
+# ---------------------------------------------------------------------------
+def resolve_day(program, db_path, session_id):
+    """(day_code, None) when the session ROW names a program day, else
+    (None, reason).
+
+    The reason is a diagnostic that ends up on the owner-invisible
+    `FALLBACK <reason>` line, so it has to say what actually happened. It used
+    to collapse two different facts into `session_day_not_in_program`: "the
+    session names a day this program does not have" (a real anomaly) and "the
+    session is a 보충, whose code is a session CLASS and never a program day"
+    (routine -- a makeup session trains
+    across several splits, so there IS no single day to anchor a cursor to).
+    Reading the first message for the second case sent an investigation after a
+    program/DB mismatch that was not there. Named separately since 2026-08-26.
+    """
+    days = program.get("days") or {}
+    conn = _db_connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT session_type_id FROM workouts WHERE id = ?", (session_id,)
+        ).fetchone()
+        if row is None:
+            return None, "unknown_session"
+        stype_id = row[0]
+        if stype_id is None:
+            return None, "untagged_session"
+        crow = conn.execute(
+            "SELECT code FROM session_type WHERE id = ?", (stype_id,)
+        ).fetchone()
+        if not crow or not crow[0]:
+            return None, "session_type_row_missing"
+        code = crow[0]
+        if code not in days:
+            # The row DID answer -- it just answered with a class, not a day.
+            # Carry the class in the reason so the fallback is legible.
+            return None, "session_class_not_a_program_day:%s" % code
+        return code, None
+    except sqlite3.OperationalError as e:
+        return None, "db_error:%s" % e
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# THE BAND-BLIND ANCHOR (2026-09-11). MEASURED LIVE, mid-session.
+#
+# `session-cursor resolve` answered `FALLBACK no_anchor_first_set` for a session
+# that had TWO logged rows:
+#
+#     deadlift  ramp  seq  0   20.0kg x 5      <- the owner had done this
+#     deadlift  ramp  seq -1   60.0kg x 5
+#     working (set_seq >= 1)          0 rows
+#
+# _last_working_exercise only sees `set_seq >= 1`, so the resolver had nothing
+# to anchor to and declined to pin a position. The UserPromptSubmit cursor gate
+# turns that exit-2 into "a session is OPEN, but the cursor resolver declined to
+# pin a position ... re-read live state before asserting any slot or set number
+# -- do not reconstruct the position from earlier chat context."
+#
+# THE GATE FORBIDS THE GUESS AND SUPPLIES NO ALTERNATIVE. The model was told not
+# to reconstruct and handed nothing to read instead, so it reconstructed: it
+# announced the 20kg rung the owner had already finished while he was standing
+# at 60kg. That is not a model failure to obey -- there was no obeying it.
+#
+# The root fault is here, one layer under the gate: the cursor treats "no
+# WORKING set" as "no position". A session's whole opening -- every prep drill
+# and every ramp rung -- is therefore a permanent blind spot, and that is the
+# part of a session where the owner asks the most questions.
+#
+# THE SPLIT THIS INTRODUCES, and why it is not one function doing two jobs:
+#
+#   resolve_position()  READ. "Where is he right now?" Answers from ANY band
+#                       (working / ramp / prep) and, when a session has no rows
+#                       at all, answers THAT -- "nothing logged yet" is a
+#                       determinate position, not a failure. `resolve` uses it.
+#   (resolve_cursor(), the WRITE-intent half that fed `parse`, was removed
+#   with the text fast path on 2026-10-08.)
+# ---------------------------------------------------------------------------
+# The prep band floor, mirrored from set-table.PREP_SEQ_BASE (the SoT). Kept as
+# a local literal for the same reason _is_hold_class is duplicated below --
+# session-cursor stays import-light on the idle path. Asserted equal to the SoT
+# in tests/test-session-cursor-bands.py, so a drift fails a test rather than
+# mislabelling a row.
+PREP_SEQ_BASE = -100
+
+BAND_WORKING = "working"
+BAND_RAMP = "ramp"
+BAND_PREP = "prep"
+BAND_NONE = "none"
+
+
+def _band_for_seq(set_seq):
+    """Stored set_seq -> band name. Mirrors set-table.set_kind_for_seq."""
+    n = int(set_seq)
+    if n >= 1:
+        return BAND_WORKING
+    if n > PREP_SEQ_BASE:
+        return BAND_RAMP
+    return BAND_PREP
+
+
+def _band_label(set_seq):
+    """The SET-column label for a stored set_seq. Mirrors set-table.seq_label so
+    the position block names a row exactly as the set table does -- 'r1' here
+    and 'r1' there, never 'seq=-1' here and 'r1' there."""
+    n = int(set_seq)
+    if n >= 1:
+        return str(n)
+    if n == 0:
+        return "bw"
+    if n > PREP_SEQ_BASE:
+        return "r%d" % (-n)
+    return "p%d" % (PREP_SEQ_BASE - n + 1)
+
+
+def _last_any_set(db_path, session_id):
+    """The session's MOST RECENT row in ANY band, by monotonic workout_sets.id
+    DESC -- the same "what did he actually just do" ordering
+    _last_working_exercise uses, with the `set_seq >= 1` filter removed.
+
+    Returns a dict (exercise_name / set_seq / weight_kg / reps / rir) or None
+    when the session has no rows at all. Best-effort: any DB error -> None."""
+    conn = _db_connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT exercise_name, set_seq, weight_kg, reps, rir "
+            "FROM workout_sets WHERE session_id = ? "
+            "ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        if not row:
+            return None
+        return {"exercise_name": row[0], "set_seq": row[1],
+                "weight_kg": row[2], "reps": row[3], "rir": row[4]}
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+
+
+def _band_counts(db_path, session_id, exercise_name):
+    """(working, ramp, prep) row counts for one (session, exercise).
+
+    Counted in SQL off the same sign convention set-table renders from, so the
+    numbers in the position block and the numbers in the table cannot disagree.
+    Best-effort: any DB error -> (0, 0, 0)."""
+    conn = _db_connect(db_path)
+    try:
+        rows = conn.execute(
+            "SELECT set_seq FROM workout_sets "
+            "WHERE session_id = ? AND exercise_name = ?",
+            (session_id, exercise_name),
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return 0, 0, 0
+    finally:
+        conn.close()
+    working = ramp = prep = 0
+    for (seq,) in rows:
+        if seq is None:
+            continue
+        band = _band_for_seq(seq)
+        if band == BAND_WORKING:
+            working += 1
+        elif band == BAND_RAMP:
+            ramp += 1
+        else:
+            prep += 1
+    return working, ramp, prep
+
+
+def _day_progress(db_path, session_id, slots):
+    """The whole day's progress as one token: `<slot>:<done>/<planned>` per
+    slot in program order, comma-joined -- e.g. `1:3/3,2:1/3,3:0/3`.
+
+    WHY (owner ruling 2026-09-30, actor ticket: "진행사항은 인지해야"). The
+    position block answers "where is he now"; it did not answer "what is done
+    and what is left", which is what the model needs to talk about the session
+    at all once taps have bypassed it. `done` counts working
+    rows (set_seq >= 1), the same sign convention set-table renders from.
+    Best-effort: any DB error -> None (the line is omitted, never guessed)."""
+    try:
+        conn = _db_connect(db_path)
+        try:
+            counts = dict(conn.execute(
+                "SELECT exercise_name, COUNT(*) FROM workout_sets "
+                "WHERE session_id = ? AND set_seq >= 1 "
+                "GROUP BY exercise_name", (session_id,)).fetchall())
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        return None
+    parts = []
+    for idx, ex in enumerate(slots, start=1):
+        parts.append("%s:%d/%d" % (ex.get("slot", idx),
+                                   counts.get(ex.get("name"), 0),
+                                   ex.get("sets") or 0))
+    return ",".join(parts)
+
+
+def _last_working_exercise(db_path, session_id):
+    """F2 (DGN-801) anchor source: the exercise_name of the session's MOST RECENT
+    WORKING set (set_seq>=1), by monotonic workout_sets.id DESC. This is the slot
+    the owner is actually on RIGHT NOW -- as opposed to "first incomplete slot in
+    program order", which mis-anchors partial / re-ordered / cleanup sessions
+    (e.g. session 10079 logs into slots 4-7 but program order would hand back
+    slot 1 deadlift). Returns exercise_name or None (no working set logged yet).
+    Best-effort: any DB error -> None (caller falls back)."""
+    conn = _db_connect(db_path)
+    try:
+        row = conn.execute(
+            "SELECT exercise_name FROM workout_sets "
+            "WHERE session_id = ? AND set_seq >= 1 "
+            "ORDER BY id DESC LIMIT 1",
+            (session_id,),
+        ).fetchone()
+        return row[0] if row else None
+    except sqlite3.OperationalError:
+        return None
+    finally:
+        conn.close()
+
+
+# F2/M5 (DGN-801) hold-class predicate. set-arm.is_hold_class is the SoT (E14:
+# progression == 'hold' AND weight_kg is None => a TRUE isometric hold slot whose
+# rep_range encodes SECONDS, driven by a button UX, never a number). Duplicated
+# here as a 3-line check to keep session-cursor stdlib-only / import-light; if
+# the SoT predicate changes, mirror it here.
+def _is_hold_class(slot, st=None, db_path=None):
+    """set-arm.is_hold_class, delegated to rx-calc._is_isometric_hold (A1): the
+    class comes from structure, never from a resolved weight. No rx-calc
+    reachable -> the legacy card shape."""
+    if not slot:
+        return False
+    try:
+        return bool(st.load_rx_calc()._is_isometric_hold(slot, db_path))
+    except Exception:  # noqa: BLE001
+        return (slot.get("progression") == "hold"
+                and slot.get("weight_kg") is None)
+
+
+def _armed_weight(session_id, exercise_name, set_seq):
+    """The working weight set-arm armed for this lift in this session, read
+    the way set-add's text path reads it (exact key, else the newest working
+    sibling arm; stale / foreign / rung arms refused). None when no arm."""
+    try:
+        sa = _load_module("set_add", "set-add")
+        weight, _src = sa._resolve_armed_weight(session_id, exercise_name,
+                                                set_seq)
+        return weight
+    except Exception:  # noqa: BLE001 -- an arm miss falls through to rx
+        return None
+
+
+def _today_weight(st, program_path, db_path, session_id, exercise_name,
+                  day_code, set_seq):
+    """Today's working weight for this lift -- the number the set table
+    prints and the button would log:
+      1. the ARMED weight (set-arm writes it after every logged set and on
+         entry: rx-calc's prescription overlaid with the owner's override,
+         seq-independent for working sets) -- a file read, so the model-free
+         path stays inside its time budget;
+      2. else set-table.resolve_today_weights (the same prescription,
+         computed: one calc_rx).
+    Program state step B (2026-10-03): this used to be the card's weight_kg.
+    Since step A that field is only a SEED (read by rx-calc while nothing is
+    logged), so after the first logged session the cursor disagreed with the
+    table: a seeded slot fast-pathed "8 2" at the stale seed, and a slot with
+    a null seed read as unprescribed, so "8 2" was logged as 8 kg x 2 reps.
+    Neither answer -> None (unprescribed: the owner states the weight),
+    never the seed."""
+    if not exercise_name:
+        return None
+    armed = _armed_weight(session_id, exercise_name, set_seq)
+    if armed is not None:
+        return armed
+    if not program_path:
+        return None
+    try:
+        return st.resolve_today_weights(
+            st.load_rx_calc(), program_path, db_path, session_id,
+            [exercise_name], rotation_day=day_code).get(exercise_name)
+    except Exception:  # noqa: BLE001 -- a resolver miss degrades to unprescribed
+        return None
+
+
+def resolve_position(program, st, db_path, session_id, program_path=None):
+    """WHERE IS HE RIGHT NOW -- answered from any band. Returns (pos, reason).
+
+    This is the READ half of the 2026-09-11 split (see the long note above
+    _last_working_exercise). It answers for a session that has logged only ramp
+    rungs, only prep drills, or nothing at all -- the three states the old
+    working-only anchor collapsed into `no_anchor_first_set`.
+
+    The returned dict is a superset of the old cursor dict, so every existing
+    field a reader used is still there and still means the same thing. New:
+      band            working | ramp | prep | none
+      band_last_label the SET-column label of the most recent row ('r1', 'p2')
+      band_last_*     that row's weight/reps/rir
+      working_logged / ramp_logged / prep_logged   per-band row counts
+
+    Hard reasons (position genuinely unknowable) still return (None, reason):
+      unknown_session / untagged_session / session_type_row_missing /
+      session_class_not_a_program_day:<code> / db_error:<e> / empty_day /
+      anchor_slot_not_in_day (WORKING band only -- see below).
+    """
+    day_code, err = resolve_day(program, db_path, session_id)
+    if day_code is None:
+        return None, err
+
+    days = program.get("days") or {}
+    slots = (days.get(day_code) or {}).get("exercises") or []
+    if not slots:
+        return None, "empty_day"
+
+    # ANCHOR, in the order the owner's own progress supplies one.
+    # 1) the most recent WORKING set (the pre-2026-09-11 anchor, unchanged);
+    # 2) failing that, the most recent row in ANY band -- ramp or prep;
+    # 3) failing that, the session has no rows at all, which is itself a
+    #    position: he is at the top of the day and has done nothing yet.
+    anchor_name = _last_working_exercise(db_path, session_id)
+    last_row = None
+    if anchor_name is not None:
+        band = BAND_WORKING
+    else:
+        last_row = _last_any_set(db_path, session_id)
+        if last_row is None:
+            band = BAND_NONE
+        else:
+            anchor_name = last_row["exercise_name"]
+            band = _band_for_seq(last_row["set_seq"])
+
+    # Locate the anchor slot within TODAY's program day.
+    anchor_idx = None
+    anchor_ex = None
+    if band == BAND_NONE:
+        # Nothing logged. The position is the day's FIRST slot, not a guess:
+        # program order is what the session is about to walk, and done_working=0
+        # says plainly that it has not started.
+        anchor_idx, anchor_ex = 1, slots[0]
+        anchor_name = anchor_ex.get("name")
+    else:
+        for idx, ex in enumerate(slots, start=1):
+            if ex.get("name") == anchor_name:
+                anchor_idx, anchor_ex = idx, ex
+                break
+
+    if anchor_ex is None:
+        if band == BAND_WORKING:
+            # UNCHANGED: a working set on an exercise that is not in today's
+            # resolved day is an off-program slot. Kept a hard reason.
+            return None, "anchor_slot_not_in_day"
+        # A RAMP OR PREP row on an off-day exercise is not a reason to go blind.
+        # The row itself is still authoritative about what he just did, so the
+        # position is reported with the slot fields unresolved rather than
+        # thrown away. (A prep row is the common case here: prep is logged under
+        # its host lift, and a supplementary session can carry a lift the tagged
+        # day does not list.)
+        anchor_idx = None
+
+    slot_ex = anchor_ex or {}
+    _ramps, work = st.fetch_current_sets(db_path, session_id, anchor_name)
+    planned = slot_ex.get("sets") or 0
+    next_seq = (max(s["set_seq"] for s in work) + 1) if work else 1
+    working_n, ramp_n, prep_n = _band_counts(db_path, session_id, anchor_name)
+
+    rep_range = slot_ex.get("rep_range") or []
+    weight_kg = _today_weight(st, program_path, db_path, session_id,
+                              anchor_name, day_code, next_seq)
+    pos = {
+        "session_id": session_id,
+        "day_code": day_code,
+        "slot_num": slot_ex.get("slot", anchor_idx),
+        "slot_index": anchor_idx,
+        "total_slots": len(slots),
+        "exercise_name": anchor_name,
+        "display": slot_ex.get("display") or anchor_name,
+        "planned_sets": planned,
+        "done_working": len(work),
+        "next_set_seq": next_seq,
+        "weight_prescribed": weight_kg is not None,
+        "default_weight_kg": weight_kg,
+        "target_rir": slot_ex.get("target_rir"),
+        "rep_lo": rep_range[0] if len(rep_range) >= 1 else None,
+        "rep_hi": rep_range[1] if len(rep_range) >= 2 else None,
+        "loading": slot_ex.get("loading"),
+        # --- the band axis (2026-09-11) ---
+        "band": band,
+        "band_last_label": (_band_label(last_row["set_seq"])
+                            if last_row is not None else None),
+        "band_last_weight_kg": last_row["weight_kg"] if last_row else None,
+        "band_last_reps": last_row["reps"] if last_row else None,
+        "band_last_rir": last_row["rir"] if last_row else None,
+        "working_logged": working_n,
+        "ramp_logged": ramp_n,
+        "prep_logged": prep_n,
+        "day_progress": _day_progress(db_path, session_id, slots),
+    }
+    return pos, None
+
+
+def _fmt_weight(w):
+    """Render a weight for the argv the same way the DB stores it: drop a
+    trailing .0 on whole numbers, keep decimals otherwise."""
+    if w is None:
+        return None
+    if float(w).is_integer():
+        return str(int(w))
+    return str(w)
+
+
+# ---------------------------------------------------------------------------
+# command surface
+# ---------------------------------------------------------------------------
+def _load_program(program_path):
+    rx = _load_module("rx_calc", "rx-calc")
+    program = rx.load_yaml(program_path)
+    if not isinstance(program, dict):
+        return None
+    return program
+
+
+def _resolve_session_id(explicit, marker_path):
+    if explicit is not None:
+        return explicit
+    return marker_read(marker_path)
+
+
+def _read_cmd(cur):
+    """THE MEANS (A-2, 2026-09-11). The cursor gate's fallback text tells the
+    model "re-read live state before asserting any slot or set number -- do not
+    reconstruct the position from earlier chat context", and then hands it
+    nothing to read. A prohibition with no alternative is how the 2026-09-11
+    06:49 wrong answer happened: the model had exactly two options, obey and say
+    nothing or guess, and it guessed.
+
+    So every position block carries the literal command that prints the full
+    per-row table for this anchor. It is not new capability -- set-table has
+    always rendered it -- it is the read the instruction assumed existed.
+
+    THE PATH IS DERIVED, NOT NAMED (2026-09-11, measured). This used to return a
+    hardcoded "service/health/set-table". The same file is installed in TWO
+    trees -- the pack form `service/health/` and the live form `files/program/`
+    -- so the copy running in one tree pointed the model at the OTHER tree's
+    set-table. Those two can be different versions (they were: 221855 vs
+    222240), which turns THE MEANS into a means of reading the wrong thing.
+    `HERE` is where this cursor actually lives, so the emitted command always
+    names its own sibling set-table. Relative to cwd because the model runs it
+    from the instance root; falls back to the absolute path when no relative
+    form exists (different volume)."""
+    sibling = os.path.join(HERE, "set-table")
+    try:
+        target = os.path.relpath(sibling)
+    except ValueError:
+        target = sibling
+    return "%s %d %s" % (target, cur["session_id"], cur["exercise_name"])
+
+
+def emit_cursor(cur):
+    """Machine key=value block + a human next-set line (stdout)."""
+    slot_line = ("slot=%s/%d slot_num=%s"
+                 % (cur["slot_index"] if cur["slot_index"] is not None else "?",
+                    cur["total_slots"],
+                    cur["slot_num"] if cur["slot_num"] is not None else "NONE"))
+    lines = [
+        # `band` on the header line (2026-09-11): the FIRST thing a reader needs
+        # is which part of the session this is, because 「데드리프트 r1 끝」 and
+        # 「데드리프트 1세트 끝」 are different sentences to the owner.
+        "CURSOR session_id=%d status=ACTIVE band=%s"
+        % (cur["session_id"], cur["band"]),
+        "day=%s" % cur["day_code"],
+        slot_line,
+        "exercise_name=%s" % cur["exercise_name"],
+        "display=%s" % cur["display"],
+        "next_set_seq=%d done_working=%d planned_sets=%d"
+        % (cur["next_set_seq"], cur["done_working"], cur["planned_sets"]),
+        "weight_prescribed=%s default_weight_kg=%s"
+        % ("yes" if cur["weight_prescribed"] else "no",
+           _fmt_weight(cur["default_weight_kg"]) or "NONE"),
+        "target_rir=%s rep_range=%s-%s"
+        % (cur["target_rir"] if cur["target_rir"] is not None else "NONE",
+           cur["rep_lo"] if cur["rep_lo"] is not None else "?",
+           cur["rep_hi"] if cur["rep_hi"] is not None else "?"),
+        "loading=%s" % (cur["loading"] or "total"),
+        "logged working=%d ramp=%d prep=%d"
+        % (cur["working_logged"], cur["ramp_logged"], cur["prep_logged"]),
+    ]
+    # Whole-day progress (slot:done/planned working sets). See _day_progress.
+    if cur.get("day_progress"):
+        lines.append("day_progress=%s" % cur["day_progress"])
+    # THE ROW HE JUST FINISHED, named the way the set table names it. This is
+    # the line whose absence produced the 06:49 defect: the owner had logged
+    # 20.0kg x 5 at the bw rung and been told to go do it.
+    if cur["band_last_label"] is not None:
+        lines.append(
+            "last_logged=%s weight_kg=%s reps=%s rir=%s"
+            % (cur["band_last_label"],
+               _fmt_weight(cur["band_last_weight_kg"]) or "NONE",
+               cur["band_last_reps"] if cur["band_last_reps"] is not None
+               else "NONE",
+               cur["band_last_rir"] if cur["band_last_rir"] is not None
+               else "NONE"))
+    if cur["band"] == BAND_NONE:
+        # Not an absence of information. "Zero rows" is a fact about the session
+        # and it is the fact the model needs: nothing has been done, so the
+        # first thing on the day is the next thing.
+        lines.append("nothing_logged=yes  "
+                     "# session is open and has no rows in any band yet")
+    # boundary flag: the next set is the slot's LAST planned set. Advisory only
+    # -- it tells a reader that the slot ends here, so the input AFTER this one
+    # crosses into the next exercise.
+    if cur["next_set_seq"] >= cur["planned_sets"] and cur["planned_sets"] > 0:
+        lines.append("boundary=slot_last  # next set is the last planned set")
+    lines.append("read_cmd=%s" % _read_cmd(cur))
+    print("\n".join(lines))
+
+
+def cmd_resolve(program, st, db_path, session_id, program_path=None):
+    """`resolve` answers the POSITION question. It is read by the model and by
+    the UserPromptSubmit cursor gate, neither of which writes anything.
+
+    exit 0 means "here is the position"; exit 2 is reserved for the cases where
+    the position is genuinely unknowable -- no session, an untagged session, a
+    day the program does not contain."""
+    cur, reason = resolve_position(program, st, db_path, session_id,
+                                   program_path=program_path)
+    if cur is None:
+        # Even here, do not leave the reader with a prohibition and no means.
+        # The cursor gate carries EVERYTHING after the word FALLBACK into the
+        # model's context, so the second line arrives with the reason.
+        print("FALLBACK %s" % reason)
+        if reason != "no_active_session":
+            print("read_cmd=service/health/set-table %d <exercise_name>  "
+                  "# the position could not be pinned; READ the table, "
+                  "do not reconstruct it from chat" % session_id)
+        return 2
+    emit_cursor(cur)
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="session-cursor",
+        description="Deterministic in-session position cursor.",
+    )
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    def add_common(sp):
+        sp.add_argument("session_id", nargs="?", type=int, default=None,
+                        help="workouts.id (default: active-session marker)")
+        sp.add_argument("--db", default=DEFAULT_DB)
+        sp.add_argument("--program", default=DEFAULT_PROGRAM)
+        sp.add_argument("--marker", default=DEFAULT_MARKER)
+
+    sp_r = sub.add_parser("resolve", help="emit the current working-slot cursor")
+    add_common(sp_r)
+
+    sp_m = sub.add_parser("mark", help="write the active-session marker")
+    sp_m.add_argument("session_id", type=int)
+    sp_m.add_argument("--marker", default=DEFAULT_MARKER)
+
+    sp_c = sub.add_parser("clear", help="remove the active-session marker")
+    sp_c.add_argument("--marker", default=DEFAULT_MARKER)
+
+    sp_g = sub.add_parser("get", help="print the active session id")
+    sp_g.add_argument("--marker", default=DEFAULT_MARKER)
+
+    args = p.parse_args(argv)
+
+    if args.cmd == "mark":
+        ok = marker_write(args.marker, args.session_id)
+        if not ok:
+            print("ERROR: could not write marker %s" % args.marker, file=sys.stderr)
+            return 1
+        print("MARKED %d" % args.session_id)
+        return 0
+    if args.cmd == "clear":
+        marker_clear(args.marker)
+        print("CLEARED")
+        return 0
+    if args.cmd == "get":
+        sid = marker_read(args.marker)
+        if sid is None:
+            return 2
+        print(sid)
+        return 0
+
+    # resolve
+    db_path = os.path.abspath(args.db)
+    from free_session import effective_path
+    program_path = effective_path(os.path.abspath(args.program), db_path,
+                                  _resolve_session_id(args.session_id, args.marker))
+    if not os.path.exists(db_path):
+        print("ERROR: db not found: %s" % db_path, file=sys.stderr)
+        return 1
+    if not os.path.exists(program_path):
+        print("ERROR: program.yaml not found: %s" % program_path, file=sys.stderr)
+        return 1
+
+    session_id = _resolve_session_id(args.session_id, args.marker)
+    if session_id is None:
+        print("FALLBACK no_active_session")
+        return 2
+
+    program = _load_program(program_path)
+    if program is None:
+        print("ERROR: program.yaml did not parse as a dict", file=sys.stderr)
+        return 1
+
+    st = _load_module("set_table", "set-table")
+
+    if args.cmd == "resolve":
+        return cmd_resolve(program, st, db_path, session_id,
+                           program_path=program_path)
+    return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

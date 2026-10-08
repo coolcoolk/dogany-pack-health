@@ -1,0 +1,126 @@
+#!/usr/bin/env python3
+# session-retro -- the health agent's daily retro lines (kit retro-sections
+# provider, lane `daily`; pack_health 0.30.0, owner 2026-10-02 08:27).
+#
+# The domain daily retro is a GLANCE CARD with no conversation (kit
+# daily-retro.sh domain path). Two registry rows run this tool so the card's
+# tail stays last whatever sits between them (protein-retro):
+#
+#   session-retro              (--part day)
+#     운동: 앞A 16/18세트 (레그 컬 2세트 빠짐)     today's session vs its plan
+#     운동: 가슴·하체 144분                        a session with no program day
+#     식단: 1,850 / 2,050kcal · 단백질 118 / 150g  intake vs target (meals only)
+#   session-retro --part next
+#     내일 운동: 금요일 · 아침 5시                  the next planned day
+#     다음 운동: 10/6 월요일 · 아침 6시             (not tomorrow)
+#
+# Silence (D4: no absence claims): no workout and no meal today -> both parts
+# exit 3, so a day with nothing logged sends no card at all (the tail never
+# makes a send on its own). A planned day with nothing logged says nothing
+# about the session.
+#
+#   session-retro --lane daily [--mode line|section] [--part day|next]
+#                 [--date YYYY-MM-DD]
+#   exit 0 + lines (<= 3, no decision) | exit 3 nothing
+# Read-only. Facts and rules: brief_lib.py.
+import argparse
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brief_lib as BL                                          # noqa: E402
+
+
+def session_line(conn, w, program):
+    """One workout row -> its line."""
+    day_ex = []
+    if w["code"] and program:
+        day_ex = [e for e in ((program.get("days") or {}).get(w["code"]) or {})
+                  .get("exercises") or () if e.get("sets")]
+    if day_ex:
+        logged = BL.sets_done(conn, w["id"])
+        planned = sum(int(e["sets"]) for e in day_ex)
+        done = sum(min(logged.get(e.get("name"), 0), int(e["sets"])) for e in day_ex)
+        line = BL.t("health.retro.session_sets", code=w["code"], done=done,
+                    planned=planned)
+        missed = [BL.t("health.retro.missed_item", name=e.get("display") or e.get("name"),
+                       n=int(e["sets"]) - logged.get(e.get("name"), 0))
+                  for e in day_ex if logged.get(e.get("name"), 0) < int(e["sets"])]
+        if missed:
+            line = BL.t("health.retro.session_missed", line=line,
+                        missed=", ".join(missed[:2]) + (" …" if len(missed) > 2 else ""))
+        return line
+    return BL.t("health.retro.session_free",
+                label=w["label"] or BL.t("health.retro.session_label_default"),
+                minutes=BL.num(w["minutes"]))
+
+
+def intake_line(conn, day):
+    got = BL.intake(conn, day)
+    if not got or got["meals"] <= 0:
+        return ""
+    target = BL.diet_target(conn, day)
+    kcal, protein = BL.num(got["kcal"]), BL.num(got["protein"])
+    if target and target["kcal"] is not None and target["protein"] is not None:
+        return BL.t("health.retro.intake", kcal=kcal, target=BL.num(target["kcal"]),
+                    protein=protein, protein_target=BL.num(target["protein"]))
+    if target and target["kcal"] is not None:
+        return BL.t("health.retro.intake_kcal", kcal=kcal,
+                    target=BL.num(target["kcal"]), protein=protein)
+    return BL.t("health.retro.intake_only", kcal=kcal, protein=protein)
+
+
+def day_lines(conn, day):
+    rows = BL.workouts(conn, day, day)
+    program = BL.load_program() if any(r["code"] for r in rows) else None
+    out = [session_line(conn, w, program) for w in rows[:2]]
+    out.append(intake_line(conn, day))
+    return BL.capped(out)
+
+
+def next_line(conn, day):
+    if not day_lines(conn, day):
+        return []
+    nxt = BL.next_training(BL.schedule(conn), day)
+    if not nxt:
+        return []
+    d, start = nxt
+    if (d - day).days == 1:
+        line = (BL.t("health.retro.next_tomorrow", wd=BL.wd_full(d), time=BL.clock(start))
+                if start else BL.t("health.retro.next_tomorrow_day", wd=BL.wd_full(d)))
+    else:
+        line = (BL.t("health.retro.next_later", md=BL.md(d), wd=BL.wd_full(d),
+                     time=BL.clock(start))
+                if start else BL.t("health.retro.next_later_day", md=BL.md(d),
+                                   wd=BL.wd_full(d)))
+    return [line]
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="session-retro")
+    p.add_argument("--lane", choices=("morning", "daily", "weekly"), required=True)
+    p.add_argument("--mode", choices=("line", "section", "grid"), default="section")
+    p.add_argument("--part", choices=("day", "next"), default="day")
+    p.add_argument("--date")
+    p.add_argument("--db")
+    a = p.parse_args(argv)
+    if a.lane != "daily" or a.mode == "grid":
+        return BL.EXIT_NOTHING
+    try:
+        if a.db:
+            os.environ["HEALTH_BRIEF_DB"] = a.db
+        day = BL.run_date(a.date)
+        conn = BL.connect()
+        try:
+            lines = (next_line if a.part == "next" else day_lines)(conn, day)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 -- a provider never fails a retro
+        print("session-retro: %s" % exc, file=sys.stderr)
+        return BL.EXIT_NOTHING
+    return BL.emit(lines, a.mode)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

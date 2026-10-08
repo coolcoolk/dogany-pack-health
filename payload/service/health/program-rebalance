@@ -1,0 +1,2871 @@
+#!/usr/bin/env python3
+"""program-rebalance -- the workout program's VOLUME ALLOCATOR and EDIT GATE.
+
+WHY THIS EXISTS
+---------------
+Until today the agent could only JUDGE a program (rx-calc --volume-audit emits
+below_floor / in_band / above_ceiling) -- it could not GENERATE the fix. So
+every rebalance was hand-authored by a human or by the pack maintainer, which is exactly the
+"local slot CRUD, no global pass" pathology recorded as root #31 (design:
+design notes 2026-08-19 (program holistic redesign), sub-problem
+1 "volume allocation"). The owner's correction was explicit: the agent must not
+hand-author the program itself -- it must author the RULES the program engine
+follows, and let the engine produce the plan.
+
+So the RULE lives here, in code, and the machine produces the plan.
+
+WHAT IT DOES / DOES NOT DO
+--------------------------
+  * It PROPOSES. It never writes program.yaml. There is deliberately no
+    --apply flag: the owner approves a diff, and the landing edit is a separate,
+    human-gated step. (DESIGN 7.1 Q4: the program is the owner's authority.)
+  * It never invents an exercise. A brand-new slot is only ever proposed from
+    exercises that already exist in kit_life.db (exercise_muscle /
+    exercise_subregion). If the DB holds no exercise that can serve a deficient
+    region, the allocator says NO_CANDIDATE and hands the question back --
+    it does not make up a movement name.
+  * It never re-derives a rule that already exists. Bands, per-muscle
+    accounting, sub-region accounting, focus resolution, fatigue cost and the
+    slot-priority ordering all come from rx-calc. A second copy of any of them
+    would be the two-ledger pathology this codebase relapses into.
+
+BANDS ARE INPUTS, NOT TRUTH
+---------------------------
+rx-calc's own comment on the sub-region bands reads: "NO verified
+per-subregion numbers exist -- volume-research 2026-07-18 MAJOR GAP", and the
+group bands are marked PROVISIONAL. On top of that they are a HYPERTROPHY
+yardstick (MEV/MAV/MRV), while the owner's recorded goal (2026-08-18) is
+FUNCTIONAL -- "기능성 재조성", "근력·퍼포먼스 우선". Therefore:
+
+  * The OBJECTIVE is explicit and swappable (--objective / --objective-weights).
+    Band compliance is one term among several, not the definition of "good".
+  * The default objective is `functional`: hard band FLOORS are respected
+    (they are the health/minimum-stimulus anchor), the band TARGET is only a
+    faint pull, main/focus/rehab slots are protected from trimming, and
+    session length is a real cost.
+  * `band_center` (chase the MAV target) is available but is NOT the default,
+    precisely because it encodes the hypertrophy reading of the bands.
+  * Every band used is echoed in the report with its provenance so the owner
+    can reject the yardstick itself, and `program.yaml volume_bands` (already
+    honoured by rx-calc resolve_band) overrides any of them.
+
+MODES
+-----
+  program-rebalance --allocate <program.yaml> <today> <db>   (default mode)
+      Greedy allocation proposal. Exit 0 = no unresolved hard violation,
+      3 = proposal produced but something needs an owner decision, 1 = fatal.
+
+  program-rebalance --gate <program.yaml> <today> <db> [--baseline <path>]
+      Invariant gate for a program EDIT. Fails loudly (exit 4) when the edit
+      breaks a slot-priority invariant, introduces a NEW band violation
+      relative to the baseline, or breaks the COORDINATION (unilateral) rule --
+      see the UNILATERAL FLOOR section. Exit 0 = clean, 1 = fatal.
+
+THE COORDINATION FLOOR IS NOT ADVISORY
+--------------------------------------
+The owner's rule, in their own words (2026-08-24):
+
+    "프리웨이트에서도 협응을 많이 요구하는 것들이 있잖아 주로 편측 운동이 그렇고.
+     그냥 SBD만 하면 몸이 망가지더라고"
+
+Two structural edits are REFUSED outright (exit 4): moving a unilateral slot
+behind the cut line, and swapping a unilateral movement for a bilateral one.
+Falling below the share floor WARNS. The floor itself is a judgement value
+derived from the owner's own program and history, and it is an INPUT
+(--unilateral-floor-share / --unilateral-min-per-day), never a hardcoded truth.
+
+THE COORDINATION AXIS HAS TWO SUB-MEASURES, AND LOAD IS NOT ONE OF THEM
+-----------------------------------------------------------------------
+The block above measures ONE of them. That was the whole axis until now, and
+reporting one sub-measure under the axis's own name is how the other one stayed
+invisible.
+
+The correction is the owner's, and it arrived as a counterexample (2026-08-24):
+
+    "필라테스는 이 연결을 극대화하는 운동에 가깝고. 이해했어?"
+
+That single line kills the ladder anyone reaches for first
+(편측 > 프리웨이트+복합 > 머신+복합 > 머신+고립). Pilates carries almost no
+load and maximal coordination, so a ladder built on load ranks it nowhere and
+scores it ZERO. Free weights CORRELATE with coordination demand; the
+correlation is not the definition, and using it as one makes every unloaded
+controlled movement disappear.
+
+    wrong   coordination = how free the weight is   (derived from load)
+    right   coordination = an independent axis; load may be zero
+
+So the axis is read as SEPARATE sub-measures, each in its own unit, and they are
+never blended into a single score (blending is the flattening recorded in
+design notes 2026-08-24 (goal consult conversation) section 9 -- the
+picture becomes a number and the number then gets mistaken for the picture):
+
+  1. 편측 비중          one side at a time, AT ANY LOAD.
+                        Classifier: exercise-enter.extract_record_params.
+  2. 무하중 버티기 비중 timed holds carrying NO external load.
+                        Classifier: rx-calc._is_isometric_hold for work slots;
+                        `hold_sec` with no `drills.<code>.implement` for
+                        준비운동/쿨다운 drills.
+  3. 느린 제어 비율     work sets done at a slow controlled tempo, loaded or
+                        not (2026-09-30). Classifier: is_controlled_tempo over
+                        the slot `tempo`, else ax_exercise.tempo.
+
+PILATES IS SUB-MEASURE 3, NOT 2 (2026-09-30). The first cut let the hold
+counter stand for Pilates; Pilates is slow, controlled, full-range movement,
+not a hold (kimwog exercise-ideal-pilates-controlled-movement-037). The
+connection strand's measure set is 1 + 3 (편측·느린 제어 세트 비율); 2 is still
+read and printed, as holds.
+
+Sub-measure 2 is counted across ALL THREE blocks, 준비운동 and 쿨다운 included.
+Those blocks are (correctly) excluded from VOLUME, and because the census read
+day_work_items() -- the volume-eligible collection -- their coordination
+contribution read 0. The owner's own program is the proof: wall_sit is
+2 weekly sets of exactly this, and the 내전근 아이소메트릭 drill runs on three
+of the four days. All of it read as zero coordination.
+
+    "볼륨은 크기를 위한거야. 다른 각자의 기여도는 각자의 값들이 있는거지."
+
+VOLUME IS UNCHANGED BY ANY OF THIS. day_work_items() remains the single
+volume-eligible collection and nothing here feeds it; a coordination set is not
+a volume set. Counting them together would re-commit the error that scored
+functional work against a hypertrophy band.
+
+WHAT IS NOT MEASURED IS NAMED, NOT ZEROED. An unloaded drill with no control
+marker (a dynamic mat drill, say) plausibly carries coordination and has no
+honest number here. It is listed under `unmeasured` rather than silently
+counted as 0 -- the same discipline migration 033 applied to a zero-metric
+axis. An unmeasured thing that vanishes from the readout is how this gap
+survived for months.
+
+stdlib only. Execute-only: nothing here is imported into a model context.
+"""
+
+import argparse
+import copy
+import importlib.machinery
+import importlib.util
+import itertools
+import json
+import os
+import re
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+# gym-layout.md is the USER's own gym -- zone graph, hop matrix, per-slot
+# rulings they dictated. It is data, not product: this pack does not ship it,
+# and an unwritten layout silently disables movement-cost ordering. So resolve
+# it off DATA_DIR like program.yaml, never off SCRIPT_DIR. Resolved off HERE it
+# would follow the CODE to service/health/, find nothing (or a template),
+# return an empty zone map, and turn --order's movement axis off with no error
+# -- while the skill still tells the model the zones are there. Same rule the
+# other CLIs already apply to program.yaml.
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+
+
+def _user(with_final=None, without_final=None):
+    """How this instance addresses its owner -- ui_labels.user_label, degraded.
+
+    Every line below that NAMES the reader goes through here instead of
+    carrying a word. The pack shipped 「사용자」/「오너」 in owner-facing stdout
+    while the instance that runs it sets DOGANY_USER_LABEL to its own term, so the
+    register was being downgraded by every apply and the only available repair
+    was to hand-edit literals back -- which is what produced the split.
+
+    DEGRADE, never raise, in set-table._rir_header's style: a sandboxed tree
+    holding a subset of service/health has no ui_labels.py, and an audit line
+    must not be able to stop a rebalance. The fallback is ui_labels' OWN
+    default, read straight from the environment here so the two answers cannot
+    become two opinions."""
+    try:
+        if HERE not in sys.path:
+            sys.path.insert(0, HERE)
+        import ui_labels
+        return ui_labels.user_label(with_final, without_final)
+    except Exception:  # noqa: BLE001 -- module absent -> the neutral word
+        name = (os.environ.get('DOGANY_USER_LABEL') or '').strip() or '사용자'
+        if with_final is None and without_final is None:
+            return name
+        ch = name[-1]
+        has = ('가' <= ch <= '힣') and (ord(ch) - 0xAC00) % 28 != 0
+        return '%s%s' % (name, (with_final if has else without_final) or '')
+
+
+def load_rx_calc():
+    """Import rx-calc (no .py extension) as a module -- the same importlib
+    pattern set-table/exercise-enter already use. rx-calc's __main__ guard
+    means importing it has no side effects."""
+    path = os.path.join(HERE, 'rx-calc')
+    spec = importlib.util.spec_from_loader(
+        'rx_calc', importlib.machinery.SourceFileLoader('rx_calc', path))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+rx = load_rx_calc()
+
+_EE_MOD = None
+
+
+def load_exercise_enter():
+    """Import exercise-enter for its UNILATERAL CLASSIFIER only.
+
+    There must be exactly ONE unilateral classification in this codebase and it
+    already exists: exercise-enter.extract_record_params. Its docstring records
+    the #24/#25 fix -- the explicit program.yaml `unilateral` block
+    {mode, weak_side_first, weak_side} is authoritative, a prose keyword scan is
+    the FALLBACK for a JIT/unregistered slot, and per-side LOADING prose
+    ("한쪽당" on a bilateral machine) is deliberately NOT unilateral execution.
+    Re-deriving any of that here would be the two-ledger pathology this module's
+    own docstring names. So the rule's owner is imported, not copied.
+
+    tests/test-exercise-enter.py loads the same file the same way; exercise-enter
+    has a __main__ guard, so the import has no side effects."""
+    global _EE_MOD
+    if _EE_MOD is None:
+        path = os.path.join(HERE, 'exercise-enter')
+        spec = importlib.util.spec_from_loader(
+            'exercise_enter',
+            importlib.machinery.SourceFileLoader('exercise_enter', path))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _EE_MOD = mod
+    return _EE_MOD
+
+
+def is_unilateral(slot):
+    """True iff THE classifier says this slot is performed one side at a time.
+
+    No second opinion is formed here, and a missing classifier is FATAL rather
+    than a silent False: a coordination floor judged with a guessed
+    classification is worse than no floor at all."""
+    try:
+        ee = load_exercise_enter()
+    except Exception as exc:                                   # noqa: BLE001
+        raise SystemExit(
+            '[program-rebalance] FATAL: unilateral classifier unavailable '
+            '(exercise-enter.extract_record_params): %r. Refusing to judge the '
+            'coordination floor on a guess.' % (exc,))
+    try:
+        return 'unilateral' in ee.extract_record_params(slot)
+    except Exception as exc:                                   # noqa: BLE001
+        raise SystemExit(
+            '[program-rebalance] FATAL: unilateral classifier raised on slot '
+            '%r: %r' % (slot.get('name'), exc))
+
+
+def is_zero_load_control(slot):
+    """True iff THIS WORK SLOT is controlled work carrying no external load.
+
+    The second coordination sub-measure (see the module docstring). Like
+    is_unilateral, no second opinion is formed here: rx-calc._is_isometric_hold
+    already owns "this slot's rep_range encodes SECONDS of hold, not reps",
+    which is precisely 'measured as control, not as reps'. Its own docstring
+    records why `progression == 'hold'` ALONE is insufficient -- a LOADED slot
+    can be 'hold' for autoregulation reasons -- so the weight_kg-is-None guard
+    that makes this ZERO-load is already inside the rule being imported.
+
+    NOTHING HERE LOOKS AT load_type / freeweight-ness: a classifier that
+    consults the load ladder returns 0 for unloaded control work.
+
+    THIS IS HOLDS, NOT PILATES (2026-09-30). It counts timed isometric holds
+    (wall_sit, 내전근 아이소메트릭). Pilates is slow controlled MOVEMENT and is
+    the controlled-tempo sub-measure (is_controlled_tempo); this one no longer
+    stands for it.
+
+    A missing classifier is FATAL rather than a silent False, for the same
+    reason as is_unilateral: reporting a coordination axis as 0 because the rule
+    could not be found is worse than reporting nothing."""
+    fn = getattr(rx, '_is_isometric_hold', None)
+    if fn is None:
+        raise SystemExit(
+            '[program-rebalance] FATAL: zero-load-control classifier '
+            'unavailable (rx-calc._is_isometric_hold is gone or renamed). '
+            'Refusing to report the coordination axis as 0 on a missing rule.')
+    try:
+        return bool(fn(slot))
+    except Exception as exc:                                   # noqa: BLE001
+        raise SystemExit(
+            '[program-rebalance] FATAL: zero-load-control classifier raised on '
+            'slot %r: %r' % (slot.get('name'), exc))
+
+
+# CONTROLLED TEMPO -- the sub-measure Pilates actually is (2026-09-30).
+# The first cut let is_zero_load_control stand for Pilates, and its classifier
+# is rx-calc._is_isometric_hold: it counts timed HOLDS. Pilates is not a hold.
+# It is slow, controlled, full-range MOVEMENT (roll-down, bridge articulation,
+# leg circles, a lift done at a slow stated tempo) -- kimwog
+# exercise-ideal-pilates-controlled-movement-037, note 1. A hold-counting
+# measure does not see it at all, which repeated the owner's correction in code.
+#
+# The marker is the tempo the slot already carries, in the one notation this
+# pack reads (workout-session weight-realization F18): four digits,
+# 당김 / 유지 / 신장 / 정지 seconds, 'X' = explosive (0 s). Source order:
+#   1. the program.yaml slot's own `tempo` (the card is authoritative);
+#   2. ax_exercise.tempo for that exercise (kit taxonomy), when a DB is given.
+# LOAD IS NOT CONSULTED, loaded or not: a slow-tempo leg press counts exactly
+# as a slow roll-down does.
+#
+# THE THRESHOLD IS A JUDGEMENT VALUE. No source gives Pilates tempo in seconds
+# (kimwog GAPS, v33). Both MOVING phases must be deliberately slow -- a fast
+# phase in either direction is ordinary lifting with a slow eccentric, not
+# controlled movement -- and the rep must spend a real stretch of time moving.
+# 2140 (the F18 machine example) counts; 3010 / 2010 / 20X0 do not.
+CONTROLLED_TEMPO_MIN_PHASE_S = 2     # each of 당김 and 신장
+CONTROLLED_TEMPO_MIN_MOVING_S = 5    # 당김 + 신장
+CONTROLLED_TEMPO_DERIVATION = (
+    'JUDGEMENT VALUE -- no source gives Pilates tempo in seconds (kimwog v33 '
+    'GAPS). Both moving phases >= %d s and >= %d s moving per rep; a hold is '
+    'never counted here (it is the zero-load-control sub-measure).'
+    % (CONTROLLED_TEMPO_MIN_PHASE_S, CONTROLLED_TEMPO_MIN_MOVING_S))
+
+_TEMPO_BY_NAME = {}
+
+
+def parse_tempo(raw):
+    """'2140' / '2-1-4-0' / '20X0' -> (concentric, top, eccentric, bottom) in
+    seconds, or None when the value is not the four-phase notation. None is
+    NOT 'fast': the caller names an unreadable tempo instead of scoring it."""
+    if raw is None or isinstance(raw, bool):
+        return None
+    s = str(raw).strip().upper()
+    for sep in ('-', ' ', '/', '.'):
+        s = s.replace(sep, '')
+    if len(s) != 4 or any(c not in '0123456789X' for c in s):
+        return None
+    return tuple(0 if c == 'X' else int(c) for c in s)
+
+
+def tempo_by_exercise(db_path):
+    """{exercise_name: tempo} from ax_exercise (active rows carrying one).
+    Cached per DB path; no DB / unreadable DB -> {} (the slot field still
+    answers)."""
+    key = os.path.abspath(db_path) if db_path else None
+    if key is None or not os.path.exists(key):
+        return {}
+    if key in _TEMPO_BY_NAME:
+        return _TEMPO_BY_NAME[key]
+    import sqlite3 as _sqlite3
+    out = {}
+    try:
+        conn = _sqlite3.connect('file:%s?mode=ro' % key, uri=True)
+        try:
+            for name, tempo in conn.execute(
+                    "SELECT exercise_name, tempo FROM ax_exercise WHERE "
+                    "status = 'active' AND tempo IS NOT NULL "
+                    "AND tempo <> ''"):
+                out[name] = tempo
+        finally:
+            conn.close()
+    except _sqlite3.Error:
+        out = {}
+    _TEMPO_BY_NAME[key] = out
+    return out
+
+
+def slot_tempo(slot, db_path=None):
+    """(raw tempo, source) for a work slot; (None, None) when none is carried.
+    source: 'program.yaml' | 'ax_exercise'."""
+    if not isinstance(slot, dict):
+        return None, None
+    raw = slot.get('tempo')
+    if raw not in (None, ''):
+        return raw, 'program.yaml'
+    raw = tempo_by_exercise(db_path).get(slot.get('name'))
+    if raw not in (None, ''):
+        return raw, 'ax_exercise'
+    return None, None
+
+
+def is_controlled_tempo(slot, db_path=None):
+    """True iff THIS WORK SLOT is done at a slow controlled tempo (see the
+    block above). A hold is never controlled-tempo movement: holds are the
+    zero-load-control sub-measure, and letting them in here is exactly the
+    Pilates-as-hold error this sub-measure replaces."""
+    if is_zero_load_control(slot):
+        return False
+    raw, _src = slot_tempo(slot, db_path)
+    t = parse_tempo(raw)
+    if t is None:
+        return False
+    con, _top, ecc, _bot = t
+    return (con >= CONTROLLED_TEMPO_MIN_PHASE_S
+            and ecc >= CONTROLLED_TEMPO_MIN_PHASE_S
+            and con + ecc >= CONTROLLED_TEMPO_MIN_MOVING_S)
+
+
+def drill_implement(prep, drill):
+    """The external implement a 준비운동/쿨다운 drill carries, or None.
+
+    prep.yaml keeps it on the DRILL definition (`drills.<code>.implement`, e.g.
+    헤일로 -> 케틀벨), not on the per-day item, so the lookup goes through the
+    code. None/absent = unloaded."""
+    code = (drill or {}).get('code')
+    if not code:
+        return None
+    defn = ((prep or {}).get('drills') or {}).get(code)
+    if not isinstance(defn, dict):
+        return None
+    return defn.get('implement') or None
+
+
+def is_control_drill(prep, drill):
+    """True iff a 준비운동/쿨다운 drill is UNLOADED CONTROL work.
+
+    Same shape as the work-slot rule, read off the markers prep.yaml actually
+    carries: measured in held seconds (`hold_sec`) and carrying no implement.
+    A drill with an implement is loaded and is not this sub-measure; a drill
+    counted in reps has no control marker and is reported as `unmeasured`
+    rather than guessed at."""
+    if not isinstance(drill, dict):
+        return False
+    if drill_implement(prep, drill):
+        return False
+    return bool(drill.get('hold_sec'))
+
+
+# ---------------------------------------------------------------------------
+# OBJECTIVE -- explicit, swappable, and NOT silently "band compliance"
+# ---------------------------------------------------------------------------
+#
+# Every weight below is a JUDGEMENT, not a measurement. They are named and
+# printed in the report so the owner can argue with the objective rather than
+# with an opaque number. --objective-weights '{"w_target":0.5}' overrides any
+# single key without forking a whole objective.
+#
+#   w_floor      penalty per weekly set BELOW a unit's floor. The floor is the
+#                one band edge with a non-hypertrophy reading (minimum
+#                stimulus / health), so it carries the largest weight in every
+#                objective.
+#   w_ceiling    penalty per weekly set ABOVE a unit's ceiling (MRV side).
+#   w_target     penalty per weekly set of distance from the band TARGET.
+#                THIS is the hypertrophy-yardstick term. 0.0 = the allocator
+#                does not chase the target at all.
+#   w_addset     cost of one added weekly set = session length / time.
+#   w_newslot    cost of introducing a brand-new slot (setup, learning, kit).
+#   trim_penalty per-ROLE cost of REMOVING a set. role names are program.yaml's
+#                own `role` vocabulary (the field that landed 2026-08-24).
+#   fatigue_w    multiplier on w_addset by the receiving slot's fatigue cost
+#                (exercise_fatigue_cost via rx-calc resolve_fatigue_cost).
+#                Adding a set to a heavy compound is not the same cost as
+#                adding one to a cable isolation.
+OBJECTIVES = {
+    # OWNER-GOAL DEFAULT (2026-08-18: 기능성 재조성 / 근력·퍼포먼스 우선).
+    # Floors are respected, the MAV target is only a faint pull, the lifts and
+    # rehab slots that carry the program are untouchable, time is expensive.
+    'functional': {
+        'w_floor':   10.0,
+        'w_ceiling':  6.0,
+        'w_target':   0.15,
+        'w_addset':   1.0,
+        'w_newslot':  3.0,
+        'trim_penalty': {'warmup': 1e9, 'main': 1000.0, 'focus': 1000.0,
+                         'rehab': 1000.0, 'prehab': 1000.0,
+                         'accessory': 0.4},
+        'fatigue_w': {'high': 3.0, 'med': 1.5, 'low': 1.0},
+    },
+    # MINIMUM-ASSUMPTION variant: fix hard violations, touch nothing else.
+    # Use when the bands themselves are in doubt (they usually are).
+    'floor_safety': {
+        'w_floor':   10.0,
+        'w_ceiling': 10.0,
+        'w_target':   0.0,
+        'w_addset':   0.5,
+        'w_newslot':  2.0,
+        'trim_penalty': {'warmup': 1e9, 'main': 5.0, 'focus': 5.0,
+                         'rehab': 5.0, 'prehab': 5.0, 'accessory': 0.5},
+        'fatigue_w': {'high': 2.0, 'med': 1.2, 'low': 1.0},
+    },
+    # PURE HYPERTROPHY reading of the bands: sit on the MAV target.
+    # NOT the default -- see the module docstring.
+    'band_center': {
+        'w_floor':   10.0,
+        'w_ceiling': 10.0,
+        'w_target':   1.0,
+        'w_addset':   0.0,
+        'w_newslot':  1.0,
+        'trim_penalty': {'warmup': 1e9, 'main': 1.0, 'focus': 1.0,
+                         'rehab': 1.0, 'prehab': 1.0, 'accessory': 1.0},
+        'fatigue_w': {'high': 1.0, 'med': 1.0, 'low': 1.0},
+    },
+}
+DEFAULT_OBJECTIVE = 'functional'
+
+# --- PURPOSE WIRE (2026-08-24) -------------------------------------------
+# The objective used to be a bare constant: a human read a memory note, typed
+# `functional`, and cited the owner's 2026-08-18 statement in a comment. If the
+# owner's purpose changed, that constant did not. Meanwhile the consult (step
+# G5) WRITES the purpose to ledger_goal.detail.tradeoff_priority and it was
+# read by ZERO code paths -- the owner answered and nothing consumed it.
+#
+# Vocabulary note: the consult's stored vocabulary and this module's objective
+# names are DIFFERENT namespaces and must stay that way. The stored value is
+# the owner's data; objective names are this module's internal knobs. They are
+# bridged HERE, in exactly one place, instead of "fixing" either side.
+PURPOSE_TO_OBJECTIVE = {
+    'strength_performance_first': 'functional',
+    'hypertrophy_first': 'band_center',
+    'minimum_assumption': 'floor_safety',
+}
+
+
+# --- PURPOSE FROM THE ORDER CHOICE (2026-09-26, goal-interview round 2) ---
+# The round-2 goal interview no longer writes detail.tradeoff_priority -- nobody
+# does -- so the reader above answered `fallback:no-value` for every new user.
+# What the interview DOES store is the user's ORDER choice for strands that pull
+# apart (metric_axis.phase_order, written by the kit's axis-order verb), and the
+# current phase's goal rows. The program's objective follows the CURRENT phase:
+# what that phase moves decides what the allocator optimises for. This table is
+# the pack's own domain knowledge (what a program should do during a phase), not
+# a copy of the kit's pull-apart table; a metric with no row here decides
+# nothing and the next source is consulted.
+PHASE_METRIC_OBJECTIVE = {
+    'skeletal_muscle_kg': 'band_center',   # building: sit on the growth target
+    'body_fat_pct': 'functional',          # deficit: keep the lifts, hold floors
+    'body_weight': 'functional',
+}
+PHASE_METRIC_PREFIX_OBJECTIVE = (
+    ('e1rm_', 'functional'),               # strength / performance phase
+    ('max_reps_', 'functional'),
+)
+
+
+def _phase_metric_objective(metric):
+    if metric in PHASE_METRIC_OBJECTIVE:
+        return PHASE_METRIC_OBJECTIVE[metric]
+    for prefix, obj in PHASE_METRIC_PREFIX_OBJECTIVE:
+        if metric and metric.startswith(prefix):
+            return obj
+    return None
+
+
+def objective_from_phase(conn):
+    """(objective, source_label) from the user's own strands, or None.
+
+    Current phase = the strands with the lowest phase_order (an order choice
+    was made), else the strands that carry an active goal (no pull-apart pair,
+    so no order was needed). Two objectives in one phase (the user chose to do
+    both together) resolve to `functional`: the recomposition reading, floors
+    held, no pure growth push."""
+    import json as _json
+    import sqlite3 as _sqlite3
+    try:
+        strands = conn.execute(
+            "SELECT axis_key, label, phase_order FROM metric_axis "
+            "WHERE origin='user' AND role='picture' "
+            "ORDER BY axis_rank, axis_key").fetchall()
+    except _sqlite3.Error:
+        return None                    # pre-055 kit: no user strands at all
+    if not strands:
+        return None
+    ordered = [r for r in strands if r[2] is not None]
+    if ordered:
+        first = min(r[2] for r in ordered)
+        current = [r for r in ordered if r[2] == first]
+        basis = 'phase_order'
+    else:
+        keys = set()
+        try:
+            for (detail,) in conn.execute(
+                    "SELECT detail FROM ledger_goal WHERE status='active' "
+                    "AND detail IS NOT NULL AND detail <> ''"):
+                try:
+                    d = _json.loads(detail)
+                except (ValueError, TypeError):
+                    continue
+                if isinstance(d, dict) and d.get('axis_key'):
+                    keys.add(d['axis_key'])
+        except _sqlite3.Error:
+            return None
+        current = [r for r in strands if r[0] in keys]
+        basis = 'active_goal'
+    if not current:
+        return None
+    objectives, labels = set(), []
+    for key, label, _order in current:
+        try:
+            mets = [m for (m,) in conn.execute(
+                "SELECT metric_token FROM goal_metric_source WHERE axis_key=?",
+                (key,))]
+        except _sqlite3.Error:
+            mets = []
+        for m in mets:
+            obj = _phase_metric_objective(m)
+            if obj:
+                objectives.add(obj)
+                labels.append(label)
+                break
+    if not objectives:
+        return None
+    obj = objectives.pop() if len(objectives) == 1 else 'functional'
+    return obj, 'db:%s:%s' % (basis, '+'.join(labels))
+
+
+def resolve_objective_from_purpose(db_path):
+    """Return (objective_name, source_label).
+
+    source_label is ALWAYS reported so a fallback can never be mistaken for a
+    stored answer. That indistinguishability is how the stale constant above
+    survived unnoticed for weeks.
+      db:phase_order:<strands> -- the user's order choice decided this
+      db:active_goal:<strands> -- no order was needed; the current goal did
+      db:<value>        -- a LEGACY stored tradeoff_priority decided this
+      fallback:no-value -- nothing stored; module default applied
+      fallback:unmapped:<value> -- stored, but no objective maps to it (a
+                           consult/module vocabulary drift -- surfaced, not
+                           silently swallowed)
+    """
+    import json as _json
+    import sqlite3 as _sqlite3
+    try:
+        conn = _sqlite3.connect('file:%s?mode=ro' % db_path, uri=True)
+        try:
+            phase = objective_from_phase(conn)
+        finally:
+            conn.close()
+    except Exception:
+        phase = None
+    if phase:
+        return phase
+    try:
+        conn = _sqlite3.connect('file:%s?mode=ro' % db_path, uri=True)
+        try:
+            rows = conn.execute(
+                "SELECT layer, detail FROM ledger_goal WHERE detail IS NOT ''"
+            ).fetchall()
+        finally:
+            conn.close()
+    except Exception as exc:
+        return DEFAULT_OBJECTIVE, 'fallback:db-unreadable:%s' % type(exc).__name__
+
+    # Purpose is a direction-level fact: prefer the long layer, then any layer.
+    stored = None
+    for want in ('long', None):
+        for layer, detail in rows:
+            if want is not None and layer != want:
+                continue
+            try:
+                parsed = _json.loads(detail) if detail else {}
+            except Exception:
+                continue
+            val = parsed.get('tradeoff_priority') if isinstance(parsed, dict) else None
+            if val:
+                stored = val
+                break
+        if stored:
+            break
+
+    if not stored:
+        return DEFAULT_OBJECTIVE, 'fallback:no-value'
+    mapped = PURPOSE_TO_OBJECTIVE.get(stored)
+    if not mapped:
+        return DEFAULT_OBJECTIVE, 'fallback:unmapped:%s' % stored
+    return mapped, 'db:%s' % stored
+
+# Provenance of every number the allocator optimises against. Printed verbatim
+# in the report -- the owner must be able to see WHAT grade of evidence the
+# machine just optimised on.
+BAND_PROVENANCE = {
+    'group': 'rx-calc GROUP_MUSCLE_BANDS -- "PROVISIONAL" (rx-calc comment); '
+             'hypertrophy practice landmarks, grade C-D',
+    'subregion': 'rx-calc GROUP_BANDS_4 -- "NO verified per-subregion numbers '
+                 'exist, volume-research 2026-07-18 MAJOR GAP" (rx-calc '
+                 'comment); Israetel/RP practitioner anchors, grade C-D',
+    'override': 'program.yaml volume_bands -- owner override, wins over both',
+}
+
+# `shoulders` is the one group-layer muscle rx-calc deliberately DECOMPOSES:
+# its sub-region layer bands side_delt and rear_delt separately (front_delt is
+# tracked but unbanded -- pressing credit, no researched target). Scoring both
+# `shoulders` AND side/rear would double-count the same sets, so in the default
+# 'both' layer the group-level shoulders row is dropped in favour of the two
+# finer units. This mapping is the ONLY place that relationship is written
+# down on this side; it mirrors rx-calc's own comment at GROUP_MUSCLE_BANDS.
+DECOMPOSED_GROUP_MUSCLES = {'shoulders': ('side_delt', 'rear_delt')}
+
+# Banding units that are not themselves entries in rx.MUSCLE_VOCAB. Their
+# parent muscle decides whether the focus bonus applies.
+UNIT_PARENT_MUSCLE = {'side_delt': 'shoulders', 'rear_delt': 'shoulders'}
+
+# The role a machine-proposed NEW slot enters at. An added slot is by
+# construction an extra dose for an under-served region, never one of the day's
+# opening lifts -- so it lands in the accessory band (400+), which is also the
+# CUT ZONE. That is the honest placement: if the session gets cut short, the
+# thing that gets dropped is the machine's addition, not the owner's rehab or
+# focus slot. Owner can re-band it on approval.
+NEW_SLOT_ROLE = 'accessory'
+NEW_SLOT_PRIORITY_STEP = 10
+# How many DB candidates per deficient unit enter the move pool each round.
+# The greedy loop re-ranks every round anyway; the shortlist only bounds work.
+NEW_SLOT_SHORTLIST = 3
+
+
+# ---------------------------------------------------------------------------
+# Scoring units + bands  (all band arithmetic delegates to rx-calc)
+# ---------------------------------------------------------------------------
+
+def unit_band(unit, program, focus_muscles):
+    """(floor, target, ceiling, focus, source) for one scoring unit.
+
+    MUSCLE_VOCAB units go straight through rx.resolve_band -- program.yaml
+    volume_bands override, class band and MUSCLE_FOCUS_BONUS all handled there,
+    not re-implemented here. Banding-only units (side_delt / rear_delt) read
+    rx.GROUP_BANDS_4 and then apply the SAME two adjustments in the same order,
+    because rx-calc's sub-region layer has no band-resolution helper of its own
+    (its verdicts read GROUP_BANDS_4 raw -- see rx-calc subregion_layer)."""
+    if unit in rx.MUSCLE_VOCAB:
+        b = rx.resolve_band(unit, program, focus_muscles)
+        src = 'override' if (program.get('volume_bands') or {}).get(unit) \
+            else 'group'
+        return b['floor'], b['target'], b['ceiling'], b['focus'], src
+    mev, mav_lo, _mav_hi, mrv = rx.GROUP_BANDS_4[unit]
+    floor_v, target_v, ceiling_v = mev, mav_lo, mrv
+    src = 'subregion'
+    ov = (program.get('volume_bands') or {}).get(unit)
+    if isinstance(ov, dict):
+        floor_v = ov.get('floor', floor_v)
+        target_v = ov.get('target', target_v)
+        ceiling_v = ov.get('ceiling', ceiling_v)
+        src = 'override'
+    parent = UNIT_PARENT_MUSCLE.get(unit, unit)
+    focus = parent in focus_muscles
+    if focus:
+        target_v += rx.MUSCLE_FOCUS_BONUS
+        ceiling_v += rx.MUSCLE_FOCUS_BONUS
+    return floor_v, target_v, ceiling_v, focus, src
+
+
+def scoring_units(layer):
+    """Ordered list of units the allocator optimises over.
+
+    layer='group'      -- rx.MUSCLE_VOCAB only (exactly volume_audit's
+                          per_muscle ledger).
+    layer='subregion'  -- rx.GROUP_BANDS_4 banding units only.
+    layer='both'       -- union, minus the decomposed group muscles whose
+                          finer units are already present (see
+                          DECOMPOSED_GROUP_MUSCLES) and minus any group muscle
+                          that IS a banding unit under the same name.
+    """
+    group = list(rx.MUSCLE_VOCAB)
+    subs = sorted(rx.GROUP_BANDS_4)
+    if layer == 'group':
+        return group
+    if layer == 'subregion':
+        return subs
+    out = list(subs)
+    for m in group:
+        if m in rx.GROUP_BANDS_4:
+            continue                       # same unit, finer ledger wins
+        if m in DECOMPOSED_GROUP_MUSCLES:
+            continue                       # would double-count side/rear
+        out.append(m)
+    return out
+
+
+class Ledger:
+    """Everything read from the DB once, so the greedy loop never re-queries."""
+
+    def __init__(self, db_path, program, layer):
+        rx._use_tax_db(db_path)            # binds rx.SUBREGION_GROUP to the DB
+        self.db_path = db_path
+        self.muscle_map = rx.get_muscle_map(db_path)
+        self.submap = rx.get_subregion_map(db_path)
+        self.pattern_map = rx.get_pattern_map(db_path)
+        self.cost_map = rx.get_fatigue_cost_map(db_path)
+        self.focus_muscles, self.unexpanded_focus = rx.get_focus_muscles(
+            db_path, program)
+        self.subregion_group = dict(rx.SUBREGION_GROUP)
+        self.units = scoring_units(layer)
+        self.bands = {u: unit_band(u, program, self.focus_muscles)
+                      for u in self.units}
+
+    def fatigue(self, name):
+        return rx.resolve_fatigue_cost(name, self.cost_map, self.pattern_map)[0]
+
+    def credit(self, name):
+        """{unit: weekly-set credit per ONE prescribed set of `name`}.
+
+        Group-layer credit is rx-calc's role weight (primary 1.0 / secondary
+        MUSCLE_SET_WEIGHT_SECONDARY); sub-region credit is the
+        exercise_subregion weight, summed onto its banding unit. Same
+        arithmetic proposed_sets / proposed_subregion_sets use -- the numbers
+        this returns must reconcile with theirs, which test-program-rebalance
+        asserts directly against rx-calc rather than against a copy."""
+        out = {}
+        for muscle, role in self.muscle_map.get(name, []):
+            if muscle in self.bands:
+                w = 1.0 if role == 'primary' else rx.MUSCLE_SET_WEIGHT_SECONDARY
+                out[muscle] = out.get(muscle, 0.0) + w
+        for sub, weight, _grade in self.submap.get(name, []):
+            unit = self.subregion_group.get(sub, sub)
+            if unit in self.bands:
+                out[unit] = out.get(unit, 0.0) + weight
+        return out
+
+
+def unit_values(program, led):
+    """{unit: proposed weekly effective sets} for the given program state.
+
+    Delegates to rx.proposed_sets / rx.proposed_subregion_sets so the values
+    are byte-identical with what --volume-audit will report on the same
+    program. NOT recomputed from self.credit()."""
+    per_muscle, _unmapped, _f, _d = rx.proposed_sets(program, led.muscle_map)
+    per_sub, _unmapped_sub = rx.proposed_subregion_sets(
+        program, led.submap, led.muscle_map)
+    vals = {}
+    for u in led.units:
+        if u in rx.GROUP_BANDS_4:
+            members = [s for s, unit in led.subregion_group.items() if unit == u]
+            vals[u] = round(sum(per_sub.get(s, 0.0) for s in members), 4)
+        else:
+            vals[u] = round(per_muscle.get(u, 0.0), 4)
+    return vals
+
+
+def band_cost(vals, led, obj):
+    """The band part of the objective, per unit and summed."""
+    total = 0.0
+    for u in led.units:
+        floor_v, target_v, ceiling_v, _focus, _src = led.bands[u]
+        v = vals[u]
+        c = (obj['w_floor'] * max(0.0, floor_v - v)
+             + obj['w_ceiling'] * max(0.0, v - ceiling_v)
+             + obj['w_target'] * abs(v - target_v))
+        total += c
+    return total
+
+
+# ---------------------------------------------------------------------------
+# Program state helpers
+# ---------------------------------------------------------------------------
+
+def iter_slots(program):
+    """(day, index, slot_dict) over the WORK block only -- rx.day_work_items is
+    the single volume-eligible collection, so a prep drill can never be
+    proposed a set."""
+    for day in (program.get('rotation') or []):
+        for i, ex in enumerate(rx.day_work_items(program, day)):
+            yield day, i, ex
+
+
+def day_set_total(program, day):
+    return sum(int(ex.get('sets', 3) or 0) for ex in rx.day_work_items(program, day))
+
+
+def weekly_set_total(program):
+    return sum(day_set_total(program, d) for d in (program.get('rotation') or []))
+
+
+def find_slot(program, day, name):
+    for ex in rx.day_work_items(program, day):
+        if ex.get('name') == name:
+            return ex
+    return None
+
+
+def program_exercise_names(program):
+    return {ex.get('name') for _d, _i, ex in iter_slots(program) if ex.get('name')}
+
+
+def safety_flag(name, day, history):
+    """The slot's recorded safety prose, if any -- program-history.json
+    safety_notes keyed `<day>.<slot>.<name>`. A move that touches a slot with a
+    recorded injury rationale is CAUTION-flagged; the machine is not allowed to
+    quietly add load to a slot that exists under an injury protocol."""
+    notes = (history or {}).get('safety_notes') or {}
+    for key, prose in notes.items():
+        parts = key.split('.')
+        if len(parts) >= 3 and parts[0] == day and '.'.join(parts[2:]) == name:
+            return prose
+    return None
+
+
+# ---------------------------------------------------------------------------
+# Moves
+# ---------------------------------------------------------------------------
+
+class Move:
+    """One atomic, reversible edit proposal."""
+
+    def __init__(self, kind, day, name, delta=0, slot=None, serves=None):
+        self.kind = kind          # 'add' | 'trim' | 'new'
+        self.day = day
+        self.name = name
+        self.delta = delta        # sets added (+) / removed (-)
+        self.slot = slot          # the new slot dict, for kind == 'new'
+        self.serves = serves or []
+        self.cost_delta = 0.0
+        self.caution = None
+
+    def key(self):
+        return (self.kind, self.day, self.name)
+
+    def apply(self, program):
+        if self.kind == 'new':
+            program['days'][self.day]['exercises'].append(copy.deepcopy(self.slot))
+            return
+        ex = find_slot(program, self.day, self.name)
+        ex['sets'] = int(ex.get('sets', 3)) + self.delta
+
+    def label(self):
+        if self.kind == 'new':
+            return (f"{self.day} NEW slot {self.name} "
+                    f"x{self.slot.get('sets')} sets "
+                    f"(priority {self.slot.get('priority')}, "
+                    f"role {self.slot.get('role')})")
+        sign = '+' if self.delta > 0 else ''
+        ex_sets = self.delta
+        return f"{self.day} {self.name} sets {sign}{ex_sets}"
+
+
+def new_slot_dict(program, day, name, sets):
+    """A machine-proposed slot, deliberately UNDER-SPECIFIED.
+
+    weight_kg is None on purpose: that is rx-calc's calibration mode, i.e. "the
+    first session measures it". The machine does not invent a working weight,
+    a rep range beyond the program's own default, or a safety note. No
+    miss_streak either: rx-calc derives it from logged history (program state
+    step A), so a card field would be state nobody reads."""
+    accessory = [int(ex.get('priority', 0)) for ex in rx.day_work_items(program, day)
+                 if isinstance(ex.get('priority'), int)
+                 and ex.get('role') == NEW_SLOT_ROLE]
+    base = max(accessory) if accessory else 400
+    return {
+        'slot': len(rx.day_work_items(program, day)) + 1,
+        'name': name,
+        'display': None,                 # owner/skill supplies the Korean label
+        'priority': base + NEW_SLOT_PRIORITY_STEP,
+        'role': NEW_SLOT_ROLE,
+        'weight_kg': None,               # calibration -- never invented
+        'sets': sets,
+        'rep_range': [8, 12],
+        'progression': 'double',
+        'safety_note': None,
+        'proposed_by': 'program-rebalance',
+    }
+
+
+def candidate_exercises(unit, led, program):
+    """Off-program exercises in the DB that credit `unit`, best first.
+
+    THE CATALOGUE IS THE DB. If this returns [], the allocator reports
+    NO_CANDIDATE and stops -- it does not name a movement that kit_life.db has
+    never heard of. Ranking: credit per set desc, then fatigue cost asc
+    (cheapest systemic cost first), then name for determinism."""
+    have = program_exercise_names(program)
+    order = {'low': 0, 'med': 1, 'high': 2}
+    out = []
+    names = set(led.muscle_map) | set(led.submap)
+    for name in sorted(names):
+        if name in have:
+            continue
+        c = led.credit(name).get(unit, 0.0)
+        if c <= 0:
+            continue
+        out.append((-c, order.get(led.fatigue(name), 1), name))
+    out.sort()
+    return [n for _c, _f, n in out]
+
+
+def placement_day(program, led, unit, max_day_sets, sets):
+    """Which day a new slot goes on -- decided by RULE, not by taste.
+
+    1. only days that can absorb the WHOLE new slot are eligible (the cap is
+       checked against day_total + sets, not day_total -- checking the
+       pre-move total was the first version's bug and it inflated 뒷A to 28
+       sets against a 27 cap);
+    2. prefer a day that already trains this unit (block cohesion / the day is
+       already 'about' that region);
+    3. among those, the SHORTEST day (session length is the scarce resource);
+    4. rotation order breaks the remaining tie so the output is deterministic.
+    """
+    rotation = program.get('rotation') or []
+    eligible = [d for d in rotation
+                if day_set_total(program, d) + sets <= max_day_sets]
+    if not eligible:
+        return None
+    def trains(day):
+        return any(led.credit(ex.get('name', '')).get(unit, 0.0) > 0
+                   for ex in rx.day_work_items(program, day))
+    ranked = sorted(eligible,
+                    key=lambda d: (0 if trains(d) else 1,
+                                   day_set_total(program, d),
+                                   rotation.index(d)))
+    return ranked[0]
+
+
+def generate_moves(program, led, obj, limits, history, deficits):
+    """All single moves legal in this state, each already cost-scored."""
+    moves = []
+    base_vals = unit_values(program, led)
+    base_cost = band_cost(base_vals, led, obj)
+
+    for day, _i, ex in iter_slots(program):
+        name = ex.get('name')
+        if not name:
+            continue
+        sets = int(ex.get('sets', 3))
+        role = ex.get('role') or 'accessory'
+        fat = led.fatigue(name)
+        fw = obj['fatigue_w'].get(fat, 1.0)
+
+        # ---- ADD one set
+        if (sets < limits['max_slot_sets']
+                and day_set_total(program, day) + 1 <= limits['max_day_sets']):
+            m = Move('add', day, name, +1)
+            trial = copy.deepcopy(program)
+            m.apply(trial)
+            new_cost = band_cost(unit_values(trial, led), led, obj)
+            m.cost_delta = (new_cost - base_cost) + obj['w_addset'] * fw
+            m.serves = sorted(led.credit(name))
+            note = safety_flag(name, day, history)
+            if note:
+                m.caution = note
+            moves.append(m)
+
+        # ---- TRIM one set
+        if sets > limits['min_slot_sets']:
+            m = Move('trim', day, name, -1)
+            trial = copy.deepcopy(program)
+            m.apply(trial)
+            # THE FLOOR IS A CONSTRAINT ON THE ALLOCATOR, NOT A NOTE ABOUT IT.
+            # A trim that takes the unilateral share below the floor -- or that
+            # cuts a unilateral slot when the share is ALREADY below it -- is
+            # not in the search space. The allocator cannot propose crossing
+            # the coordination floor even when the objective would pay for it.
+            if is_unilateral(ex):
+                after_share = unilateral_census(trial)['share_sets']
+                if after_share < limits['unilateral_floor_share'] - 1e-9:
+                    continue
+            new_cost = band_cost(unit_values(trial, led), led, obj)
+            pen = obj['trim_penalty'].get(role, obj['trim_penalty']['accessory'])
+            m.cost_delta = (new_cost - base_cost) + pen
+            m.serves = sorted(led.credit(name))
+            note = safety_flag(name, day, history)
+            if note:
+                m.caution = note
+            moves.append(m)
+
+    # ---- NEW slot, only for units that are still under floor
+    seen_new = set()
+    for unit in deficits:
+        for name in candidate_exercises(unit, led, program)[:NEW_SLOT_SHORTLIST]:
+            if name in seen_new:
+                continue
+            sets = limits['new_slot_sets']
+            day = placement_day(program, led, unit, limits['max_day_sets'], sets)
+            if day is None:
+                break
+            seen_new.add(name)
+            slot = new_slot_dict(program, day, name, sets)
+            m = Move('new', day, name, sets, slot=slot, serves=[unit])
+            trial = copy.deepcopy(program)
+            m.apply(trial)
+            new_cost = band_cost(unit_values(trial, led), led, obj)
+            fw = obj['fatigue_w'].get(led.fatigue(name), 1.0)
+            m.cost_delta = ((new_cost - base_cost)
+                            + obj['w_newslot']
+                            + obj['w_addset'] * fw * sets)
+            m.serves = sorted(led.credit(name))
+            moves.append(m)
+    return moves
+
+
+def under_floor_units(vals, led):
+    return [u for u in led.units if vals[u] < led.bands[u][0] - 1e-9]
+
+
+# ---------------------------------------------------------------------------
+# The allocator
+# ---------------------------------------------------------------------------
+
+def classify_deficits(program, led, audit, vals):
+    """Split every deficient unit into what the ALLOCATOR can act on and what
+    it must hand back. Acting on the wrong class is how a program picks up
+    sets it never needed.
+
+      allocation      -- PRESCRIBED dose is under floor -> the allocator's job.
+      adherence_gap   -- prescription is in band, DELIVERY (rolling 7d actual)
+                         is not. Adding sets does not fix attendance; the
+                         allocator refuses to touch it.
+      coverage_hole   -- the unit has NO primary slot at all in the program.
+                         Actionable only if the DB knows an exercise for it.
+    """
+    out = {}
+    per_muscle = audit.get('per_muscle') or {}
+    per_group = audit.get('per_group') or {}
+    for u in led.units:
+        floor_v = led.bands[u][0]
+        v = vals[u]
+        actual = None
+        if u in per_muscle:
+            actual = per_muscle[u]['actual_sets_7d']
+        elif u in per_group:
+            actual = per_group[u]['actual_sets_7d']
+        has_primary = any(
+            led.credit(ex.get('name', '')).get(u, 0.0) >= 1.0
+            for _d, _i, ex in iter_slots(program))
+        if v < floor_v - 1e-9:
+            kind = 'coverage_hole' if not has_primary else 'allocation'
+        elif actual is not None and actual < floor_v - 1e-9:
+            kind = 'adherence_gap'
+        else:
+            continue
+        out[u] = {'kind': kind, 'proposed': v, 'actual_7d': actual,
+                  'floor': floor_v}
+    return out
+
+
+def unresolved_reasons(program, led, limits, unit):
+    """WHY the allocator stopped short on this unit -- named, not shrugged.
+
+    Vague "could not fix" is useless to the owner: the answer they need is
+    whether to raise a cap, add an exercise to the catalogue, or argue with the
+    objective. Each of those is a different sentence, so each gets its own
+    code."""
+    reasons = []
+    servers = [(d, ex) for d, _i, ex in iter_slots(program)
+               if led.credit(ex.get('name', '')).get(unit, 0.0) > 0]
+    at_slot_cap = [(d, ex.get('name')) for d, ex in servers
+                   if int(ex.get('sets', 3)) >= limits['max_slot_sets']]
+    at_day_cap = [(d, ex.get('name')) for d, ex in servers
+                  if day_set_total(program, d) + 1 > limits['max_day_sets']]
+    if not servers:
+        reasons.append('NO_SLOT_SERVES_UNIT')
+    if at_day_cap:
+        reasons.append('SESSION_LENGTH_CAP: ' + ', '.join(
+            f'{d}({day_set_total(program, d)}/{limits["max_day_sets"]})'
+            for d, _n in at_day_cap))
+    if at_slot_cap and not at_day_cap:
+        reasons.append('SLOT_SET_CAP: ' + ', '.join(
+            f'{n}@{limits["max_slot_sets"]}' for _d, n in at_slot_cap))
+    if not candidate_exercises(unit, led, program):
+        reasons.append('NO_OTHER_CANDIDATE_IN_DB')
+    else:
+        rotation = program.get('rotation') or []
+        if all(day_set_total(program, d) + limits['new_slot_sets']
+               > limits['max_day_sets'] for d in rotation):
+            reasons.append('NO_DAY_CAN_ABSORB_A_NEW_SLOT')
+    if not reasons:
+        reasons.append('OBJECTIVE_DECLINED')
+    return reasons
+
+
+def allocate(program, led, obj, limits, history, audit, max_rounds):
+    """Greedy descent. Every accepted move is recorded WITH the cost delta that
+    bought it, so the proposal reads as an argument, not an oracle.
+
+    RANKING IS PER SET, NOT PER MOVE. The moves are not the same size -- a new
+    slot brings 3 sets at once, a set-add brings 1 -- so ranking on raw
+    cost_delta systematically prefers the bulkiest move and the allocator
+    invents a slot where growing an existing one was cheaper. Ranking on
+    cost_delta / sets-touched removes that bias; the ACCEPTANCE test stays on
+    the raw total (a move must be a net improvement in absolute terms)."""
+    state = copy.deepcopy(program)
+    accepted = []
+    rounds = 0
+    while rounds < max_rounds:
+        rounds += 1
+        vals = unit_values(state, led)
+        deficits = under_floor_units(vals, led)
+        moves = generate_moves(state, led, obj, limits, history, deficits)
+        moves = [m for m in moves if m.cost_delta < -1e-6]
+        if not moves:
+            break
+        moves.sort(key=lambda m: (round(m.cost_delta / max(1, abs(m.delta)), 6),
+                                  round(m.cost_delta, 6),
+                                  m.kind, m.day, m.name))
+        best = moves[0]
+        best.apply(state)
+        accepted.append(best)
+    return state, accepted, rounds
+
+
+def merge_moves(moves):
+    """Fold repeated single-set moves on the same slot into one line.
+
+    The greedy loop necessarily emits '+1 set' four times; the owner should
+    read '+4 sets'. Order of first appearance is preserved so the proposal
+    still reads in the order the allocator decided things."""
+    order = []
+    folded = {}
+    for m in moves:
+        k = (m.day, m.name)
+        prev = folded.get(k)
+        if prev is not None and prev.kind == m.kind == 'new':
+            continue                       # cannot happen; defensive
+        if prev is not None:
+            prev.delta += m.delta
+            prev.cost_delta += m.cost_delta
+            if prev.kind == 'new':
+                prev.slot['sets'] = prev.delta
+            if m.caution and not prev.caution:
+                prev.caution = m.caution
+            continue
+        folded[k] = m
+        order.append(k)
+    return [folded[k] for k in order]
+
+
+# ---------------------------------------------------------------------------
+# Report
+# ---------------------------------------------------------------------------
+
+def build_proposal(args):
+    program_path, today, db_path = args.program, args.today, args.db
+    program = rx.load_yaml(program_path)
+    if not isinstance(program, dict):
+        raise SystemExit('[program-rebalance] ERROR: program.yaml did not parse')
+    history = rx.load_history_sidecar(program_path)
+    led = Ledger(db_path, program, args.layer)
+    # PURPOSE WIRE: an explicit --objective always wins (it is the owner or an
+    # operator overriding on purpose). With no flag, the objective comes from
+    # the owner's STORED purpose, not from a hardcoded constant.
+    if args.objective:
+        obj_name, obj_source = args.objective, 'flag:--objective'
+    else:
+        obj_name, obj_source = resolve_objective_from_purpose(db_path)
+    obj = copy.deepcopy(OBJECTIVES[obj_name])
+    if args.objective_weights:
+        obj.update(json.loads(args.objective_weights))
+
+    observed_max_slot = max(
+        [int(ex.get('sets', 3)) for _d, _i, ex in iter_slots(program)] or [3])
+    observed_max_day = max(
+        [day_set_total(program, d) for d in (program.get('rotation') or [])] or [0])
+    limits = {
+        # Derived from the program the owner already accepted, not invented:
+        # a slot may grow one set past the longest slot that exists, and no
+        # session may grow past the longest session that exists. Both are
+        # knobs -- the point is that the default is measured, not asserted.
+        'max_slot_sets': args.max_slot_sets or (observed_max_slot + 1),
+        'max_day_sets': args.max_day_sets or observed_max_day,
+        'min_slot_sets': rx.MUSCLE_TRIM_FLOOR_SETS,   # rx-calc's own floor
+        'new_slot_sets': args.new_slot_sets,
+        # COORDINATION FLOOR -- a hard constraint on trim moves, not a report.
+        'unilateral_floor_share': args.unilateral_floor_share,
+    }
+
+    audit = rx.volume_audit(program, db_path, today, None)
+    before_vals = unit_values(program, led)
+    deficits = classify_deficits(program, led, audit, before_vals)
+
+    prep_yaml = rx.load_prep(args.program)
+    uni_before = unilateral_census(program, led)
+    ctl_before = control_census(program, prep_yaml, db_path)
+    uni_floor_before = unilateral_floor_verdict(
+        uni_before, args.unilateral_floor_share, args.unilateral_min_per_day,
+        led.focus_muscles)
+
+    after, accepted, rounds = allocate(
+        program, led, obj, limits, history, audit, args.max_rounds)
+    uni_after = unilateral_census(after, led)
+    ctl_after = control_census(after, prep_yaml, db_path)
+    uni_floor_after = unilateral_floor_verdict(
+        uni_after, args.unilateral_floor_share, args.unilateral_min_per_day,
+        led.focus_muscles)
+    after_vals = unit_values(after, led)
+    after_deficits = classify_deficits(after, led, audit, after_vals)
+    accepted = merge_moves(accepted)
+
+    # what the machine could NOT fix, and why. Two different questions, kept
+    # apart on purpose: a PRESCRIPTION the allocator failed to raise is the
+    # allocator's unfinished business; a DELIVERY shortfall (rolling 7d actual
+    # under floor while the prescription is in band) is not an allocation
+    # defect at all and adding sets to it would be the wrong fix.
+    unresolved = []
+    adherence = []
+    for u, info in sorted(after_deficits.items()):
+        if info['kind'] == 'adherence_gap':
+            adherence.append({'unit': u, 'reason': 'ADHERENCE_NOT_ALLOCATION',
+                              **info})
+            continue
+        unresolved.append({'unit': u,
+                           'reasons': unresolved_reasons(after, led, limits, u),
+                           'db_candidates': candidate_exercises(u, led, after),
+                           **info})
+
+    return {
+        'mode': 'allocate',
+        'program': os.path.abspath(program_path),
+        'today': today,
+        'objective': {'name': obj_name, 'weights': obj, 'source': obj_source},
+        'layer': args.layer,
+        'limits': limits,
+        'limits_source': {
+            'max_slot_sets': f'observed max slot sets ({observed_max_slot}) + 1'
+                             if not args.max_slot_sets else 'cli',
+            'max_day_sets': f'observed longest session ({observed_max_day} sets)'
+                            if not args.max_day_sets else 'cli',
+            'min_slot_sets': 'rx-calc MUSCLE_TRIM_FLOOR_SETS',
+            'unilateral_floor_share': UNILATERAL_FLOOR_DERIVATION
+                                      if args.unilateral_floor_share
+                                      == UNILATERAL_FLOOR_SHARE_DEFAULT
+                                      else 'cli',
+        },
+        'band_provenance': BAND_PROVENANCE,
+        'focus_muscles': sorted(led.focus_muscles),
+        'units': [
+            {
+                'unit': u,
+                'band': {'floor': led.bands[u][0], 'target': led.bands[u][1],
+                         'ceiling': led.bands[u][2], 'focus': led.bands[u][3],
+                         'source': led.bands[u][4]},
+                'before': before_vals[u],
+                'after': after_vals[u],
+                'delta': round(after_vals[u] - before_vals[u], 3),
+            } for u in led.units
+        ],
+        'deficits_before': deficits,
+        'adherence_gaps': adherence,
+        'moves': [
+            {
+                'kind': m.kind, 'day': m.day, 'exercise': m.name,
+                'delta_sets': m.delta, 'serves': m.serves,
+                'cost_delta': round(m.cost_delta, 4),
+                'caution': m.caution,
+                'new_slot': m.slot,
+                'label': m.label(),
+            } for m in accepted
+        ],
+        'unresolved': unresolved,
+        'session_length': {
+            'before': {d: day_set_total(program, d)
+                       for d in (program.get('rotation') or [])},
+            'after': {d: day_set_total(after, d)
+                      for d in (after.get('rotation') or [])},
+            'weekly_before': weekly_set_total(program),
+            'weekly_after': weekly_set_total(after),
+        },
+        'priority_invariants': priority_check(program, after),
+        # COORDINATION AXIS. Asserted on the OUTPUT, not trusted: the allocator
+        # has no ordering and no removal move, so its proposal must show zero
+        # refusals -- and if a future move type ever breaks that, this is where
+        # it fails rather than in the owner's program.
+        'unilateral': {
+            'before': uni_before,
+            'after': uni_after,
+            'floor_before': uni_floor_before,
+            'floor_after': uni_floor_after,
+            'refusals': unilateral_refusals(program, after),
+        },
+        # THE AXIS, both sub-measures. `unilateral` above is one of them and
+        # keeps its key/shape because the FLOOR is defined on it; this is the
+        # axis reading, and the axis is what the owner named.
+        'coordination': {
+            'before': coordination_reading(uni_before, ctl_before,
+                                           led.db_path),
+            'after': coordination_reading(uni_after, ctl_after, led.db_path),
+            'control_before': ctl_before,
+            'control_after': ctl_after,
+        },
+        'rounds': rounds,
+        'apply': 'NOT APPLIED -- proposal only. program.yaml is untouched.',
+    }
+
+
+def priority_check(before, after):
+    """The allocator must never disturb the 2026-08-24 slot-priority rule.
+
+    It has no ordering move at all -- adds/trims change `sets`, a new slot
+    enters at the accessory band. This asserts that outcome rather than
+    trusting it: per day, the priority SEQUENCE of pre-existing slots must be
+    unchanged, every new slot must sit strictly after every rehab/prehab/focus
+    slot (the cut-line guard), and no new slot may enter a non-accessory band.
+    """
+    out = {'ok': True, 'checks': []}
+    for day in (after.get('rotation') or []):
+        old = [(ex.get('name'), ex.get('priority'))
+               for ex in rx.day_work_items(before, day)]
+        new = [(ex.get('name'), ex.get('priority'))
+               for ex in rx.day_work_items(after, day)]
+        old_names = {n for n, _p in old}
+        kept = [(n, p) for n, p in new if n in old_names]
+        if kept != old:
+            out['ok'] = False
+            out['checks'].append(
+                {'day': day, 'check': 'existing_order_preserved', 'ok': False})
+        added = [(n, p) for n, p in new if n not in old_names]
+        guard_max = max(
+            [int(ex.get('priority', 0)) for ex in rx.day_work_items(before, day)
+             if ex.get('role') in ('rehab', 'prehab', 'focus', 'main')] or [0])
+        for n, p in added:
+            ok = isinstance(p, int) and p >= 400 and p > guard_max
+            if not ok:
+                out['ok'] = False
+            out['checks'].append(
+                {'day': day, 'check': 'new_slot_in_cut_zone',
+                 'exercise': n, 'priority': p, 'ok': ok})
+    return out
+
+
+# ---------------------------------------------------------------------------
+# COORDINATION AXIS -- THE UNILATERAL FLOOR  (owner rule, 2026-08-24)
+# ---------------------------------------------------------------------------
+#
+# THE RULE, IN THE OWNER'S OWN WORDS:
+#
+#     "프리웨이트에서도 협응을 많이 요구하는 것들이 있잖아 주로 편측 운동이 그렇고.
+#      그냥 SBD만 하면 몸이 망가지더라고"
+#
+# That is not a taste. It is a finding the owner made with their own body, and the
+# program was already collapsing in exactly the direction they named. Measured on
+# 2026-08-24 against the live program and workout_sets:
+#
+#     31 work slots carry 4 unilateral markers (13.68% of 95 weekly sets)
+#       앞A single_leg_extension · 앞B single_leg_extension
+#       뒷A leg_curl            · 뒷B bulgarian_split_squat
+#     three of the four are lower body; UPPER-BODY UNILATERAL = 0
+#     all four sit at position 3 or 4 -- i.e. right at the observed cut depth
+#     08-20 (session 10088) ended at slot 3 and ate 앞B single_leg_extension
+#     08-21 (session 10089) ended at slot 2 and ate the rest of that day
+#     5 of the 6 truncated sessions on record delivered ZERO unilateral sets
+#
+# So truncation was eating the COORDINATION work first and leaving precisely the
+# bilateral-heavy shape the owner says wrecked them. The 2026-08-24 priority rule
+# happened to save those slots, but it saved them as REHAB slots -- the
+# coordination reason was never written down anywhere, so nothing protected them
+# AS coordination work. This block is that missing reason, in code.
+#
+# WHY THIS IS A FLOOR AND NOT A GRADE. The design of record considered ranking
+# movements by how much coordination they demand and rejected it: the owner's
+# own counter-example ("필라테스는 이 연결을 극대화하는 운동에 가깝고") shows
+# coordination is INDEPENDENT of load, so any ladder derived from load is wrong.
+# A floor needs no ladder. It only needs to know what is unilateral -- which is
+# already recorded data -- and to refuse to go below it.
+#
+# ---- SETS OR SLOTS? SETS, and the reason matters --------------------------
+# The floor is counted in weekly PRESCRIBED SETS, with the slot count reported
+# alongside. Three reasons, in order:
+#   1. ONE UNIT. Every other quantity this module optimises -- band floors,
+#      band ceilings, session length, every allocator move -- is weekly sets. A
+#      slot-count floor would be a second unit in the same ledger.
+#   2. IT MATCHES THE EROSION MODE. The allocator's cheapest legal move is
+#      `trim`, one set at a time, and trims never change the slot count. A
+#      slot-count floor would watch leg_curl go 4 sets -> 2 and still read
+#      "4/31 slots, fine". Sets is the only unit that sees that.
+#   3. IT MATCHES THE LOSS. A short session ends mid-slot; what it costs is
+#      sets, not slots.
+# The floor's SECOND arm is deliberately counted in slots -- "at least one
+# unilateral slot per training day" -- because a day cannot hold 0.4 of a slot,
+# and because a pure share floor could be satisfied by piling all the
+# coordination work onto one day and leaving three days bilateral.
+#
+# ---- WHERE THE FLOOR NUMBER COMES FROM ------------------------------------
+# THIS IS A JUDGEMENT VALUE. There is no verified science behind it, exactly as
+# this module already says out loud about the volume bands ("NO verified
+# per-subregion numbers exist"). It is not imported from any literature. It is
+# derived from the owner's own program and their own delivered history, and it is
+# an INPUT (--unilateral-floor-share / --unilateral-min-per-day), never a truth:
+#
+#   prescription (program.yaml, 2026-08-24)  13.68% of weekly sets (13/95)
+#                                            12.90% of slots       (4/31)
+#   delivered (workout_sets, 21 sessions that reached >= 5 slots)
+#                                            median 14.3%, mean 14.7%,
+#                                            max 21.9%
+#   per day  the owner's own program puts exactly ONE unilateral slot on each
+#            of the 4 rotation days -- 4/4, authored by them, not by a machine
+#
+# The floor is set just BELOW what the owner already does, so that it measures
+# EROSION rather than ratifying the status quo as a target:
+#     0.12  -- one legitimate one-set trim on a unilateral slot lands at
+#              12/94 = 12.8% and does NOT cry wolf; losing a whole 3-set
+#              unilateral slot lands at 10/92 = 10.9% and DOES.
+# A gate that cries wolf is a gate that gets bypassed -- the same reasoning the
+# band arm of this gate already uses for its baseline rule.
+UNILATERAL_FLOOR_SHARE_DEFAULT = 0.12
+UNILATERAL_MIN_PER_DAY_DEFAULT = 1
+UNILATERAL_FLOOR_DERIVATION = (
+    'JUDGEMENT VALUE, derived from the owner only -- prescription 13.68% of '
+    'weekly sets (13/95) and 12.90% of slots (4/31); delivered median 14.3% '
+    'over 21 sessions that reached >=5 slots (workout_sets, 2026-08-24). Set '
+    'just below both so it measures erosion, not the status quo. No literature '
+    'number was imported. Tunable: --unilateral-floor-share.')
+UNILATERAL_PER_DAY_DERIVATION = (
+    "JUDGEMENT VALUE -- the owner's own program carries exactly one unilateral "
+    'slot on each of the 4 rotation days (4/4). Tunable: '
+    '--unilateral-min-per-day.')
+
+# UPPER / LOWER / CORE is a PARTITION of rx-calc's own closed MUSCLE_VOCAB --
+# every muscle rx-calc knows, placed exactly once. It is NOT a second exercise
+# classifier: it is used ONLY to report WHERE the unilateral work sits, never to
+# decide WHETHER something is unilateral. A vocabulary entry missing from here
+# is surfaced (region_vocab_gap), not silently bucketed.
+MUSCLE_REGION = {
+    'chest': 'upper', 'back': 'upper', 'shoulders': 'upper',
+    'biceps': 'upper', 'triceps': 'upper', 'forearms': 'upper',
+    'quads': 'lower', 'hamstrings': 'lower', 'glutes': 'lower',
+    'calves': 'lower',
+    'abs': 'core',
+}
+
+
+def slot_region(name, led):
+    """'upper' | 'lower' | 'core' | 'unknown' for one slot, from the DB muscle
+    map (primary muscles first). Never guessed from the exercise's NAME."""
+    if led is None:
+        return 'unknown'
+    prim = [m for m, role in led.muscle_map.get(name, []) if role == 'primary']
+    if not prim:
+        prim = [m for m, _r in led.muscle_map.get(name, [])]
+    regions = [MUSCLE_REGION.get(m) for m in prim]
+    regions = [r for r in regions if r]
+    if not regions:
+        return 'unknown'
+    # A slot counts for the region most of its primary muscles sit in; ties go
+    # to the first in rx.MUSCLE_VOCAB order so the answer is deterministic.
+    best, best_n = 'unknown', -1
+    for r in ('upper', 'lower', 'core'):
+        n = regions.count(r)
+        if n > best_n:
+            best, best_n = r, n
+    return best
+
+
+def unilateral_census(program, led=None):
+    """Count ONE sub-measure of the coordination axis -- 편측 비중.
+
+    NOT the whole axis. The other sub-measure is control_census(); the two are
+    assembled by coordination_reading(). This one drives the FLOOR, which is
+    why it stays exactly as it was: the floor was derived from these numbers.
+
+    Reports BOTH units; the floor uses sets."""
+    slots, per_day = [], {}
+    tot_slots = tot_sets = uni_slots = uni_sets = 0
+    by_region = {'upper': 0, 'lower': 0, 'core': 0, 'unknown': 0}
+    region_sets = {'upper': 0, 'lower': 0, 'core': 0, 'unknown': 0}
+    for day in (program.get('rotation') or []):
+        d = per_day.setdefault(day, {'slots': 0, 'sets': 0,
+                                     'uni_slots': 0, 'uni_sets': 0})
+        for i, ex in enumerate(rx.day_work_items(program, day), 1):
+            name = ex.get('name')
+            if not name:
+                continue
+            sets = int(ex.get('sets', 3) or 0)
+            tot_slots += 1
+            tot_sets += sets
+            d['slots'] += 1
+            d['sets'] += sets
+            if not is_unilateral(ex):
+                continue
+            region = slot_region(name, led)
+            uni_slots += 1
+            uni_sets += sets
+            d['uni_slots'] += 1
+            d['uni_sets'] += sets
+            by_region[region] = by_region.get(region, 0) + 1
+            region_sets[region] = region_sets.get(region, 0) + sets
+            slots.append({
+                'day': day, 'position': i, 'exercise': name,
+                'priority': ex.get('priority'),
+                'band': priority_band(ex.get('priority')),
+                'role': ex.get('role'), 'sets': sets, 'region': region,
+                'mode': (ex.get('unilateral') or {}).get('mode')
+                        if isinstance(ex.get('unilateral'), dict) else None,
+                'in_cut_zone': priority_band(ex.get('priority')) >= 400,
+            })
+    gap = [m for m in rx.MUSCLE_VOCAB if m not in MUSCLE_REGION]
+    return {
+        'classifier': 'exercise-enter.extract_record_params '
+                      '(program.yaml `unilateral` block authoritative; prose '
+                      'scan only as JIT fallback)',
+        'slots': slots,
+        'totals': {'slots': tot_slots, 'sets': tot_sets,
+                   'unilateral_slots': uni_slots, 'unilateral_sets': uni_sets},
+        'share_sets': round(uni_sets / tot_sets, 4) if tot_sets else 0.0,
+        'share_slots': round(uni_slots / tot_slots, 4) if tot_slots else 0.0,
+        'per_day': per_day,
+        'by_region_slots': by_region,
+        'by_region_sets': region_sets,
+        'region_vocab_gap': gap,
+    }
+
+
+def control_census(program, prep=None, db_path=None):
+    """Count the SECOND and THIRD coordination sub-measures -- 무하중 통제
+    비중 (holds) and 느린 제어 비중 (controlled tempo, the Pilates marker).
+
+    Counted across ALL THREE blocks. The work block is counted in SETS (the
+    unit the program prescribes); 준비운동/쿨다운 drills have no sets and are
+    counted as ITEMS. The two units are kept apart deliberately -- inventing a
+    set-equivalent for a drill would be a fabricated number, and this axis got
+    lost the first time precisely by being converted into whatever number
+    happened to be nearby.
+
+    `union_*` counts work sets that are unilateral OR zero-load control. That
+    IS legitimately one number: one unit, one denominator, a set qualifying by
+    either path counted once. `connection_union_work_sets` is the same shape
+    over the connection strand's measure set -- unilateral OR controlled tempo
+    (2026-09-30: holds no longer stand for Pilates).
+
+    `tempo_unreadable` names work slots whose tempo is not the four-phase
+    notation: not counted, not scored fast either.
+
+    `unmeasured` lists unloaded drills carrying no control marker. They are not
+    counted as coordination and they are not counted as zero either -- they are
+    named, so the hole is visible in the readout rather than absent from it."""
+    work_slots, drills, unmeasured, per_day = [], [], [], {}
+    tempo_slots, tempo_unreadable = [], []
+    tot_sets = ctl_sets = union_sets = 0
+    tempo_sets = conn_sets = 0
+    tot_items = ctl_items = 0
+    for day in (program.get('rotation') or []):
+        d = per_day.setdefault(day, {'sets': 0, 'control_sets': 0,
+                                     'union_sets': 0, 'control_items': 0,
+                                     'tempo_sets': 0,
+                                     'connection_union_sets': 0})
+        for i, ex in enumerate(rx.day_work_items(program, day), 1):
+            if not ex.get('name'):
+                continue
+            sets = int(ex.get('sets', 3) or 0)
+            tot_sets += sets
+            d['sets'] += sets
+            ctl = is_zero_load_control(ex)
+            uni = is_unilateral(ex)
+            tmp = is_controlled_tempo(ex, db_path)
+            raw_tempo, tempo_src = slot_tempo(ex, db_path)
+            if tmp:
+                tempo_sets += sets
+                d['tempo_sets'] += sets
+                tempo_slots.append({
+                    'day': day, 'position': i, 'exercise': ex.get('name'),
+                    'sets': sets, 'tempo': raw_tempo,
+                    'tempo_source': tempo_src,
+                    'weight_kg': ex.get('weight_kg'),
+                })
+            elif raw_tempo is not None and parse_tempo(raw_tempo) is None:
+                tempo_unreadable.append({
+                    'day': day, 'position': i, 'exercise': ex.get('name'),
+                    'tempo': raw_tempo, 'tempo_source': tempo_src})
+            if uni or tmp:
+                conn_sets += sets
+                d['connection_union_sets'] += sets
+            if ctl:
+                ctl_sets += sets
+                d['control_sets'] += sets
+                work_slots.append({
+                    'day': day, 'position': i, 'exercise': ex.get('name'),
+                    'sets': sets, 'priority': ex.get('priority'),
+                    'role': ex.get('role'),
+                    'weight_kg': ex.get('weight_kg'),
+                    'progression': ex.get('progression'),
+                })
+            if ctl or uni:
+                union_sets += sets
+                d['union_sets'] += sets
+        # 준비운동 / 쿨다운. rx.day_blocks is the read-path that sees the day as
+        # three peer collections; day_work_items (used above) cannot see these
+        # at all, which is exactly why their coordination contribution read 0.
+        for b in rx.day_blocks(program, prep or {}, day):
+            if b.get('kind') == 'work':
+                continue
+            for it in (b.get('items') or []):
+                if not isinstance(it, dict):
+                    continue
+                tot_items += 1
+                impl = drill_implement(prep, it)
+                if is_control_drill(prep, it):
+                    ctl_items += 1
+                    d['control_items'] += 1
+                    drills.append({'day': day, 'block': b.get('kind'),
+                                   'code': it.get('code'),
+                                   'hold_sec': it.get('hold_sec'),
+                                   'phase': it.get('phase')})
+                elif not impl:
+                    unmeasured.append({'day': day, 'block': b.get('kind'),
+                                       'code': it.get('code'),
+                                       'phase': it.get('phase'),
+                                       'why': 'unloaded, but no control marker '
+                                              '(hold_sec) -- not counted, and '
+                                              'not scored 0 either'})
+    return {
+        'classifier': 'work holds: rx-calc._is_isometric_hold  |  '
+                      'work controlled tempo: slot tempo, else '
+                      'ax_exercise.tempo (%s)  |  '
+                      '준비운동·쿨다운: hold_sec AND no drills.<code>.implement '
+                      '(load_type is NOT consulted anywhere)'
+                      % CONTROLLED_TEMPO_DERIVATION,
+        'work': {'sets': tot_sets, 'control_sets': ctl_sets,
+                 'share_sets': round(ctl_sets / tot_sets, 4) if tot_sets else 0.0,
+                 'slots': work_slots},
+        'prep_cooldown': {'items': tot_items, 'control_items': ctl_items,
+                          'share_items': round(ctl_items / tot_items, 4)
+                                         if tot_items else 0.0,
+                          'drills': drills},
+        'tempo': {'sets': tot_sets, 'tempo_sets': tempo_sets,
+                  'share_sets': round(tempo_sets / tot_sets, 4)
+                                if tot_sets else 0.0,
+                  'slots': tempo_slots,
+                  'unreadable': tempo_unreadable},
+        'union_work_sets': {
+            'sets': union_sets, 'total': tot_sets,
+            'share_sets': round(union_sets / tot_sets, 4) if tot_sets else 0.0},
+        'connection_union_work_sets': {
+            'sets': conn_sets, 'total': tot_sets,
+            'share_sets': round(conn_sets / tot_sets, 4) if tot_sets else 0.0},
+        'unmeasured': unmeasured,
+        'per_day': per_day,
+    }
+
+
+# THE LABEL IS THE USER'S, OR IT IS THE MEASURE'S NAME (2026-09-26).
+# This used to be one person's word for this axis, typed in as a constant and
+# printed on every user's program readout -- the same universality defect the
+# kit removed from its seeded strands (migration 055, owner ruling 2026-09-26).
+# Strands now come from each user's own answer. So the label is resolved:
+#   1. a user strand linked to one of the sub-measure tokens below -> its label
+#      (the kit registers the tokens; until it does, nothing links, see the
+#      kit-side follow-up);
+#   2. otherwise the plain name of WHAT IS COUNTED -- a description of the
+#      measure, not anybody's aspiration.
+# The internal key stays; it names the counting rule, not a person's picture.
+#
+# THE CONNECTION STRAND'S MEASURE SET (2026-09-30) is unilateral + controlled
+# tempo. zero_load_control_share_sets counts timed holds and no longer stands
+# for Pilates; it stays a sub-measure of the reading and still resolves the
+# label of a strand linked to it before this date.
+COORDINATION_AXIS_KEY = 'coordination'
+CONNECTION_METRIC_TOKENS = ('unilateral_share_sets',
+                            'controlled_tempo_share_sets')
+COORDINATION_METRIC_TOKENS = CONNECTION_METRIC_TOKENS + (
+    'zero_load_control_share_sets',)
+COORDINATION_MEASURE_LABEL = '편측·느린 제어 세트 비율'
+
+
+def resolve_coordination_label(db_path):
+    """(label, source): source is 'user_strand' or 'measure'."""
+    import sqlite3 as _sqlite3
+    if db_path:
+        try:
+            conn = _sqlite3.connect('file:%s?mode=ro' % db_path, uri=True)
+            try:
+                row = conn.execute(
+                    "SELECT a.label FROM metric_axis a JOIN goal_metric_source g "
+                    "ON g.axis_key = a.axis_key WHERE a.origin='user' "
+                    "AND g.metric_token IN (%s) ORDER BY a.axis_rank LIMIT 1"
+                    % ",".join("?" * len(COORDINATION_METRIC_TOKENS)),
+                    COORDINATION_METRIC_TOKENS).fetchone()
+            finally:
+                conn.close()
+            if row and row[0]:
+                return row[0], 'user_strand'
+        except _sqlite3.Error:
+            pass
+    return COORDINATION_MEASURE_LABEL, 'measure'
+
+
+def coordination_reading(uni_census, ctl_census, db_path=None):
+    """The coordination axis as a READING: sub-measures in their own units.
+
+    There is deliberately NO blended coordination score. Two sub-measures in
+    two units is the honest shape; one number would be a new flattening, and a
+    flattened number is what the system then mistakes for the picture.
+
+    `baseline_proposal` exists to satisfy record-first: every number in it is
+    derived from the owner's own program, so the axis can be opened with ONE
+    confirm instead of a cold ask. NO TARGET is proposed. Measure-first
+    (2026-08-18) says an unknown target gets observed, not invented, and this
+    axis has exactly one observation -- today's program -- which is a baseline,
+    not a trend."""
+    uw = uni_census['totals']
+    cw = ctl_census['work']
+    ct = ctl_census['tempo']
+    cp = ctl_census['prep_cooldown']
+    subs = [
+        {'key': 'unilateral_share_sets', 'label': '편측 세트 비중',
+         'unit': '주간 작업 세트', 'value': uni_census['share_sets'],
+         'numerator': uw['unilateral_sets'], 'denominator': uw['sets'],
+         'load_independent': True,
+         'note': '하중과 무관 -- 어떤 무게에서도 한쪽씩이면 센다',
+         'connection': True},
+        {'key': 'controlled_tempo_share_sets', 'label': '느린 제어 세트 비율',
+         'unit': '주간 작업 세트', 'value': ct['share_sets'],
+         'numerator': ct['tempo_sets'], 'denominator': ct['sets'],
+         'load_independent': True,
+         'note': ('느린 템포로 끝까지 제어하는 움직임 -- 필라테스는 버티기가 '
+                  '아니라 이것이다 (%s 필라테스 반례). 무게 유무와 무관'
+                  % _user()),
+         'connection': True},
+        {'key': 'zero_load_control_share_sets', 'label': '무하중 버티기 세트 비중',
+         'unit': '주간 작업 세트', 'value': cw['share_sets'],
+         'numerator': cw['control_sets'], 'denominator': cw['sets'],
+         'load_independent': True,
+         'note': '시간을 재는 버티기(홀드)만 센다 -- 필라테스를 대표하지 않는다',
+         'connection': False},
+        {'key': 'zero_load_control_drills', 'label': '무하중 통제 준비운동·쿨다운',
+         'unit': '주간 준비운동·쿨다운 항목', 'value': cp['share_items'],
+         'numerator': cp['control_items'], 'denominator': cp['items'],
+         'load_independent': True,
+         'note': '볼륨 집계에서 빠지는 블록 -- 그래서 여태 협응 기여가 0으로 읽혔다',
+         'connection': False},
+    ]
+    label, label_source = resolve_coordination_label(db_path)
+    return {
+        'axis': COORDINATION_AXIS_KEY,
+        'label': label,
+        'label_source': label_source,
+        'measurable': True,
+        'sub_measures': subs,
+        'connection_measures': list(CONNECTION_METRIC_TOKENS),
+        'connection_union_work_sets':
+            ctl_census['connection_union_work_sets'],
+        'union_work_sets': ctl_census['union_work_sets'],
+        'tempo_unreadable': ctl_census['tempo']['unreadable'],
+        'unmeasured': ctl_census['unmeasured'],
+        'blended_score': None,
+        'blended_score_note':
+            '의도적으로 없음. 두 갈래를 한 점수로 합치면 그림이 숫자가 되고, '
+            '시스템이 그 숫자를 원본으로 착각한다.',
+        'not_derived_from_load': True,
+        'volume_untouched':
+            'day_work_items() 는 여전히 유일한 볼륨 집계 경로다. 여기 숫자는 '
+            '볼륨에 한 세트도 더하지 않는다 -- 볼륨은 크기 축 전용.',
+        'baseline_proposal': {
+            'derived_from': 'program.yaml + prep.yaml (현재 프로그램)',
+            'asks': 1,
+            'values': {s['key']: s['value'] for s in subs},
+            'target': None,
+            'target_note':
+                '목표치는 제안하지 않는다. 관측이 오늘 하루치뿐이라 이건 기준선이지 '
+                '추세가 아니다 -- 측정 먼저, 제안은 그 다음.',
+        },
+    }
+
+
+def unilateral_floor_verdict(census, floor_share, min_per_day, focus_muscles=()):
+    """The FLOOR arm: below it WARNS loudly. It does not refuse -- refusal is
+    reserved for the two structural moves (demotion / substitution), because a
+    share that drifts one set low is a conversation, while a program that
+    swaps coordination work out is the failure the owner described."""
+    warnings = []
+    share = census['share_sets']
+    if share < floor_share - 1e-9:
+        warnings.append({
+            'code': 'UNILATERAL_SHARE_BELOW_FLOOR',
+            'detail': '편측 세트 비중 %.2f%% < 바닥선 %.2f%% '
+                      '(%d/%d weekly sets)'
+                      % (share * 100, floor_share * 100,
+                         census['totals']['unilateral_sets'],
+                         census['totals']['sets'])})
+    bare = [d for d, v in census['per_day'].items()
+            if v['uni_slots'] < min_per_day]
+    if bare:
+        warnings.append({
+            'code': 'DAY_WITHOUT_UNILATERAL',
+            'detail': '편측 슬롯이 %d개 미만인 날: %s'
+                      % (min_per_day, ', '.join(bare))})
+    return {
+        'floor_share': floor_share,
+        'min_per_day': min_per_day,
+        'floor_derivation': UNILATERAL_FLOOR_DERIVATION,
+        'per_day_derivation': UNILATERAL_PER_DAY_DERIVATION,
+        'is_judgement_value': True,
+        'share_sets': share,
+        'share_slots': census['share_slots'],
+        'ok': not warnings,
+        'warnings': warnings,
+        'upper_body_gap': unilateral_upper_gap(census, focus_muscles),
+    }
+
+
+def unilateral_upper_gap(census, focus_muscles=()):
+    """SURFACE the upper-body hole. Do NOT fix it.
+
+    Which movement fills it is PROGRAM CONTENT -- it names an exercise, and
+    naming exercises is the owner's call with the agent, not this module's (the same
+    line the allocator already draws with NO_CANDIDATE). So this reports the
+    hole, its size, and why it matters, and stops."""
+    upper = census['by_region_slots'].get('upper', 0)
+    if upper:
+        return None
+    focus_upper = sorted(m for m in (focus_muscles or ())
+                         if MUSCLE_REGION.get(m) == 'upper')
+    return {
+        'code': 'NO_UPPER_BODY_UNILATERAL',
+        'unilateral_slots_by_region': census['by_region_slots'],
+        'focus_muscles_in_upper_body': focus_upper,
+        'severity': 'high' if focus_upper else 'medium',
+        'owner_decision': True,
+        'detail_ko':
+            '상체 편측 동작이 0개다. 편측 슬롯 %d개가 전부 하체/코어에 몰려 있다.'
+            % census['totals']['unilateral_slots']
+            + ('  목표 근육(%s)이 상체인데 그 축의 편측 동작이 없다.'
+               % ', '.join(focus_upper) if focus_upper else ''),
+        'not_fixed_here':
+            '어떤 종목을 넣을지는 PROGRAM CONTENT -- %s 에이전트와 정할 사안이라 '
+            '여기서는 지적만 하고 손대지 않는다 (allocator NO_CANDIDATE 와 같은 선).'
+            % _user('이', '가'),
+    }
+
+
+def _slot_index(program):
+    """{(day, name): record} for every work slot, with its unilateral verdict."""
+    idx = {}
+    for day in (program.get('rotation') or []):
+        for i, ex in enumerate(rx.day_work_items(program, day), 1):
+            name = ex.get('name')
+            if not name:
+                continue
+            idx[(day, name)] = {
+                'day': day, 'position': i, 'exercise': name,
+                'priority': ex.get('priority'),
+                'band': priority_band(ex.get('priority')),
+                'role': ex.get('role'),
+                'sets': int(ex.get('sets', 3) or 0),
+                'unilateral': is_unilateral(ex),
+            }
+    return idx
+
+
+def unilateral_refusals(base, cand):
+    """THE TWO REFUSALS. Each returns a dict that NAMES THE SLOT.
+
+    Both are measured RELATIVE TO A BASELINE, the same doctrine the band arm of
+    this gate already uses: a pre-existing shape is a backlog item, an EDIT that
+    creates the shape is a landing blocker.
+
+      UNILATERAL_DEMOTED_BEHIND_CUT_LINE
+          the slot is still unilateral but the edit pushed it later -- into a
+          later priority band (400+ IS the cut zone by program.yaml's own
+          header) or to a later position within its day. There is no safe
+          amount of backward movement for a coordination slot: the cut line
+          moves session to session, and 08-20/08-21 both landed on top of one.
+
+      UNILATERAL_SWAPPED_FOR_BILATERAL / UNILATERAL_SLOT_REMOVED /
+      UNILATERAL_MARKER_STRIPPED
+          the coordination work is gone. Swapped when the day picked up a new
+          bilateral slot in its place, removed when it simply vanished, and
+          MARKER_STRIPPED when the slot name survives but its `unilateral`
+          block was deleted -- which is the same substitution performed on the
+          data instead of on the program.
+    """
+    out = []
+    if not isinstance(base, dict) or not isinstance(cand, dict):
+        return out
+    base_idx = _slot_index(base)
+    cand_idx = _slot_index(cand)
+    for (day, name), b in sorted(base_idx.items()):
+        if not b['unilateral']:
+            continue
+        c = cand_idx.get((day, name))
+        moved_to = None
+        if c is None:
+            elsewhere = sorted(k for k in cand_idx if k[1] == name)
+            if elsewhere:
+                c = cand_idx[elsewhere[0]]
+                moved_to = c['day']
+        if c is None:
+            arrivals = sorted(k for k in cand_idx
+                              if k[0] == day and k not in base_idx)
+            bilateral = [k[1] for k in arrivals if not cand_idx[k]['unilateral']]
+            if bilateral:
+                out.append({
+                    'code': 'UNILATERAL_SWAPPED_FOR_BILATERAL',
+                    'day': day, 'exercise': name,
+                    'replacement': bilateral,
+                    'detail': '%s 의 편측 슬롯 %s 가 사라지고 양측 슬롯 %s 가 '
+                              '들어왔다 -- 협응 작업의 치환. 거부.'
+                              % (day, name, ', '.join(bilateral))})
+            else:
+                out.append({
+                    'code': 'UNILATERAL_SLOT_REMOVED',
+                    'day': day, 'exercise': name, 'replacement': [],
+                    'detail': '%s 의 편측 슬롯 %s 가 프로그램에서 제거됐다. 거부.'
+                              % (day, name)})
+            continue
+        if not c['unilateral']:
+            out.append({
+                'code': 'UNILATERAL_MARKER_STRIPPED',
+                'day': c['day'], 'exercise': name,
+                'detail': '%s %s 의 unilateral 표시가 지워졌다 -- 종목은 남고 '
+                          '협응 분류만 사라진 치환. 거부.' % (c['day'], name)})
+            continue
+        if c['band'] > b['band']:
+            out.append({
+                'code': 'UNILATERAL_DEMOTED_BEHIND_CUT_LINE',
+                'day': c['day'], 'exercise': name,
+                'from': {'priority': b['priority'], 'band': b['band'],
+                         'position': b['position'], 'day': b['day']},
+                'to': {'priority': c['priority'], 'band': c['band'],
+                       'position': c['position'], 'day': c['day']},
+                'detail': '%s %s 우선순위 밴드 %d -> %d%s -- 잘림선 뒤로 밀렸다. 거부.'
+                          % (c['day'], name, b['band'], c['band'],
+                             ' (400+ = 컷존)' if c['band'] >= 400 else '')})
+        elif c['position'] > b['position']:
+            out.append({
+                'code': 'UNILATERAL_DEMOTED_BEHIND_CUT_LINE',
+                'day': c['day'], 'exercise': name,
+                'from': {'priority': b['priority'], 'band': b['band'],
+                         'position': b['position'], 'day': b['day']},
+                'to': {'priority': c['priority'], 'band': c['band'],
+                       'position': c['position'], 'day': c['day']},
+                'detail': '%s %s 수행 순서 %d번째 -> %d번째%s -- 잘림선 쪽으로 '
+                          '밀렸다. 거부.'
+                          % (c['day'], name, b['position'], c['position'],
+                             ' (%s -> %s 날짜 이동)' % (b['day'], moved_to)
+                             if moved_to else '')})
+    return out
+
+
+DEFICIT_KO = {
+    'allocation': '처방 부족 (allocator 소관)',
+    'adherence_gap': '수행 부족 (처방은 밴드 내 -- 세트 추가로 안 풀림)',
+    'coverage_hole': '담당 슬롯 자체 없음',
+}
+UNRESOLVED_KO = {
+    'NO_SLOT_SERVES_UNIT': '이 부위를 담당하는 슬롯이 프로그램에 하나도 없음',
+    # `{user}` is filled by unresolved_ko() below -- this table stays a pure
+    # template so no form of address is frozen at import time.
+    'NO_OTHER_CANDIDATE_IN_DB': 'kit_life.db에 추가로 쓸 종목이 없음 -- {user} 결정 필요'
+                                ' (종목을 지어내지 않는다)',
+    'NO_DAY_CAN_ABSORB_A_NEW_SLOT': '신규 슬롯을 받을 여유가 있는 날이 없음',
+    'OBJECTIVE_DECLINED': '목적함수가 이득보다 비용이 크다고 판단 -- 가중치 조정 대상',
+    'ADHERENCE_NOT_ALLOCATION': '배분 문제가 아니라 수행 문제 -- 처방 수정 대상 아님',
+}
+
+
+def _reason_ko(code):
+    head = code.split(':')[0]
+    ko = UNRESOLVED_KO.get(head)
+    if ko is not None and '{user}' in ko:
+        ko = ko.replace('{user}', _user())
+    if ko is None:
+        if head == 'SESSION_LENGTH_CAP':
+            ko = '세션 길이 상한에 걸림 -- 상한을 올리거나 다른 곳을 트림해야 함'
+        elif head == 'SLOT_SET_CAP':
+            ko = '슬롯당 세트 상한에 걸림'
+        else:
+            ko = head
+    tail = code.split(':', 1)[1].strip() if ':' in code else ''
+    return f'{ko} [{tail}]' if tail else ko
+
+
+def render_coordination(reading):
+    """The AXIS readout: both sub-measures, in their own units, plus the hole.
+
+    Rendered even when a sub-measure is 0 -- an axis line that disappears when
+    it has nothing to show is how the gap survived. `unmeasured` is printed for
+    the same reason."""
+    L = []
+    a = L.append
+    a('[COORDINATION] %s 축 -- 하위 측정 각자, 하중과 독립 (%s 룰링 2026-08-24)'
+      % (reading['label'], _user()))
+    a('  근거: 필라테스류는 하중이 아니라 이 연결을 극대화하는 운동에 가깝다.')
+    a('   필라테스는 버티기가 아니라 느리게 끝까지 제어하는 움직임 -- 연결 '
+      '갈래의 측정은 편측 + 느린 제어다 (버티기는 따로 센다).')
+    a('   ^ 하중 사다리(편측>프리웨이트>머신)로 협응을 유추하면 이 운동이 0으로 '
+      '찍힌다. 그래서 안 쓴다.')
+    for s in reading['sub_measures']:
+        a('  %-24s %6.2f%%  (%d/%d %s)'
+          % (s['label'], s['value'] * 100, s['numerator'], s['denominator'],
+             s['unit']))
+        a('      %s' % s['note'])
+    c = reading['connection_union_work_sets']
+    a('  연결 합집합(편측 OR 느린 제어) 작업 세트: %.2f%% (%d/%d)'
+      % (c['share_sets'] * 100, c['sets'], c['total']))
+    u = reading['union_work_sets']
+    a('  합집합(편측 OR 무하중버티기) 작업 세트: %.2f%% (%d/%d)'
+      % (u['share_sets'] * 100, u['sets'], u['total']))
+    for t in reading.get('tempo_unreadable') or []:
+        a('  [템포 읽기 불가] %s (%s) 템포 %r -- 네 자리 표기가 아니라 세지 '
+          '않고 이름으로 남긴다' % (t['exercise'], t['day'], t['tempo']))
+    a('  단일 협응 점수: 없음 -- %s' % reading['blended_score_note'])
+    a('  %s' % reading['volume_untouched'])
+    if reading['unmeasured']:
+        a('  [측정 안 됨] 무하중이지만 통제 마커(hold_sec)가 없는 준비운동·쿨다운 '
+          '항목 %d개 -- 0으로 세지 않고 이름으로 남긴다:'
+          % len(reading['unmeasured']))
+        seen = []
+        for m in reading['unmeasured']:
+            k = (m['code'], m['phase'])
+            if k in seen:
+                continue
+            seen.append(k)
+            a('      %s (%s)' % (m['code'], m['phase']))
+    bp = reading['baseline_proposal']
+    a('  [기준선 제안] 출처: %s / 확인 문항 %d개 / 목표치: 제안 안 함'
+      % (bp['derived_from'], bp['asks']))
+    a('      %s' % bp['target_note'])
+    return '\n'.join(L)
+
+
+def render_unilateral(before, after, floor, refusals):
+    """The FLOOR block -- one sub-measure of the axis, the one the floor is
+    defined on. The axis itself is render_coordination()."""
+    L = []
+    a = L.append
+    a('[COORDINATION] 편측(협응) 바닥선 -- %s 규칙' % _user())
+    a('  근거: 프리웨이트 중에도 협응 요구가 큰 것들이 있고, 주로 편측 운동이')
+    a('   그렇다. 컴파운드 3종만으로 구성하면 그 축이 비어 부상 위험이 커진다.')
+    a(f"  분류기: {before['classifier']}")
+    b, f = before['totals'], after['totals']
+    a(f"  편측 세트 비중: {before['share_sets'] * 100:.2f}% "
+      f"({b['unilateral_sets']}/{b['sets']})"
+      + (f"  ->  {after['share_sets'] * 100:.2f}% "
+         f"({f['unilateral_sets']}/{f['sets']})"
+         if after is not before else ''))
+    a(f"  편측 슬롯 비중: {before['share_slots'] * 100:.2f}% "
+      f"({b['unilateral_slots']}/{b['slots']})   "
+      f"<- 참고용. 바닥선은 세트로 센다 (트림은 슬롯 수를 안 바꾼다)")
+    a(f"  바닥선: 주간 세트 {floor['floor_share'] * 100:.1f}% "
+      f"+ 날마다 편측 슬롯 {floor['min_per_day']}개 이상  "
+      f"[판단값 -- 검증된 과학 아님]")
+    a(f"    세트 바닥선 근거: {floor['floor_derivation']}")
+    a(f"    날짜 바닥선 근거: {floor['per_day_derivation']}")
+    for s in after['slots']:
+        a(f"    {s['day']} {s['position']}번째 prio={s['priority']} "
+          f"band={s['band']} role={s['role']} sets={s['sets']} "
+          f"region={s['region']}  {s['exercise']}"
+          + ('  ⚠ 컷존(400+)' if s['in_cut_zone'] else ''))
+    if floor['warnings']:
+        for w in floor['warnings']:
+            a(f"  ⚠ WARN {w['code']}: {w['detail']}")
+        a('  ^ 경고다(거부 아님). 바닥선은 입력값 -- '
+          '--unilateral-floor-share / --unilateral-min-per-day 로 조정.')
+    else:
+        a('  바닥선 판정: OK')
+    gap = floor.get('upper_body_gap')
+    if gap:
+        a(f"  ⚠ GAP {gap['code']} (severity={gap['severity']}): "
+          f"{gap['detail_ko']}")
+        a(f"      {gap['not_fixed_here']}")
+    if after.get('region_vocab_gap'):
+        a(f"  NOTE: rx-calc MUSCLE_VOCAB 중 부위 분류 누락: "
+          f"{', '.join(after['region_vocab_gap'])}")
+    a('  [REFUSALS] 편측 슬롯을 잘림선 뒤로 밀거나 양측으로 치환하는 편집')
+    if not refusals:
+        a('    (없음)')
+    for r in refusals:
+        a(f"    REFUSED {r['code']}: {r['detail']}")
+    return '\n'.join(L)
+
+
+def render(p):
+    L = []
+    a = L.append
+    a('=' * 74)
+    a('program-rebalance -- 볼륨 재배분 제안 (PROPOSAL ONLY, 자동 적용 없음)')
+    a('=' * 74)
+    a(f"program : {p['program']}")
+    a(f"today   : {p['today']}   layer: {p['layer']}   rounds: {p['rounds']}")
+    # Always print WHERE the objective came from. A fallback that looks
+    # identical to a stored answer is how a stale constant hides.
+    _src = p['objective'].get('source', 'unknown')
+    a(f"objective: {p['objective']['name']}   (source: {_src})")
+    if _src.startswith('fallback:'):
+        a('  ⚠ 저장된 목적을 못 읽어서 기본값으로 돌았다 -- 위 source 참조.')
+    w = p['objective']['weights']
+    a(f"  w_floor={w['w_floor']} w_ceiling={w['w_ceiling']} "
+      f"w_target={w['w_target']} w_addset={w['w_addset']} "
+      f"w_newslot={w['w_newslot']}")
+    a(f"  trim_penalty={w['trim_penalty']}")
+    a(f"  fatigue_w={w['fatigue_w']}")
+    a('  ^ 목적함수는 판단값이다. --objective / --objective-weights 로 교체 가능.')
+    a('')
+    a('[BANDS] 밴드는 확정 과학이 아니라 입력값이다:')
+    for k, v in p['band_provenance'].items():
+        a(f'  {k:10s} {v}')
+    if p['focus_muscles']:
+        a(f"  focus muscles (ledger_goal): {', '.join(p['focus_muscles'])} "
+          f"(+{rx.MUSCLE_FOCUS_BONUS} target/ceiling)")
+    a('  주의: MEV/MAV 밴드는 HYPERTROPHY 잣대다. 목표가 기능성/근력이면,')
+    a('        밴드 준수는 유일 목적이 아니라 제약 하나다 (기본 objective=functional).')
+    a('')
+    a('[LIMITS] 상한은 이미 수용된 프로그램에서 측정한 값이다:')
+    for k, v in p['limits'].items():
+        a(f"  {k:16s} = {v}   <- {p['limits_source'].get(k, 'cli')}")
+    a('')
+    a('[VOLUME] unit            before ->  after   (floor/target/ceiling)  판정')
+    for u in p['units']:
+        b = u['band']
+        mark = ''
+        if u['after'] < b['floor']:
+            mark = 'BELOW_FLOOR'
+        elif u['after'] > b['ceiling']:
+            mark = 'ABOVE_CEILING'
+        arrow = '  ' if abs(u['delta']) < 1e-9 else '->'
+        a(f"  {u['unit']:16s} {u['before']:6.2f} {arrow} {u['after']:6.2f}   "
+          f"({b['floor']}/{b['target']}/{b['ceiling']}"
+          f"{' FOCUS' if b['focus'] else ''}, {b['source']})  {mark}")
+    a('')
+    a('[MOVES] 제안된 편집 (승인 전에는 아무것도 안 바뀜)')
+    if not p['moves']:
+        a('  (없음 -- 현재 배분이 목적함수 기준 국소 최적)')
+    for i, m in enumerate(p['moves'], 1):
+        a(f"  {i:2d}. {m['label']}")
+        a(f"      serves: {', '.join(m['serves']) or '-'}   "
+          f"cost {m['cost_delta']:+.3f}")
+        if m['caution']:
+            a(f"      ⚠ 안전 메모 있는 슬롯 -- 증량 전 확인 "
+              f"(program-history safety_note): {m['caution'][:140]}...")
+        if m['new_slot']:
+            ns = m['new_slot']
+            a(f"      new slot: priority={ns['priority']} role={ns['role']} "
+              f"sets={ns['sets']} weight_kg=None(캘리브레이션) "
+              f"display=None({_user()}/스킬이 채움)")
+    a('')
+    a('[SESSION LENGTH] 세션이 길어졌나')
+    sl = p['session_length']
+    for d in sl['before']:
+        before, after = sl['before'][d], sl['after'].get(d, 0)
+        a(f"  {d}: {before} -> {after} sets  ({after - before:+d})")
+    a(f"  weekly: {sl['weekly_before']} -> {sl['weekly_after']} sets "
+      f"({sl['weekly_after'] - sl['weekly_before']:+d})")
+    a('')
+    a('[PRIORITY] 2026-08-24 슬롯 우선순위 룰 준수 여부')
+    pi = p['priority_invariants']
+    a(f"  기존 슬롯 순서 보존 + 신규 슬롯은 컷존(400+): "
+      f"{'OK' if pi['ok'] else 'VIOLATION'}")
+    for c in pi['checks']:
+        a(f"    {c}")
+    a('')
+    a(render_unilateral(p['unilateral']['before'], p['unilateral']['after'],
+                        p['unilateral']['floor_after'],
+                        p['unilateral']['refusals']))
+    a('')
+    a(render_coordination(p['coordination']['after']))
+    a('')
+    a('[UNRESOLVED] 처방을 못 올린 것 -- %s 결정 대기' % _user())
+    if not p['unresolved']:
+        a('  (없음)')
+    for u in p['unresolved']:
+        a(f"  {u['unit']}: {DEFICIT_KO.get(u['kind'], u['kind'])}")
+        a(f"    proposed={u['proposed']} (floor={u['floor']}) "
+          f"actual_7d={u['actual_7d']}")
+        for r in u['reasons']:
+            a(f"    -> {_reason_ko(r)}")
+        if u.get('db_candidates'):
+            a(f"    DB 후보: {', '.join(u['db_candidates'])}")
+    a('')
+    a('[ADHERENCE] 처방은 밴드 안인데 실수행이 미달 -- 배분으로 풀 문제가 아님')
+    if not p['adherence_gaps']:
+        a('  (없음)')
+    for u in p['adherence_gaps']:
+        a(f"  {u['unit']}: proposed={u['proposed']} (floor={u['floor']}) "
+          f"actual_7d={u['actual_7d']}  -> 세트 추가 금지, 수행/컷라인 쪽 문제")
+    a('')
+    a(p['apply'])
+    return '\n'.join(L)
+
+
+# ---------------------------------------------------------------------------
+# ORDERING SOLVER (sub-problem 2) -- zone hop + intra-session fatigue order,
+# STRICTLY INSIDE the priority bands that landed 2026-08-24.
+# ---------------------------------------------------------------------------
+#
+# THE RULE OUTRANKS THE SOLVER, AND THE SOLVER CANNOT REACH IT.
+# program.yaml's header makes `priority` the order authority and gives each
+# role a band (0-99 warmup / 100-199 main / 200-299 rehab-prehab-focus /
+# 300-399 main / 400+ accessory = the cut zone). The owner's reason is not
+# efficiency, it is loss: 08-20 and 08-21 both ended early and ate a rehab slot
+# and a focus slot. So this solver's decision variable is NOT "the order of the
+# day" -- it is "the order WITHIN a band". Band membership is untouchable, and
+# a permutation that would move a slot across a band boundary is not in the
+# search space at all. It cannot propose breaking the rule even if that were
+# cheaper.
+#
+# What it CAN say is what the rule costs: `unconstrained_min` re-solves with
+# the bands removed, purely so the owner can see the hop they are paying for their
+# own priority rule. That number is reported as INFO and is never a proposal.
+
+# Band boundaries. Same contract as program.yaml's SLOT ORDERING header and
+# tests/test-slot-priority.py -- a slot's band is the hundred it sits in, with
+# everything >= 400 collapsed into the single cut zone.
+def priority_band(p):
+    try:
+        p = int(p)
+    except (TypeError, ValueError):
+        return 400
+    return 400 if p >= 400 else (p // 100) * 100
+
+
+# Fatigue ordering: heavy systemic work first, isolation last. Ranks come from
+# exercise_fatigue_cost via rx-calc resolve_fatigue_cost -- the same source the
+# audit's per-slot layer reads. The RANK ORDER (high before med before low) is
+# a practice convention, grade C; the weight below is what makes it negotiable
+# against hop cost rather than absolute.
+FATIGUE_RANK = {'high': 2, 'med': 1, 'low': 0}
+W_HOP = 1.0
+W_FATIGUE_ORDER = 0.5
+
+# Cap on the exhaustive search. Band sizes in a real day are 1-5 slots, so the
+# product of within-band permutations is in the tens; the cap only exists so a
+# pathological program degrades to "no proposal" instead of hanging.
+ORDER_SEARCH_CAP = 200000
+
+
+def parse_gym_layout(path):
+    """(hop_matrix, zone_of_token, unparsed) from gym-layout.md.
+
+    gym-layout.md IS the zone ledger -- the hop matrix and the zone assignments
+    are read out of it rather than copied into this file, so an owner
+    correction there (several are pending: the doc itself flags that only 4
+    mappings were ever owner-confirmed) reaches the solver with no code edit.
+
+    Only the `워킹 슬롯:` block is read. The prep-drill block above it names
+    drills, not slots, and matching against it would let a stretch band decide
+    a working slot's zone."""
+    hop, zone_of, unparsed = {}, {}, []
+    if not os.path.exists(path):
+        return hop, zone_of, ['gym-layout.md missing']
+    lines = open(path, encoding='utf-8').read().splitlines()
+
+    # --- hop matrix: a header row of zone letters, then one row per zone
+    header = None
+    for line in lines:
+        toks = line.split()
+        if header is None and len(toks) >= 5 and all(
+                len(t) == 1 and t.isalpha() and t.isupper() for t in toks):
+            header = toks
+            continue
+        if header and toks and toks[0] in header and len(toks) == len(header) + 1:
+            row = toks[0]
+            for col, val in zip(header, toks[1:]):
+                if val == '-':
+                    hop[(row, col)] = 0
+                else:
+                    try:
+                        hop[(row, col)] = int(val)
+                    except ValueError:
+                        pass
+
+    # --- working-slot zone assignments
+    in_work = False
+    cur = None
+    for line in lines:
+        if line.strip().startswith('워킹 슬롯:'):
+            in_work = True
+            continue
+        if in_work and line.startswith('## '):
+            break
+        if not in_work:
+            continue
+        stripped = line.strip()
+        m = None
+        if stripped.startswith('- **') or stripped.startswith('- '):
+            body = stripped.lstrip('- ').lstrip('*')
+            if len(body) >= 2 and body[0].isupper() and body[1] == ':':
+                cur = body[0]
+                m = body[2:]
+        if m is None and cur:
+            m = stripped
+        if not m or not cur:
+            continue
+        for tok in _layout_tokens(m):
+            zone_of.setdefault(tok, cur)
+    if not hop:
+        unparsed.append('hop matrix not parsed')
+    if not zone_of:
+        unparsed.append('working-slot zone list not parsed')
+    return hop, zone_of, unparsed
+
+
+def _layout_tokens(text):
+    """Comma-separated zone entries, stripped of parentheticals and markup."""
+    out = []
+    depth = 0
+    buf = []
+    for ch in text:
+        if ch in '(（':
+            depth += 1
+            continue
+        if ch in ')）':
+            depth = max(0, depth - 1)
+            continue
+        if depth:
+            continue
+        if ch == ',':
+            out.append(''.join(buf))
+            buf = []
+            continue
+        buf.append(ch)
+    out.append(''.join(buf))
+    cleaned = []
+    for t in out:
+        t = t.replace('**', '').replace('[', ' ').replace(']', ' ').strip()
+        t = t.strip('.').strip()
+        if not t:
+            continue
+        for part in t.split('/'):
+            part = part.strip()
+            if part:
+                cleaned.append(part)
+    # A gym-layout entry may carry a trailing annotation on the same fragment
+    # (e.g. `bicep_curl("바벨 컬", 뒷A slot6) **[confirmed 2026-08-22]**`), which
+    # leaves the snake_case key glued to prose after the parenthetical is
+    # stripped. Emit any embedded snake_case identifier as its own token so an
+    # owner-confirmed mapping is not lost to markup.
+    for frag in list(cleaned):
+        for ident in re.findall(r'[a-z][a-z0-9]*(?:_[a-z0-9]+)+', frag):
+            if ident != frag:
+                cleaned.append(ident)
+    return cleaned
+
+
+def _norm(s):
+    return ''.join((s or '').split()).lower()
+
+
+def zone_map_for_program(program, zone_of):
+    """{exercise_name: zone} plus the list of slots gym-layout does not cover.
+
+    Matching is by snake_case key first (unambiguous), then by the slot's own
+    Korean `display` string -- program.yaml already carries the display name, so
+    the Korean entries in gym-layout.md are resolved through THAT rather than
+    through a Korean->key table maintained here. An exercise that matches
+    nothing is reported UNMAPPED and excluded from the cost, never guessed into
+    a zone: gym-layout.md itself records that only four of its mappings were
+    ever owner-confirmed."""
+    by_key = {k: v for k, v in zone_of.items() if k.replace('_', '').isalnum()
+              and k.islower()}
+    korean = {_norm(k): v for k, v in zone_of.items() if k not in by_key}
+    out, unmapped = {}, []
+    for _d, _i, ex in iter_slots(program):
+        name = ex.get('name')
+        if not name or name in out:
+            continue
+        if name in by_key:
+            out[name] = by_key[name]
+            continue
+        disp = _norm(ex.get('display'))
+        hit = None
+        for tok, z in korean.items():
+            if tok and disp and (tok in disp or disp in tok):
+                hit = z
+                break
+        if hit:
+            out[name] = hit
+        else:
+            unmapped.append(name)
+    return out, unmapped
+
+
+def order_cost(names, zone, hop, fat_rank):
+    """(total, hop_cost, fatigue_violations) for one day's slot sequence.
+
+    Unmapped slots are TRANSPARENT to the hop term -- the walk continues from
+    the last known zone -- so an unknown zone cannot fabricate movement. It is
+    counted in the report as coverage loss instead."""
+    zseq = [zone.get(n) for n in names]
+    hop_cost = 0
+    prev = None
+    for z in zseq:
+        if z is None:
+            continue
+        if prev is not None:
+            hop_cost += hop.get((prev, z), 0)
+        prev = z
+    viol = 0
+    ranks = [fat_rank.get(n, 0) for n in names]
+    for i in range(len(ranks)):
+        for j in range(i + 1, len(ranks)):
+            if ranks[i] < ranks[j]:
+                viol += 1
+    return W_HOP * hop_cost + W_FATIGUE_ORDER * viol, hop_cost, viol
+
+
+def _permute_within_bands(items, keyfn):
+    """Every sequence reachable by permuting inside each band, bands in fixed
+    order. This IS the constraint: nothing here can move a slot to another
+    band."""
+    bands = {}
+    for it in items:
+        bands.setdefault(keyfn(it), []).append(it)
+    order = sorted(bands)
+    pools = [list(itertools.permutations(bands[b])) for b in order]
+    total = 1
+    for p in pools:
+        total *= len(p)
+    if total > ORDER_SEARCH_CAP:
+        return None, total
+    seqs = []
+    for combo in itertools.product(*pools):
+        seq = []
+        for chunk in combo:
+            seq.extend(chunk)
+        seqs.append(seq)
+    return seqs, total
+
+
+def solve_order(program, led, layout_path, program_path=None):
+    hop, zone_of, unparsed = parse_gym_layout(layout_path)
+    zone, unmapped = zone_map_for_program(program, zone_of)
+    fat = {}
+    fat_rank = {}
+    for _d, _i, ex in iter_slots(program):
+        n = ex.get('name')
+        if n:
+            fat[n] = led.fatigue(n)
+            fat_rank[n] = FATIGUE_RANK.get(fat[n], 0)
+
+    days = []
+    for day in (program.get('rotation') or []):
+        items = rx.day_work_items(program, day)
+        names = [e.get('name') for e in items]
+        cur_total, cur_hop, cur_viol = order_cost(names, zone, hop, fat_rank)
+
+        seqs, space = _permute_within_bands(
+            items, lambda e: priority_band(e.get('priority')))
+        best_seq, best = names, (cur_total, cur_hop, cur_viol)
+        if seqs:
+            for seq in seqs:
+                nm = [e.get('name') for e in seq]
+                c = order_cost(nm, zone, hop, fat_rank)
+                if c[0] < best[0] - 1e-9:
+                    best, best_seq = c, nm
+
+        # INFO ONLY -- what the priority rule costs. Never a proposal.
+        if len(items) <= 9:
+            free_best = min(
+                (order_cost([e.get('name') for e in perm], zone, hop, fat_rank)
+                 for perm in itertools.permutations(items)),
+                key=lambda c: c[0])
+        else:
+            free_best = None
+
+        # The cost model has a WITHIN-day fatigue ORDER term but no
+        # exercise-to-exercise CONTINUITY term: it knows "heavy first", it does
+        # not know "deadlift immediately followed by barbell row is two
+        # consecutive high spinal loads". The 2026-08-22 consult briefing
+        # flagged exactly that trade (the 뒷A 3-hop saving buys a
+        # 데드->바벨로우 adjacency) and recorded it as an OWNER call. So any
+        # NEW adjacency between two `high` fatigue-cost slots is surfaced as a
+        # caution rather than silently bought.
+        def high_pairs(seq):
+            return {(seq[i], seq[i + 1]) for i in range(len(seq) - 1)
+                    if fat.get(seq[i]) == 'high' and fat.get(seq[i + 1]) == 'high'}
+        new_adjacency = sorted(high_pairs(best_seq) - high_pairs(names))
+
+        renumber = None
+        if best_seq != names:
+            band_prios = {}
+            for e in items:
+                band_prios.setdefault(priority_band(e.get('priority')), []).append(
+                    int(e.get('priority')))
+            for b in band_prios:
+                band_prios[b].sort()
+            cursor = {b: 0 for b in band_prios}
+            renumber = []
+            for n in best_seq:
+                e = next(x for x in items if x.get('name') == n)
+                b = priority_band(e.get('priority'))
+                p = band_prios[b][cursor[b]]
+                cursor[b] += 1
+                renumber.append({'exercise': n, 'from': int(e.get('priority')),
+                                 'to': p, 'role': e.get('role'), 'band': b})
+
+        days.append({
+            'day': day,
+            'current_order': names,
+            'current_zones': [zone.get(n) for n in names],
+            'current_hop': cur_hop,
+            'current_fatigue_violations': cur_viol,
+            'best_within_band_order': best_seq,
+            'best_within_band_hop': best[1],
+            'best_within_band_fatigue_violations': best[2],
+            'improves': best_seq != names,
+            'new_high_fatigue_adjacency': new_adjacency,
+            'renumber': renumber,
+            'search_space': space,
+            'rule_free_min_hop': free_best[1] if free_best else None,
+            'price_of_priority_rule':
+                (best[1] - free_best[1]) if free_best else None,
+        })
+
+    return {
+        'mode': 'order',
+        'program': program_path,
+        'layout': layout_path,
+        'layout_parse_warnings': unparsed,
+        'unmapped_exercises': unmapped,
+        'zone_coverage': f'{len(zone)}/{len(zone) + len(unmapped)}',
+        'weights': {'W_HOP': W_HOP, 'W_FATIGUE_ORDER': W_FATIGUE_ORDER},
+        'days': days,
+        'constraint': 'within-band permutation ONLY -- the 2026-08-24 priority '
+                      'bands are not in the search space',
+        'apply': 'NOT APPLIED -- proposal only. program.yaml is untouched.',
+    }
+
+
+def render_order(o):
+    L = []
+    a = L.append
+    a('=' * 74)
+    a('program-rebalance --order  (동선 + 세션내 피로 순서, 밴드 내부 한정)')
+    a('=' * 74)
+    a(f"layout : {o['layout']}   zone 커버리지 {o['zone_coverage']}")
+    if o['unmapped_exercises']:
+        a(f"  UNMAPPED (구역 미상 -- 비용에서 제외, 추측 안 함): "
+          f"{', '.join(o['unmapped_exercises'])}")
+    if o['layout_parse_warnings']:
+        a(f"  WARN: {o['layout_parse_warnings']}")
+    a('  주의: 구역 매핑 중 %s 직접 확인하지 않은 항목은 에이전트 추론이다.'
+      % _user('이', '가'))
+    a('        아래 홉 수는 그 추론 위에 서 있다 -- gym-layout.md의 출처 표기 참조.')
+    a('')
+    a(f"제약: {o['constraint']}")
+    a(f"가중치: hop={o['weights']['W_HOP']} fatigue_order={o['weights']['W_FATIGUE_ORDER']}")
+    a('')
+    for d in o['days']:
+        a(f"[{d['day']}]  hop {d['current_hop']} -> {d['best_within_band_hop']}"
+          f"   피로순서 위반 {d['current_fatigue_violations']} -> "
+          f"{d['best_within_band_fatigue_violations']}"
+          f"   (탐색공간 {d['search_space']})")
+        a(f"  현재: " + ' > '.join(
+            f"{n}({d['current_zones'][i] or '?'})"
+            for i, n in enumerate(d['current_order'])))
+        if d['improves']:
+            a('  제안: ' + ' > '.join(d['best_within_band_order']))
+            for r in d['renumber']:
+                if r['from'] != r['to']:
+                    a(f"      priority {r['exercise']}: {r['from']} -> {r['to']}"
+                      f"  (band {r['band']}, role {r['role']} -- 밴드 불변)")
+            for pair in d['new_high_fatigue_adjacency']:
+                a(f"      ⚠ 신규 고피로 연속 배치: {pair[0]} -> {pair[1]}  "
+                  f"(모델에 척추/근육 연속부하 항이 없다 -- {_user()} 판정 사항)")
+        else:
+            a('  제안: 없음 -- 밴드 내부에서 더 나은 배열이 없다')
+        if d['price_of_priority_rule'] is not None:
+            a(f"  [INFO] 밴드 제약을 풀면 최소 hop {d['rule_free_min_hop']} "
+              f"(우선순위 룰이 지불하는 값 = +{d['price_of_priority_rule']}). "
+              f"제안 아님 -- 룰이 상위 제약이다.")
+        a('')
+    a(o['apply'])
+    return '\n'.join(L)
+
+
+# ---------------------------------------------------------------------------
+# GATE -- a program edit that breaks an invariant must fail LOUDLY
+# ---------------------------------------------------------------------------
+
+def run_priority_suite(program_path):
+    """Delegate the slot-priority invariants to the guard that already owns
+    them (tests/test-slot-priority.py, landed 2026-08-24). Re-implementing its
+    seven invariants here would be a second ledger of the same rule.
+
+    WARG_PROGRAM_YAML points that suite at the CANDIDATE file, so the gate
+    checks the edit under review rather than whatever is currently live."""
+    path = os.path.join(HERE, 'tests', 'test-slot-priority.py')
+    if not os.path.exists(path):
+        return {'ok': False, 'rc': None, 'detail': 'test-slot-priority.py missing'}
+    env = dict(os.environ)
+    env['WARG_PROGRAM_YAML'] = os.path.abspath(program_path)
+    proc = subprocess.run([sys.executable, path], capture_output=True,
+                          text=True, env=env)
+    tail = (proc.stdout or '').strip().splitlines()[-3:]
+    return {'ok': proc.returncode == 0, 'rc': proc.returncode,
+            'detail': ' | '.join(tail)}
+
+
+def baseline_program(program_path, baseline):
+    """The state we are comparing against. Default = git HEAD of the same file,
+    i.e. 'what was already agreed'. A NEW violation is the gate's trigger; a
+    pre-existing one is a backlog item, not a landing blocker."""
+    if baseline:
+        return rx.load_yaml(baseline), f'file:{baseline}'
+    top = subprocess.run(['git', '-C', os.path.dirname(program_path),
+                          'rev-parse', '--show-toplevel'],
+                         capture_output=True, text=True)
+    if top.returncode != 0:
+        return None, 'none (not a git repo)'
+    root = top.stdout.strip()
+    rel = os.path.relpath(os.path.abspath(program_path), root)
+    show = subprocess.run(['git', '-C', root, 'show', f'HEAD:{rel}'],
+                          capture_output=True, text=True)
+    if show.returncode != 0:
+        return None, 'none (no HEAD copy)'
+    tmp = os.path.join('/tmp', f'.program-rebalance-baseline-{os.getpid()}.yaml')
+    with open(tmp, 'w', encoding='utf-8') as f:
+        f.write(show.stdout)
+    try:
+        return rx.load_yaml(tmp), f'git HEAD:{rel}'
+    finally:
+        try:
+            os.unlink(tmp)
+        except OSError:
+            pass
+
+
+def violations(program, db_path, today, layer):
+    """{unit: verdict} for every HARD band violation in a program state."""
+    led = Ledger(db_path, program, layer)
+    vals = unit_values(program, led)
+    out = {}
+    for u in led.units:
+        floor_v, _t, ceiling_v, _f, _s = led.bands[u]
+        if vals[u] < floor_v - 1e-9:
+            out[u] = f'below_floor ({vals[u]} < {floor_v})'
+        elif vals[u] > ceiling_v + 1e-9:
+            out[u] = f'above_ceiling ({vals[u]} > {ceiling_v})'
+    return out
+
+
+def run_gate(args):
+    program = rx.load_yaml(args.program)
+    if not isinstance(program, dict):
+        raise SystemExit('[program-rebalance] ERROR: program.yaml did not parse')
+    prio = run_priority_suite(args.program)
+    now = violations(program, args.db, args.today, args.layer)
+    base, base_src = baseline_program(args.program, args.baseline)
+    was = violations(base, args.db, args.today, args.layer) if base else {}
+    # NO BASELINE => NO BAND VERDICT. Treating "unknown baseline" as "clean
+    # baseline" would turn every pre-existing violation into a NEW one and the
+    # gate would block every landing in a fresh checkout -- a gate that cries
+    # wolf is a gate that gets bypassed. The priority arm still applies.
+    new = {u: v for u, v in now.items() if u not in was} if base else {}
+    fixed = sorted(set(was) - set(now))
+
+    # ---- COORDINATION ARM (2026-08-24 owner rule). Two halves, on purpose:
+    #   * REFUSALS are relative to the baseline -- an EDIT that demotes a
+    #     unilateral slot behind the cut line, or swaps one out for a bilateral
+    #     movement, exits 4 exactly like a priority/band break. Same shape.
+    #   * The FLOOR is absolute and always evaluated, but it only WARNS: it is
+    #     a judgement value, and a gate that blocks a landing on a judgement
+    #     value is a gate that gets bypassed.
+    led_u = Ledger(args.db, program, args.layer)
+    census = unilateral_census(program, led_u)
+    control = control_census(program, rx.load_prep(args.program), args.db)
+    floor = unilateral_floor_verdict(
+        census, args.unilateral_floor_share, args.unilateral_min_per_day,
+        led_u.focus_muscles)
+    refusals = unilateral_refusals(base, program) if base else []
+
+    result = {
+        'mode': 'gate',
+        'program': os.path.abspath(args.program),
+        'baseline': base_src,
+        'priority_suite': prio,
+        'violations_now': now,
+        'violations_baseline': was,
+        'new_violations': new,
+        'fixed_violations': fixed,
+        'baseline_available': base is not None,
+        'unilateral': {
+            'census': census,
+            'floor': floor,
+            'refusals': refusals,
+            'refusals_evaluated': base is not None,
+        },
+        'coordination': coordination_reading(census, control, args.db),
+        'coordination_control_census': control,
+        'ok': prio['ok'] and not new and not refusals,
+    }
+    return result
+
+
+def render_gate(g):
+    L = []
+    a = L.append
+    a('=' * 74)
+    a('program-rebalance --gate  (프로그램 편집 불변식 게이트)')
+    a('=' * 74)
+    a(f"program : {g['program']}")
+    a(f"baseline: {g['baseline']}")
+    a('')
+    a(f"[PRIORITY] tests/test-slot-priority.py rc={g['priority_suite']['rc']} "
+      f"-> {'OK' if g['priority_suite']['ok'] else 'FAIL'}")
+    a(f"           {g['priority_suite']['detail']}")
+    a('')
+    a('[BANDS] 기준선 대비 NEW 위반만 게이트를 막는다 (선행 위반은 백로그)')
+    if not g['baseline_available']:
+        a('  기준선을 못 구했다 -- 밴드 판정 SKIP (우선순위 판정만 유효)')
+    if g['violations_baseline']:
+        for u, v in sorted(g['violations_baseline'].items()):
+            a(f"  baseline: {u}: {v}")
+    if g['fixed_violations']:
+        a(f"  fixed   : {', '.join(g['fixed_violations'])}")
+    if g['new_violations']:
+        for u, v in sorted(g['new_violations'].items()):
+            a(f"  NEW     : {u}: {v}   <- 이 편집이 만든 위반")
+    else:
+        a('  NEW     : (없음)')
+    a('')
+    u = g['unilateral']
+    a(render_unilateral(u['census'], u['census'], u['floor'], u['refusals']))
+    a('')
+    a(render_coordination(g['coordination']))
+    if not u['refusals_evaluated']:
+        a('    기준선을 못 구했다 -- 거부 판정 SKIP (바닥선 경고만 유효)')
+    a('')
+    a('GATE: ' + ('PASS' if g['ok'] else 'FAIL -- 이 편집은 착지 금지'))
+    return '\n'.join(L)
+
+
+# ---------------------------------------------------------------------------
+# CLI
+# ---------------------------------------------------------------------------
+
+def main():
+    ap = argparse.ArgumentParser(
+        prog='program-rebalance',
+        description='Volume allocator + edit gate for program.yaml. '
+                    'Proposes; never writes.')
+    ap.add_argument('program')
+    ap.add_argument('today')
+    ap.add_argument('db')
+    ap.add_argument('--gate', action='store_true',
+                    help='invariant gate mode instead of allocation')
+    ap.add_argument('--order', action='store_true',
+                    help='ordering solver (zone hop + intra-session fatigue) '
+                         'INSIDE the priority bands')
+    ap.add_argument('--baseline', default=None,
+                    help='gate mode: baseline program.yaml (default: git HEAD)')
+    # default=None on purpose: absence means "ask the stored purpose"
+    # (resolve_objective_from_purpose). Defaulting to a constant here is what
+    # made the owner's stored answer unreadable in the first place.
+    ap.add_argument('--objective', default=None,
+                    choices=sorted(OBJECTIVES))
+    ap.add_argument('--objective-weights', default=None,
+                    help='JSON dict overriding individual objective weights')
+    ap.add_argument('--layer', default='both',
+                    choices=['group', 'subregion', 'both'])
+    ap.add_argument('--max-slot-sets', type=int, default=None)
+    ap.add_argument('--max-day-sets', type=int, default=None)
+    ap.add_argument('--new-slot-sets', type=int, default=3)
+    # COORDINATION FLOOR -- judgement values, tunable on purpose. See
+    # UNILATERAL_FLOOR_DERIVATION: they are derived from the owner's own
+    # program and delivered history, not imported from any literature.
+    ap.add_argument('--unilateral-floor-share', type=float,
+                    default=UNILATERAL_FLOOR_SHARE_DEFAULT,
+                    help='minimum share of weekly PRESCRIBED SETS that must be '
+                         'unilateral (judgement value, default %.2f)'
+                         % UNILATERAL_FLOOR_SHARE_DEFAULT)
+    ap.add_argument('--unilateral-min-per-day', type=int,
+                    default=UNILATERAL_MIN_PER_DAY_DEFAULT,
+                    help='minimum unilateral SLOTS per rotation day '
+                         '(judgement value, default %d)'
+                         % UNILATERAL_MIN_PER_DAY_DEFAULT)
+    ap.add_argument('--max-rounds', type=int, default=40)
+    ap.add_argument('--json', action='store_true')
+    args = ap.parse_args()
+
+    for path in (args.program, args.db):
+        if not os.path.exists(path):
+            print(f'[program-rebalance] ERROR: not found: {path}',
+                  file=sys.stderr)
+            sys.exit(1)
+
+    if args.order:
+        program = rx.load_yaml(args.program)
+        led = Ledger(args.db, program, args.layer)
+        o = solve_order(program, led, os.path.join(DATA_DIR, 'gym-layout.md'),
+                        os.path.abspath(args.program))
+        print(json.dumps(o, ensure_ascii=False, indent=2) if args.json
+              else render_order(o))
+        sys.exit(0)
+
+    if args.gate:
+        g = run_gate(args)
+        print(json.dumps(g, ensure_ascii=False, indent=2) if args.json
+              else render_gate(g))
+        sys.exit(0 if g['ok'] else 4)
+
+    p = build_proposal(args)
+    print(json.dumps(p, ensure_ascii=False, indent=2) if args.json else render(p))
+    sys.exit(3 if p['unresolved'] else 0)
+
+
+if __name__ == '__main__':
+    main()

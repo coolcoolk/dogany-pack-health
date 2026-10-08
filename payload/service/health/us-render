@@ -1,0 +1,170 @@
+#!/usr/bin/env python3
+# us-render -- US render / delivery / scheduler CLI (DGN-782 R1-R5 + D1).
+#
+# Renders us_step rows, composes the session sequence, and auto-emits one step
+# at a time (the scheduler). Absorbs interim set-arm F11 (next_hint). E14 hold
+# lands via hold-class us_step (no new schema). The timer-end -> next-step
+# chaining consumes the framework's countdown done-marker (C1, stubbed + isolated).
+# Pack payload code. Interface = CLI / file / exit-code.
+#
+# Subcommands:
+#   compose --session <ref> [--db PATH] [--json]
+#       D1: render + (re)materialize next_hint for the whole session sequence.
+#   render --step <us_step_ulid> [--db PATH] [--json]
+#       Render a single step (R1 matrix_ref / R2 exercise_derived).
+#   next --session <ref> [--db PATH] [--json]
+#       D1 scheduler: emit the NEXT step after the cursor (one at a time).
+#       Advances the cursor; countdown_request included for hold/rest steps.
+#   hint --session <ref> [--db PATH] [--json]
+#       R3/F11: (re)materialize next_hint from seq+1 (writes us_step.next_hint).
+#   advance --session <ref> --countdown <id> [--db PATH] [--json]
+#       D4 chaining seam: emit next ONLY if the framework's <id>.done marker exists;
+#       else prints waiting (exit 3). This is the ONLY framework-dependent point.
+#
+# Exit codes: 0 = ok; 1 = error; 3 = advance waiting on done-marker (framework C1).
+#
+# stdlib only.
+
+import os
+import sys
+import json
+import argparse
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import ax_engine as AX
+import us_render as US
+
+
+def cmd_compose(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=False)  # next_hint materialize writes
+    try:
+        seq = US.compose_sequence(conn, args.session)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps(seq, ensure_ascii=True))
+    else:
+        for s in seq:
+            line = s.get("line") or s.get("cue") or "?"
+            print("seq %2d [%-8s] %s%s" % (
+                s["seq"], s["step_type"], line,
+                "  (HOLD %ss)" % s["hold_sec"] if s.get("is_hold") else ""))
+    return 0
+
+
+def cmd_render(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=True)
+    try:
+        row = conn.execute("SELECT * FROM us_step WHERE ulid=?;",
+                          (args.step,)).fetchone()
+        if row is None:
+            print("[us-render] ERROR: us_step not found: %s" % args.step,
+                  file=sys.stderr)
+            return 1
+        out = US.render_step(conn, row)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps(out, ensure_ascii=True))
+    else:
+        print(out.get("line") or out.get("cue") or "?")
+    return 0
+
+
+def cmd_next(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=True)
+    try:
+        res = US.scheduler_emit_next(conn, args.session)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps(res, ensure_ascii=True))
+    else:
+        if res.get("done"):
+            print("DONE session=%s" % args.session)
+        else:
+            s = res["step"]
+            print("EMIT seq %d [%s] %s" % (
+                s["seq"], s["step_type"], s.get("line") or s.get("cue")))
+            if res.get("countdown_request"):
+                cr = res["countdown_request"]
+                print("  ARM countdown id=%s seconds=%d cadence=%s" % (
+                    cr["id"], cr["seconds"], cr["cadence"]))
+    return 0
+
+
+def cmd_hint(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=False)
+    try:
+        hints = US.materialize_next_hint(conn, args.session, write=True)
+    finally:
+        conn.close()
+    if args.json:
+        print(json.dumps([{"ulid": u, "next_hint": h} for u, h in hints],
+                         ensure_ascii=True))
+    else:
+        for u, h in hints:
+            print("%s  %s" % (u, h))
+    return 0
+
+
+def cmd_advance(args):
+    db = AX.resolve_db_path(args.db)
+    conn = AX.connect(db, read_only=True)
+    try:
+        res = US.scheduler_advance(conn, args.session, args.countdown)
+    finally:
+        conn.close()
+    if res.get("waiting"):
+        if args.json:
+            print(json.dumps(res, ensure_ascii=True))
+        else:
+            print("WAITING countdown=%s (%s)" % (
+                res["countdown_id"], res["note"]))
+        return 3   # distinct code: caller/interim path may re-poll
+    if args.json:
+        print(json.dumps(res, ensure_ascii=True))
+    else:
+        if res.get("done"):
+            print("DONE session=%s" % args.session)
+        else:
+            s = res["step"]
+            print("EMIT seq %d [%s] %s" % (
+                s["seq"], s["step_type"], s.get("line") or s.get("cue")))
+    return 0
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="us-render", description="US render / delivery / scheduler.")
+    sub = p.add_subparsers(dest="cmd")
+
+    for name, fn, extra in (
+        ("compose", cmd_compose, []),
+        ("render", cmd_render, [("--step", True)]),
+        ("next", cmd_next, []),
+        ("hint", cmd_hint, []),
+        ("advance", cmd_advance, [("--countdown", True)]),
+    ):
+        sp = sub.add_parser(name)
+        if name != "render":
+            sp.add_argument("--session", required=True, help="session_ref")
+        for flag, req in extra:
+            sp.add_argument(flag, required=req)
+        sp.add_argument("--db", default=None)
+        sp.add_argument("--json", action="store_true")
+        sp.set_defaults(fn=fn)
+
+    args = p.parse_args(argv)
+    if not getattr(args, "fn", None):
+        p.print_help()
+        return 1
+    return args.fn(args)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,120 @@
+{
+  "id": "pack_health",
+  "name_en": "Dogany Health Trainer",
+  "name_ko": "Dogany 헬스 트레이너",
+  "kind": "pack",
+  "pack_version": "0.37.0",
+  "contract_version": 1,
+  "requires_framework": ">=2.6.0",
+  "requires_kit": {
+    "kit": "kit_life",
+    "range": ">=2.38.0 <3.0.0"
+  },
+  "capabilities": {
+    "db_lane": false
+  },
+  "hooks": [
+    {
+      "event": "SessionStart",
+      "script": "routines/bundle/domain-onboarding-check.py"
+    },
+    {
+      "event": "Stop",
+      "script": "routines/bundle/domain-onboarding-stop.py"
+    },
+    {
+      "event": "UserPromptSubmit",
+      "script": "routines/bundle/domain-onboarding-prompt.py",
+      "timeout": 30
+    },
+    {
+      "event": "UserPromptSubmit",
+      "script": "routines/bundle/session-progress-inject.py",
+      "timeout": 20
+    },
+    {
+      "event": "UserPromptSubmit",
+      "script": "routines/bundle/goal-entry-gate.py",
+      "timeout": 10
+    },
+    {
+      "event": "PreToolUse",
+      "script": "routines/bundle/tool-output-filter-gate.py",
+      "timeout": 5
+    }
+  ],
+  "post_mint_next": "[domain onboarding -- pack_health] Identity onboarding just finished; the health goal stage may still be outstanding. Run the declared wrapper exactly as named, from own root: /usr/bin/python3 routines/bundle/domain-onboarding-check.py (no arguments, empty stdin). Its NONEMPTY STDOUT is the continuation signal; its exit code is always 0. On nonempty stdout: load the health-onboarding skill, obey its step 0 verdict recheck, and in THIS same message open with its step 1 CONTINUATION OPENING: goal-setting's first message (program-plan next), verbatim, with no transition line and no second settings recap. Empty stdout, an error or a timeout: no domain setup copy.",
+  "payload_root": "payload",
+  "service_namespace": "health",
+  "knowledge_warehouse": "kimwog",
+  "skills": [
+    {
+      "name": "health-onboarding",
+      "sharing_mode": "own"
+    },
+    {
+      "name": "workout-session",
+      "sharing_mode": "own"
+    },
+    {
+      "name": "workout-program",
+      "sharing_mode": "own"
+    },
+    {
+      "name": "pain-triage",
+      "sharing_mode": "own"
+    },
+    {
+      "name": "diet-plan",
+      "sharing_mode": "own"
+    },
+    {
+      "name": "diet-status",
+      "sharing_mode": "own"
+    },
+    {
+      "name": "exercise-form-demo",
+      "sharing_mode": "own"
+    }
+  ],
+  "deploy_owner": "skull",
+  "status": "published",
+  "tone_candidates": {
+    "ko": [
+      {
+        "label": "힘차고 격려하는 스타일",
+        "sample": "좋아요, 한 세트만 더 가요!"
+      },
+      {
+        "label": "강하고 직접적인 스타일",
+        "sample": "오늘 훈련 빠질 이유 없습니다."
+      },
+      {
+        "label": "따뜻하고 차분한 스타일",
+        "sample": "오늘도 몸 잘 챙기셨어요."
+      },
+      {
+        "label": "전문적이고 간결한 스타일",
+        "sample": "운동 기록 완료. 다음 세션: 목요일."
+      }
+    ],
+    "en": [
+      {
+        "label": "Energetic and encouraging",
+        "sample": "Nice, one more set -- let's go!"
+      },
+      {
+        "label": "Strong and direct",
+        "sample": "No reason to skip training today."
+      },
+      {
+        "label": "Warm and calm",
+        "sample": "You took good care of your body today."
+      },
+      {
+        "label": "Professional and concise",
+        "sample": "Workout logged. Next session: Thursday."
+      }
+    ]
+  }
+}

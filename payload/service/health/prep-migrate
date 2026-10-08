@@ -1,0 +1,391 @@
+#!/usr/bin/env python3
+# prep-migrate -- apply a NAMED, idempotent data migration to an owner's
+# files/program/prep.yaml.
+#
+# WHY THIS EXISTS AT ALL, AND WHY THE FIX IS NOT SHIPPED AS DATA
+# --------------------------------------------------------------
+# prep.yaml is OWNER DATA. This pack deliberately does not ship it -- see
+# service/health/README.md ("NOT shipped -- user data") and workout-program's
+# design-data ownership section. The reason is load-bearing: an install that
+# carried a packaged prep.yaml could `cp -f` a stranger's warmup over the
+# owner's real program, injuries and rulings included. That decision is not
+# revisited here.
+#
+# But a pack patch still has to be able to CHANGE that data when the change is
+# a product decision rather than a personal one -- exactly the situation
+# `health_taxonomy_seed.py` and `us_reseed.py` are already in. They are the
+# precedent this file follows: a script the pack ships, dry-run by default,
+# `--apply` to write, operating on data the pack does not own.
+#
+# WHAT A MIGRATION MAY AND MAY NOT DO
+#   MAY   restructure -- split a bundled drill into its parts, retarget a code,
+#         move a value into the field that was invented for it.
+#   MAY NOT invent a prescription, a name, a zone or a cue. Every value written
+#         by a migration must be TRACEABLE to text already in the file. Each
+#         one below states its source line in a comment it writes into the
+#         output, so the provenance survives in the data.
+#
+# SAFETY
+#   * DRY RUN IS THE DEFAULT. With no --apply nothing is written and a unified
+#     diff goes to stdout.
+#   * IDEMPOTENT. A migration already applied reports ALREADY_APPLIED and exits
+#     0, so re-running is never destructive.
+#   * VERIFIED BEFORE WRITE. The transformed text is parsed by rx-calc's own
+#     loader and the affected days are re-read; if the result does not parse, or
+#     loses drills, nothing is written and the exit code is non-zero.
+#   * BACKUP. --apply writes <prep.yaml>.bak-<migration> first.
+#   * COMMENTS SURVIVE. prep.yaml is 1000+ lines of load-bearing commentary and
+#     its parser is hand-rolled (no PyYAML on the target box), so this is a
+#     LINE-ORIENTED structural edit, never a parse-and-dump round trip. A round
+#     trip would silently delete every owner ruling recorded in the file.
+#
+# Usage:
+#   prep-migrate --list
+#   prep-migrate <name> [--prep PATH] [--apply]
+#
+# stdlib only. ASCII source outside the data strings.
+
+import argparse
+import difflib
+import importlib.machinery
+import importlib.util
+import os
+import shutil
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PREP = os.path.join(DATA_DIR, "prep.yaml")
+
+
+def _load_rx():
+    """rx-calc as a module (same no-extension import convention the rest of the
+    engine uses). None when it is not reachable -- verification then degrades to
+    a structural check and says so."""
+    try:
+        path = os.path.join(HERE, "rx-calc")
+        loader = importlib.machinery.SourceFileLoader("rx_calc_pm", path)
+        spec = importlib.util.spec_from_loader("rx_calc_pm", loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        return mod
+    except Exception:  # noqa: BLE001 -- absent loader is a degrade, not a crash
+        return None
+
+
+# ---------------------------------------------------------------------------
+# line-oriented block helpers -- the only structural primitives a migration
+# gets. They understand INDENT and nothing else, which is exactly as much as a
+# comment-preserving edit is allowed to understand.
+# ---------------------------------------------------------------------------
+def _indent_of(line):
+    return len(line) - len(line.lstrip(" "))
+
+
+def find_mapping_block(lines, start, key, indent):
+    """[i, j) of `<indent spaces><key>:` and every line under it, or None.
+
+    A block ends at the first non-blank, non-comment line whose indent is <=
+    `indent`. Trailing blank/comment lines belong to the NEXT block, not this
+    one, so removing a block never eats the comment that introduces its
+    successor."""
+    want = " " * indent + key + ":"
+    i = None
+    for n in range(start, len(lines)):
+        if lines[n].rstrip() == want:
+            i = n
+            break
+    if i is None:
+        return None
+    j = i + 1
+    while j < len(lines):
+        ln = lines[j]
+        if not ln.strip() or ln.lstrip().startswith("#"):
+            j += 1
+            continue
+        if _indent_of(ln) <= indent:
+            break
+        j += 1
+    # walk back over trailing blanks/comments -- they introduce what follows
+    while j > i + 1 and (not lines[j - 1].strip()
+                         or lines[j - 1].lstrip().startswith("#")):
+        j -= 1
+    return i, j
+
+
+def find_list_items(lines, code, indent):
+    """Every `<indent>- code: <code>` list item, as [i, j) spans, outermost
+    last (so a caller can splice from the end and keep earlier offsets valid).
+
+    Same end rule as find_mapping_block: an item ends at the next line whose
+    indent is <= `indent`, and trailing blanks/comments are left behind."""
+    want = " " * indent + "- code: " + code
+    spans = []
+    n = 0
+    while n < len(lines):
+        if lines[n].rstrip() == want:
+            j = n + 1
+            while j < len(lines):
+                ln = lines[j]
+                if not ln.strip() or ln.lstrip().startswith("#"):
+                    j += 1
+                    continue
+                if _indent_of(ln) <= indent:
+                    break
+                j += 1
+            while j > n + 1 and (not lines[j - 1].strip()
+                                 or lines[j - 1].lstrip().startswith("#")):
+                j -= 1
+            spans.append((n, j))
+        n += 1
+    return spans
+
+
+# ---------------------------------------------------------------------------
+# MIGRATION: unbundle-u2
+# ---------------------------------------------------------------------------
+# THE DEFECT (owner, live 2026-09-11): 「풀 힌지 운동에 세개 묶어논거봐라 가관이다
+# 가관」. One drill code carried THREE movements inside a single `cue.setup`
+# string, so the owner got one completion button and one progress cell for work
+# that is three separate things:
+#
+#     U2  name/display "풀/힌지 준비운동"
+#         cue.setup "밴드 풀어파트 15회(...) -> 캣카우/흉추 회전 8회
+#                    -> 무부하 힙힌지 10회(...). 하나씩 순차 안내."
+#
+# Three further faults fall out of the same bundle:
+#   * the string ends "하나씩 순차 안내" -- the DATA is asking the model to do
+#     sequencing the schema is supposed to do. That is prose standing in for
+#     structure, which is the shape prep.yaml was written to end.
+#   * 밴드 풀어파트 is ALSO catalogued on its own (U5, zone mat, requires band,
+#     implement 밴드). The same drill exists twice, in two different forms.
+#   * the bundle's NAME is wrong for its contents: 캣카우/흉추 회전 is a
+#     thoracic drill and is neither a pull nor a hinge.
+#
+# THE PRECEDENT IS IN THIS FILE'S OWN DATA. A bundle code standing for three
+# shoulder drills was split the same way earlier, and the day list still
+# records the rule that split followed verbatim: "same drills, same slot, same
+# order, same phase -- nothing was added, removed, reordered or re-prescribed;
+# only the bundle wrapper is gone." This migration follows it exactly.
+#
+# WHERE EVERY WRITTEN VALUE COMES FROM -- nothing here is authored:
+#   반복수 15 / 8 / 10   the three counts inside U2's own cue string
+#   드릴 이름            the three movement names inside that same string
+#   zone: mat            U2's own `zone: mat`, inherited by all three parts
+#   U5 (밴드 풀어파트)   already catalogued; REUSED rather than re-declared,
+#                        which is what removes the duplicate
+# No cue is written for the two new codes. The source states a movement and a
+# count and says nothing about setup or execution, and this file's own rule for
+# that case is ABSENT STAYS ABSENT -- an authored cue would have no source.
+U2_NEW_CATALOG = '''  # UNBUNDLED FROM U2 (2026-09-11). U2 「풀/힌지 준비운동」 carried three
+  # movements in one `cue.setup` string, so three drills shared one completion
+  # button and one progress cell. Owner: 「풀 힌지 운동에 세개 묶어논거봐라」.
+  #
+  # SOURCE LINE, quoted whole so every value below can be checked against it:
+  #   "밴드 풀어파트 15회(견갑 후인/후방 삼각근) -> 캣카우/흉추 회전 8회
+  #    -> 무부하 힙힌지 10회(글루트/햄 활성). 하나씩 순차 안내."
+  #
+  # The first movement is NOT re-declared here: 밴드 풀어파트 is already U5
+  # (zone mat, requires band, implement 밴드). That duplicate is the reason the
+  # same drill could be described two different ways depending on which entry a
+  # reader reached; the day lists now point at U5.
+  #
+  # The bundle NAME is gone with the bundle. It could not be corrected in
+  # place: 「풀/힌지」 named two of the three movements and 캣카우/흉추 회전 is
+  # neither, so there was no accurate compound name to move to.
+  #
+  # NO CUE on either entry. The source states a movement and a count and says
+  # nothing about setup or execution -- ABSENT STAYS ABSENT (the same rule the
+  # U1b entry records). An authored cue here would have no source.
+  U7:
+    name: "캣카우/흉추 회전"
+    display: "캣카우/흉추 회전"
+    # ZONE INHERITED FROM U2, not re-decided. U2 was `zone: mat` and splitting a
+    # drill does not move where it is performed. Zone is exercise
+    # classification; a migration may relocate a value, never rule on one.
+    zone: mat
+  U8:
+    name: "무부하 힙힌지"
+    display: "무부하 힙힌지"
+    zone: mat
+'''
+
+# The three day-list items U2 becomes. Prescriptions are the counts from U2's
+# own cue string -- the owner's numbers, relocated into the field that exists
+# for them, so each part announces with its own count instead of all three
+# being read out of one sentence.
+U2_NEW_DAY_ITEMS = '''      # U2 UNBUNDLED (2026-09-11) -- the three movements it stood for, each
+      # addressable on its own. Same drills, same day, same position, same
+      # phase: nothing added, removed, reordered or re-prescribed. The counts
+      # are U2's own (15 / 8 / 10), moved out of the cue string into
+      # target_reps, which is what gives each one its own tap, its own row and
+      # its own cell.
+      - code: U5
+        target_reps: 15
+        target_unit: reps
+      - code: U7
+        target_reps: 8
+        target_unit: reps
+      - code: U8
+        target_reps: 10
+        target_unit: reps
+'''
+
+
+def migrate_unbundle_u2(text):
+    """(new_text, note). note is a human line; new_text is None when the
+    migration does not apply (already done, or the anchors are absent)."""
+    lines = text.splitlines(keepends=True)
+
+    cat_start = None
+    for n, ln in enumerate(lines):
+        if ln.rstrip() == "drills:":
+            cat_start = n
+            break
+    if cat_start is None:
+        return None, "ABORT no `drills:` catalog in this file"
+
+    block = find_mapping_block(lines, cat_start, "U2", 2)
+    items = find_list_items(lines, "U2", 6)
+    if block is None and not items:
+        return None, "ALREADY_APPLIED U2 is not present in catalog or day lists"
+    if block is None:
+        return None, ("ABORT U2 appears in %d day item(s) but has no catalog "
+                      "entry -- refusing to guess what it was" % len(items))
+
+    # Day items first, from the END, so the catalog splice below keeps its
+    # offsets and each earlier item keeps its own.
+    for i, j in reversed(items):
+        lines[i:j] = [U2_NEW_DAY_ITEMS]
+
+    block = find_mapping_block(lines, cat_start, "U2", 2)
+    i, j = block
+    lines[i:j] = [U2_NEW_CATALOG]
+
+    return "".join(lines), ("unbundled U2 -> U5 + U7 + U8 in %d day item(s)"
+                            % len(items))
+
+
+MIGRATIONS = {
+    "unbundle-u2": (
+        migrate_unbundle_u2,
+        "split the three-movement U2 bundle into U5 (existing) + U7 + U8, "
+        "one drill per completion tap",
+    ),
+}
+
+
+# ---------------------------------------------------------------------------
+def verify(rx, old_text, new_text, tmp_path):
+    """Parse the transformed text with the REAL loader and compare drill counts
+    per day. Returns [] when clean, else a list of problems.
+
+    A migration that cannot be read back by rx-calc must never be written: the
+    parser is hand-rolled and an indentation slip is silent, showing up hours
+    later as a day with no prep."""
+    problems = []
+    if rx is None:
+        return ["rx-calc not importable -- output NOT verified against the "
+                "real loader (structural edit only)"]
+    # rx.load_yaml, NOT rx.load_prep: load_prep takes a PROGRAM path, derives
+    # prep.yaml beside it, and caches by (path, mtime, size). Both behaviours
+    # are wrong for a check on a temp file -- the derivation would read the
+    # owner's real prep.yaml instead of the candidate, and the cache would make
+    # a second run answer from the first. load_yaml is the same hand-rolled
+    # parser with neither.
+    with open(tmp_path, "w", encoding="utf-8") as fh:
+        fh.write(new_text)
+    try:
+        after = rx.load_yaml(tmp_path)
+    except Exception as e:  # noqa: BLE001
+        return ["transformed file did not parse: %s" % e]
+    if not isinstance(after, dict) or not after.get("days"):
+        return ["transformed file parsed to no days at all"]
+    old_tmp = tmp_path + ".old"
+    with open(old_tmp, "w", encoding="utf-8") as fh:
+        fh.write(old_text)
+    try:
+        before = rx.load_yaml(old_tmp)
+    finally:
+        try:
+            os.remove(old_tmp)
+        except OSError:
+            pass
+    for day in (before.get("days") or {}):
+        b = len(rx.prep_day_items(before, day))
+        a = len(rx.prep_day_items(after, day))
+        if a < b:
+            problems.append("day %s LOST drills: %d -> %d" % (day, b, a))
+    return problems
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="prep-migrate",
+        description="Apply a named, idempotent structural migration to an "
+                    "owner's prep.yaml. Dry run unless --apply.")
+    p.add_argument("migration", nargs="?", default=None)
+    p.add_argument("--prep", default=DEFAULT_PREP)
+    p.add_argument("--apply", action="store_true",
+                   help="write the file (default: print a diff, write nothing)")
+    p.add_argument("--list", action="store_true", dest="do_list")
+    args = p.parse_args(argv)
+
+    if args.do_list or not args.migration:
+        for name, (_fn, desc) in sorted(MIGRATIONS.items()):
+            print("%-16s %s" % (name, desc))
+        return 0
+    if args.migration not in MIGRATIONS:
+        print("ERROR: unknown migration %r (try --list)" % args.migration,
+              file=sys.stderr)
+        return 1
+    prep_path = os.path.abspath(args.prep)
+    if not os.path.exists(prep_path):
+        print("ERROR: prep.yaml not found: %s" % prep_path, file=sys.stderr)
+        return 1
+    with open(prep_path, encoding="utf-8") as fh:
+        old = fh.read()
+
+    fn = MIGRATIONS[args.migration][0]
+    new, note = fn(old)
+    if new is None:
+        print(note)
+        return 0 if note.startswith("ALREADY_APPLIED") else 2
+
+    rx = _load_rx()
+    tmp_path = prep_path + ".migrate-check"
+    try:
+        problems = verify(rx, old, new, tmp_path)
+    finally:
+        try:
+            os.remove(tmp_path)
+        except OSError:
+            pass
+    for prob in problems:
+        print("VERIFY %s" % prob)
+    hard = [x for x in problems if not x.startswith("rx-calc not importable")]
+    if hard:
+        print("ABORT verification failed -- nothing written", file=sys.stderr)
+        return 1
+
+    if not args.apply:
+        sys.stdout.writelines(difflib.unified_diff(
+            old.splitlines(keepends=True), new.splitlines(keepends=True),
+            fromfile=prep_path, tofile=prep_path + " (after %s)"
+            % args.migration))
+        print("DRY_RUN %s -- nothing written. Re-run with --apply." % note)
+        return 0
+
+    backup = "%s.bak-%s" % (prep_path, args.migration)
+    shutil.copy2(prep_path, backup)
+    with open(prep_path, "w", encoding="utf-8") as fh:
+        fh.write(new)
+    print("APPLIED %s" % note)
+    print("BACKUP  %s" % backup)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,307 @@
+# Per-warehouse domain registry (DGN-118 F2 / v3 section 4).
+#
+# ONE registry per warehouse (NOT global -- F2 07-05 amendment 2). A domain slug
+# is a stable stable-ID prefix. Rules (lint-enforced):
+#   - A shipped prefix is NEVER reused and NEVER hard-deleted.
+#   - Merge = `merged-into:<slug>` + alias redirect on the target (alias
+#     resolution precedes item-status lookup; a tombstoned target renders as
+#     "retracted", not "missing").
+#   - Deprecate = tombstone (frozen), no reuse.
+#   - status: active | merged-into:<slug> | deprecated
+#   - aliases: list of prior/alternate slugs that resolve INTO this domain.
+#
+# Kimwog warehouse #1 ships three domains: exercise, nutrition, sleep-recovery
+# (the bundle in v3 section 9). learning-habits is included as a real
+# merge/alias fixture (it absorbed skill-learning + habits-behavior-change in v3
+# section 7). skill-learning is present as a merged-into example so alias
+# resolution and the tombstone-render path have live fixtures.
+#
+# 2026-09-02 (SKU-knowledge-warehouse-ownership, 26-row rubric-conversion pass):
+# relationships-communication, mental-health, and cooking activated. All three
+# already existed in lanes.yaml (DGN-172 v3 lane map) but had no registry row --
+# a real gap, not a fixture. Registered here with their DGN-152 re-researched
+# rubric rows converted into items/ (see CHANGELOG.yaml).
+
+domains:
+  - slug: exercise
+    status: active
+    aliases: []
+
+  - slug: nutrition
+    status: active
+    aliases: []
+
+  - slug: sleep-recovery
+    status: active
+    aliases: [sleep]
+
+  - slug: learning-habits
+    status: active
+    aliases: [skill-learning, habits-behavior-change]
+
+  - slug: relationships-communication
+    status: active
+    aliases: []
+
+  - slug: mental-health
+    status: active
+    aliases: []
+
+  - slug: cooking
+    status: active
+    aliases: []
+
+  # 2026-09-02 (finance-investing lane opening): finance-investing activated.
+  # It already existed in lanes.yaml (DGN-172 v3 lane map) as the sole
+  # @quant-market / VC-D lane but had no registry row and zero items -- the
+  # same class of gap that relationships-communication / mental-health /
+  # cooking had before the 2026-09-02 rubric-conversion pass. Registered here
+  # with 17 newly researched items (see CHANGELOG.yaml v12). No alias: the
+  # slug is new and has never shipped under another name.
+  - slug: finance-investing
+    status: active
+    aliases: []
+
+  # 2026-09-02 (home-domain opening sprint, v19): `home` activated. This is
+  # the owner's own taxonomy unit for the household area, opened at his explicit
+  # direction so that modules can be designed from his view of his life rather
+  # than from the warehouse's. A NEW slug that has never shipped, hence no
+  # aliases.
+  #
+  # DELIBERATE NON-ALIAS, recorded so a later curator does not "fix" it: the
+  # deprecated `daily-life-ops` fixture overlaps this subject matter and is NOT
+  # aliased into `home`. A deprecated row is a frozen tombstone. Aliasing it
+  # forward would make a slug that must render "retracted" resolve to an active
+  # domain instead, which is precisely the behaviour the no-reuse rule and the
+  # alias-before-status ordering exist to prevent. New subject-matter coverage
+  # under a new prefix is not prefix reuse.
+  #
+  # Two lanes were appended to lanes.yaml for this domain, mapping the owner's
+  # own two areas: @home-environment (VC-B) for the dwelling as an exposure, and
+  # @household-labor (VC-F) for the labour of maintaining it. Rationale in
+  # lanes.yaml. `lane:` is therefore REQUIRED on every item in this domain.
+  - slug: home
+    status: active
+    aliases: []
+
+  # Merged fixture: a prior domain that was folded into learning-habits.
+  # Its own row keeps status merged-into so its shipped prefix is never reused,
+  # and any lingering item under it resolves forward. It is also listed as an
+  # alias on learning-habits (the redirect target).
+  - slug: skill-learning
+    status: merged-into:learning-habits
+    aliases: []
+
+  # Deprecated fixture: a tombstoned domain (frozen). Kept to prove the
+  # "resolved-but-tombstoned -> retracted" render path in the alias resolver.
+  - slug: daily-life-ops
+    status: deprecated
+    aliases: []
+
+  # 2026-09-02 (spending-saving lane opening): spending-saving activated. NEW
+  # domain -- unlike finance-investing, relationships-communication,
+  # mental-health and cooking, this slug did NOT already exist in the v3 lane
+  # map. It is registered here together with its lane (@household-behavioral,
+  # VC-C) appended to lanes.yaml.
+  #
+  # WHY A SEPARATE DOMAIN FROM finance-investing. Three reasons, in order of
+  # weight. (1) The domain slug is the stable ID prefix and is never reused or
+  # renamed, so filing household spending under a prefix that says "investing"
+  # would mislabel it permanently. (2) The verification cultures differ: the
+  # @quant-market lane (VC-D) grades against arithmetic identities,
+  # cross-sectional return distributions and post-publication decay, none of
+  # which exist here; this lane grades against measurement validation,
+  # randomised field experiments and behavioural replication risk, which is
+  # VC-C. (3) The owner's own taxonomy, which the modules are being designed
+  # from, holds 소비/저축 and 투자 as two SEPARATE areas. Merging them in the
+  # warehouse would put the knowledge model out of step with the product model.
+  #
+  # No alias: the slug is new and has never shipped under another name.
+  - slug: spending-saving
+    status: active
+    aliases: []
+
+  # 2026-09-02 (work-career lane opening, marker: career-lane-opening-001-020):
+  # work-career activated. It already existed in lanes.yaml (DGN-172 v3 lane
+  # map) as the sole @behavioral-career / VC-C lane but had no registry row and
+  # ZERO items -- the same class of gap that finance-investing had before its
+  # own opening earlier the same day. Registered here with 20 newly researched
+  # items (see CHANGELOG.yaml v20).
+  #
+  # LANE/VC CHOICE, stated with its reason. The domain ships with TWO lanes,
+  # not one:
+  #   @behavioral-career (VC-C, pre-existing) -- employment and career
+  #     development. Its evidence culture is industrial/organisational and
+  #     social psychology: meta-analysed validity coefficients, randomised
+  #     field trials of work arrangements, self-report instruments with cutoff
+  #     conventions. Red flags are range-restriction correction, criterion
+  #     reliability, and construct overlap. 15 items.
+  #   @venture-obs (VC-B, ADDED by this release) -- independent and side
+  #     work: business survival, self-employment returns, founder
+  #     characteristics, freelance tax structure. Its evidence culture is
+  #     administrative-register and panel econometrics, NOT experimental:
+  #     nobody is randomly assigned to found a business, so the ceiling is
+  #     full-population administrative data and the dominant threats are
+  #     selection and survivorship rather than correction artefacts. That is
+  #     the same observational-inferential culture VC-B already anchors for
+  #     nutrition, which is why VC-B was chosen over VC-D. 5 items.
+  # The split follows the owner's own area taxonomy (사업/부업 kept distinct
+  # from 회사/커리어) and the 2026-08-28 directive to design career knowledge
+  # by dividing area and domain rather than collapsing it into one work bucket.
+  # No alias: the slug is new and has never shipped under another name.
+  - slug: work-career
+    status: active
+    aliases: []
+
+  # 2026-09-02 (task-management lane opening): task-management activated. NEW
+  # domain -- like spending-saving and unlike finance-investing,
+  # relationships-communication, mental-health and cooking, this slug did NOT
+  # already exist in the v3 lane map. It is registered here together with its
+  # lane (@behavioral-productivity, VC-C) appended to lanes.yaml.
+  #
+  # WHY A SEPARATE DOMAIN FROM work-career AND FROM learning-habits. Three
+  # reasons, in order of weight. (1) The domain slug is the stable ID prefix and
+  # is never reused or renamed. This lane is about a person maintaining their
+  # OWN systems -- estimating, scheduling, interrupting, recording and closing
+  # their own work. Filing that under a prefix that says "career" would
+  # permanently mislabel it as being about employment, selection, pay and
+  # burnout, which is what the @behavioral-career lane actually holds; filing it
+  # under "learning-habits" would mislabel it as being about acquiring skill,
+  # which is that lane's @behavioral subject. (2) The consumers differ and the
+  # separation is load-bearing: this lane is read by the agent that manages
+  # the owner's tasks and calendar against real logged data, and almost every
+  # row in it is a rule about how to read a record. Neither neighbour needs
+  # that and neither should inherit it by accident. (3) The owner's own
+  # taxonomy holds 내 작업 관리 ("환경, 관리를 위한 일") as its own area under
+  # 성장, distinct from 자기계발, which the learning-habits lane already covers
+  # with 13 items. Merging them in the warehouse would put the knowledge model
+  # out of step with the product model.
+  #
+  # WHY VC-C AND NOT A NEW VERIFICATION CULTURE. The evidence base here is
+  # behavioural and experimental in exactly the VC-C sense -- laboratory
+  # experiments, randomised field comparisons, correlational meta-analyses on
+  # self-report scales, and the replication-crisis discount that governs all of
+  # them. It inherits learning-habits/replication-calibration-001,
+  # learning-habits/qrp-red-flag-002 and
+  # learning-habits/measurement-inflation-007 wholesale; the last of those bites
+  # harder here than anywhere else in the warehouse, because the quantity being
+  # self-reported IS the quantity of interest. A separate VC would have to
+  # justify a different grading culture, and there is none: what this lane needs
+  # is VC-C applied strictly, plus one domain-specific filter for commercial
+  # transmission, which lives in task-management/curator-checklist-016 rather
+  # than in a new culture.
+  #
+  # No alias: the slug is new and has never shipped under another name.
+  - slug: task-management
+    status: active
+    aliases: []
+
+  # 2026-09-02 (leisure domain opening, v24): `leisure` activated. This
+  # is the owner's own taxonomy unit 여가, opened at his direction so that modules
+  # are designed from his view of his life rather than from the warehouse's. Its
+  # two areas -- 문화생활 (id 8, "문화적 인풋과 아웃풋") and 취미 (id 19, "밴드, 술, ...")
+  # -- are carried as LANES, not as separate domains, because they are one area
+  # of life to him and because the domain slug is a permanent ID prefix while a
+  # lane is free to be reorganised later.
+  #
+  # A NEW slug that has never shipped, hence no aliases. It did NOT exist in the
+  # v3 lane map, so it is registered here together with its three lanes appended
+  # to lanes.yaml -- the same shape as the spending-saving and home openings.
+  #
+  # DELIBERATE NON-ALIAS, recorded so a later curator does not "fix" it: the
+  # deprecated `daily-life-ops` fixture overlaps some of this subject matter and
+  # is NOT aliased into `leisure`. A deprecated row is a frozen tombstone;
+  # aliasing it forward would make a slug that must render "retracted" resolve
+  # to an active domain, which is exactly what the alias-before-status ordering
+  # exists to prevent. New coverage under a new prefix is not prefix reuse.
+  #
+  # WHY NOT FOLD 술 INTO nutrition. Alcohol appears in the owner's taxonomy under
+  # 취미, not under food, and the questions asked of it here are leisure questions
+  # ("what is true about drinking as something I do for pleasure"), not dietary
+  # ones. It is carried in this domain's own @drinking-epidemiology lane, which
+  # inherits nutrition's VC-B culture without borrowing its slug. See
+  # lanes.yaml for the verification-culture argument.
+  - slug: leisure
+    status: active
+    aliases: []
+
+  # 2026-09-02 (skincare-hygiene domain opening sprint, v25): skincare-hygiene
+  # activated. This is the owner's own taxonomy unit -- area 16, 스킨케어/위생,
+  # under his 건강 domain -- opened at his direction so that modules can be
+  # designed from his view of his life rather than from the warehouse's. Its
+  # sibling areas under 건강 were already covered (exercise, nutrition,
+  # mental-health, sleep-recovery); this one held zero items.
+  #
+  # A NEW slug that has never shipped, hence no aliases.
+  #
+  # WHY NOT FOLDED INTO AN EXISTING DOMAIN. Three reasons. (1) The slug is the
+  # stable ID prefix and is never reused or renamed, so filing photoprotection
+  # and cosmetic regulation under `exercise` or `nutrition` would mislabel it
+  # permanently. (2) The verification cultures do not match anything already
+  # registered: the clinical half is dermatology RCT and systematic-review
+  # evidence (VC-A, the sleep-recovery/mental-health anchor), and the regulatory
+  # half is product-claim adjudication by the national regulator (VC-F, the
+  # cooking @food-safety anchor). Neither is the observational-nutrition culture
+  # nor the behavioural one. (3) The owner's taxonomy holds 스킨케어/위생 as its
+  # own area.
+  #
+  # BOUNDARY WITH cooking. Hand hygiene as a health behaviour is registered here
+  # (skincare-hygiene/handwashing-diarrhoea-effect-006). Food handling, kitchen
+  # surfaces and Korean food-safety instruction stay owned by `cooking` and are
+  # LINKED from here, not duplicated. Single ownership per claim, per v3 s5.
+  #
+  # Two lanes were appended to lanes.yaml for this domain: @clinical-derm (VC-A)
+  # and @cosmetic-regulatory (VC-F). Rationale in lanes.yaml. `lane:` is
+  # therefore REQUIRED on every item in this domain.
+  - slug: skincare-hygiene
+    status: active
+    aliases: []
+
+  # 2026-09-02 (travel lane opening): travel activated. Unlike
+  # relationships-communication / mental-health / cooking / finance-investing,
+  # which already had lanes.yaml rows from the v3 lane map and were missing only
+  # a registry row, travel had NEITHER -- so its lanes are appended to lanes.yaml
+  # in the same pass, the path lanes.yaml's own header sanctions and the one
+  # other domains opened the same day already took. Opened because the owner's
+  # life taxonomy carries 여행 as an area under 여가 and it held zero items. See
+  # the CHANGELOG entry for the lane/VC reasoning: travel is a two-lane,
+  # two-VC domain, which in this warehouse only cooking and exercise otherwise
+  # are. No alias: the slug is new and has never shipped under another name.
+  - slug: travel
+    status: active
+    aliases: []
+
+  # 2026-09-02 (v27, cat-domain opening). New domain, new stable prefix,
+  # never shipped under another name, so no alias.
+  #
+  # SLUG CHOICE. The owner filed this area under his RELATIONSHIPS domain, not
+  # under pets or household upkeep -- his cat is a member of the household he has
+  # a relationship with, not an object of maintenance. A slug named after the
+  # maintenance activity (cat-care, pet-care) would bake the rejected framing into
+  # a stable ID prefix that can never be renamed. `cat` names the animal and
+  # nothing else.
+  #
+  # LANES AND VC (appended to lanes.yaml in the same release). Three lanes,
+  # because this domain genuinely runs three verification cultures and collapsing
+  # them would import the wrong grading anchor:
+  #   @clinical-vet      VC-A -- veterinary clinical evidence. Placed in VC-A as
+  #     the closest existing culture (it IS clinical-biomedical experimentalism)
+  #     but the anchor is BORROWED and its ceiling is lower: the intervention
+  #     studies in this domain run 6, 9, 16, 28, 46 and 54 animals, against a
+  #     human-medicine anchor built on large randomised trials and formal grading
+  #     bodies. cat/curator-checklist-001 exists to state that ceiling explicitly
+  #     so a curator arriving from sleep-recovery or mental-health does not
+  #     over-grade everything here by one band. Precedent for VC-A sharing:
+  #     sleep-recovery and mental-health already share it.
+  #   @companion-ethology VC-C -- companion-animal behaviour and the cat-human
+  #     bond. Sits with learning-habits, relationships-communication and
+  #     work-career because it carries exactly their hazards: small samples,
+  #     borrowed instruments, popularity outrunning replication.
+  #   @vet-regulatory    VC-F -- jurisdictional legal and regulatory facts, read
+  #     off the statute and the regulator rather than established by trial. Same
+  #     culture as cooking's @food-safety, which is why VC-F rather than a new
+  #     one. In this domain it is the MOST certain band available, which is an
+  #     honest consequence of how thin the clinical evidence is.
+  - slug: cat
+    status: active
+    aliases: []

@@ -1,0 +1,361 @@
+# exercise-form-demo -- asset library registry
+# One row per exercise/variant. Product looks up demos by exercise id + variant.
+# Paths are relative to the skill folder root (.claude/skills/exercise-form-demo/).
+
+rig:
+  master:  assets/rig/bodybuilder_rigged_v2.glb          # full-res 244k tris, textured
+  render:  assets/rig/bodybuilder_rigged_v2_lowpoly.glb  # 50k tris, USE THIS for render (fast)
+  scene:   assets/rig/squat.blend                        # master blend: rig + reference squat anim
+  bones: 32
+  rig_version: v2
+  notes: >
+    deform-only skeleton, no IK controls. fingers grouped (thumb 2 bones +
+    fingers 2 bones per hand; no per-finger). forearm_twist per arm. up=+Z,
+    front=-Y, arms along X in bind. hand cannot grip equipment realistically
+    (equipment/prop exercises = later phase).
+  # v3 = same skeleton/axes/scale as v2 but the grouped fingers are rebuilt as
+  # THREE segments (fingers_01/02/03) + a reweighted hand, so a grouped grip wraps
+  # a bar cleanly (no crush/shard). USE v3 for any barbell/equipment grip demo.
+  v3:
+    render:  assets/rig/bodybuilder_rigged_v3_lowpoly.glb  # 50k tris, 34 bones -- USE for grip demos
+    master:  assets/rig/bodybuilder_rigged_v3.glb
+    bones: 34
+    rig_version: v3
+    grip_ref: scripts/hand_regrip_v3.py   # canonical closed-grip curl (zero mesh-through-bar)
+
+# each exercise -> variants. kind: rep (animation) | pose (single still).
+# rom: parallel | knee_90 (rehab, knee flexion <=90) | custom. status: done | planned.
+exercises:
+  squat:
+    display: 바디웨이트 스쿼트
+    variants:
+      standard:
+        kind: rep
+        rom: parallel
+        status: owner_rejected      # 2026-08-09: v6 rebuild REJECTED by the owner on final
+                                    # look, DESPITE coordinator review pass -- second
+                                    # consecutive case where numeric checks + coordinator stills
+                                    # review passed a result the owner found visually bad. The
+                                    # review gate as-is is NOT catching the perceived-quality gap.
+                                    # Project PAUSED by owner; plan = dedicated rigging agent
+                                    # later. Owner-approved fallback reference remains _v2_first/
+                                    # (July v2 build, owner-confirmed good). Do NOT ship v6.
+        rig_version: v5
+        camera_deg_off_front: 39
+        fps: 30
+        duration_s: 5.2
+        built: 2026-08-09
+        note: >
+          v6 REBUILD after the 2026-08-08 build was owner-rejected ("broken
+          ghost": invented hang->raise arm choreography swept the arms across
+          the chest mid-rep; archived to _v5_rejected_20260808/). Owner
+          decision: keep the v5 body (real per-finger hands), TRANSPLANT the
+          owner-approved v2 first-version motion (_v2_first/ reference,
+          scripts/s1_squat.py). Arms held STRAIGHT FORWARD the entire rep --
+          horizontal at shoulder height, shoulder-width, palms down, elbows
+          soft-straight 164 deg constant, fingers relaxed-extended slight curl;
+          NO raise/lower choreography. Timing ported from the v2 reference:
+          156f @ 30fps = 5.2s (descend 60f, hold 12f, ascend 60f), loop-clean.
+          New fixes this round: wrist bones aimed world-forward each frame (the
+          FK wrist inherited forearm twist and drooped/broke); per-side arm IK
+          pole_angle calibrated so both elbows bow out-and-slightly-down
+          identically (MakeHuman L/R arm rolls are not mirrored -- pole 0/0 gave
+          a 7.5 cm elbow mirror deviation; now 0.0000 m over all frames, all
+          key joints). Depth/balance kept from the proven calibration: thigh
+          12.4 deg above horizontal, knee flex 126, kneeX 0.193 < toeX 0.235,
+          COM plumb over midfoot (d=0.000), ankles pinned (z range 0.00012),
+          heels down all 156 frames. Lighting/camera unchanged from the proven
+          rig (incl. shadowless far-pec fill). Known rig-level cosmetics
+          accepted: drawers pucker at deep hip fold, pec/lat fold edge at deep
+          shoulder flexion (BODY_RIG_V5.md).
+        outputs:
+          video:  library/squat/standard/squat_standard_rep.mp4
+          gif:    library/squat/standard/squat_standard_rep.gif
+          stills:
+            - library/squat/standard/squat_standard_frame_top.png
+            - library/squat/standard/squat_standard_frame_mid.png
+            - library/squat/standard/squat_standard_frame_bottom.png
+          crops:
+            - library/squat/standard/squat_standard_crop_hands.png
+            - library/squat/standard/squat_standard_crop_feet.png
+        source_scripts:
+            - library/squat/standard/build_squat_v6.py
+            - library/squat/standard/encode.sh
+            - library/squat/standard/qa_sheets.py
+      rehab_knee90:
+        kind: rep
+        rom: knee_90
+        status: planned
+        note: >
+          partial-depth variant, knee flexion capped ~90deg. Exists as a REHAB ROM
+          option in the catalog -- the product picks it when an instance's injury
+          ledger carries a knee flexion cap. The cap value belongs to that ledger
+          (instance data); this row only declares that the variant exists.
+  bodyweight_lunge:
+    display: 바디웨이트 런지
+    variants:
+      standard:
+        kind: rep
+        rom: parallel
+        status: done
+        rig_version: v3
+        camera_deg_off_front: 39
+        fps: 30
+        duration_s: 5.23
+        built: 2026-07-21
+        note: >
+          static split-stance forward lunge (both feet grounded every frame): front
+          foot flat + planted, rear foot ball-down / heel-up. front knee ~90deg with
+          shin vertical (knee over ankle, behind toe), torso upright, back knee toward
+          floor. AKIMBO HANDS-ON-HIPS via the v3 3-segment finger rig, natural
+          orientation (owner re-spec): the PALM cups the SIDE of the waist -- faces
+          DOWN and rolled ~13deg further IN (medial, toward the torso) so the hand
+          hugs the body, while the BACK of the hand faces UP-and-OUT; hands rest HIGH
+          on the waist -- on the iliac crest / waist notch just ABOVE the shorts
+          waistband (raised ~6cm from the earlier low-on-shorts spot for a confident
+          higher hands-on-hips); the four grouped FINGERS drape FORWARD over the front
+          of the waist with a relaxed natural curl; the THUMB hooks BACK (posterior)
+          toward the glute/spine; elbows flared out + slightly back. (Roll kept
+          back-of-hand-up; digit direction is thumb-back/fingers-forward; final polish
+          added a modest inward wrist roll so the palm cups the side, no candy-wrapper
+          -- knuckle axis kept as the roll reference.) Posed
+          on the LEFT arm then X-mirrored to the RIGHT (rig is X-symmetric) so both
+          hands are clean; full-res (symmetric) mesh used so the grouped-finger deform
+          stays seam-free. FOOT FIX: soles raised a few mm to sit ON the floor (no
+          z-fight clip; front sole/rear ball both planted). Verified from zoomed hand
+          + foot crops (hands sit HIGH on the waist above the waistband; palm cups the
+          SIDE of the waist / back-of-hand up-and-out; thumb-back /
+          fingers-forward-over-front-of-hip, relaxed, no crush/shard/candy-wrapper at
+          the wrist; both near + far hands show four distinct fingers; feet clean).
+        outputs:
+          video:  library/bodyweight_lunge/standard/bodyweight_lunge_rep.mp4
+          gif:    library/bodyweight_lunge/standard/bodyweight_lunge_rep.gif
+          stills:
+            - library/bodyweight_lunge/standard/bodyweight_lunge_frame_top.png
+            - library/bodyweight_lunge/standard/bodyweight_lunge_frame_mid.png
+            - library/bodyweight_lunge/standard/bodyweight_lunge_frame_bottom.png
+        source_scripts:
+            - scripts/s1_squat.py   # template basis (feet-planted analytic-IK)
+            - library/bodyweight_lunge/standard/build_lunge.py
+            - library/bodyweight_lunge/standard/stills.py
+            - library/bodyweight_lunge/standard/render.py
+  bodyweight_good_morning:
+    display: 굿모닝 (힙 힌지)
+    variants:
+      standard:
+        kind: rep
+        rom: parallel
+        status: done
+        rig_version: v3
+        camera_deg_off_front: 39
+        fps: 30
+        duration_s: 5.23
+        built: 2026-07-21
+        note: >
+          Re-rendered on the v3 rig (3-segment grouped fingers). standing hip hinge
+          (NOT a squat): feet flat + planted, soft knees, hips travel back to
+          counterbalance, rigid neutral spine hinges to ~parallel (torso ~69deg from
+          vertical), neutral gaze (head in line with spine, no chin tuck). ARM POSE:
+          the classic HANDS-BEHIND-HEAD was attempted first on v3 but CRUSHED under
+          zoom -- at top the hands read as claws beside the face, and the mirrored
+          hand mangled with a candy-wrapper forearm twist folding into the neck at the
+          bottom hinge. FELL BACK to the proven-clean AKIMBO HANDS-ON-HIPS (thumb laid
+          BACK along the waist, four grouped fingers draped FORWARD over the iliac
+          crest, elbows flared) -- a legitimate good-morning arm position that avoids
+          the tight cupping-curl. AKIMBO natural orientation (owner re-spec): the PALM
+          cups the SIDE of the waist -- faces DOWN and rolled ~13deg further IN
+          (medial, toward the torso) so the hand hugs the body, while the BACK of the
+          hand faces UP-and-OUT; hands rest HIGH on the waist -- on the iliac crest /
+          waist notch just ABOVE the shorts waistband (raised ~6cm from the earlier
+          low-on-shorts spot for a confident higher hands-on-hips); the four grouped
+          FINGERS drape FORWARD over the front of the waist with a relaxed natural
+          curl; the THUMB hooks BACK (posterior) toward the glute/spine; elbows flared
+          out + slightly back. (Roll kept back-of-hand-up; digit direction
+          thumb-back/fingers-forward; final polish added a modest inward wrist roll so
+          the palm cups the side, no candy-wrapper -- knuckle axis kept as roll ref.)
+          Posed on the LEFT arm then X-mirrored to the RIGHT (rig
+          X-symmetric) so both hands are seam-free; full-res symmetric mesh used.
+          Hands verified clean from zoomed crops at top + mid (hands sit HIGH on the
+          waist above the waistband; palm cups the SIDE of the waist / back-of-hand
+          up-and-out; thumb-back / fingers-forward-over-front-of-hip, relaxed, four
+          distinct fingers on both near + far hands, no crush/shard/candy-wrapper at
+          the wrist); bottom hand naturally occluded by the folded torso (no artifact).
+          FOOT FIX:
+          sole min-z measured across 157
+          frames (-0.9996); ground plane placed 4mm below the lowest sole (-1.0036) so
+          soles sit ~4mm ON the floor every frame -- no z-fight sliver, flat + planted,
+          heels down (ankle world-z constant -0.860). COM over the foot (mid-foot).
+        outputs:
+          video:  library/bodyweight_good_morning/standard/bodyweight_good_morning_rep.mp4
+          gif:    library/bodyweight_good_morning/standard/bodyweight_good_morning_rep.gif
+          stills:
+            - library/bodyweight_good_morning/standard/bodyweight_good_morning_frame_top.png
+            - library/bodyweight_good_morning/standard/bodyweight_good_morning_frame_mid.png
+            - library/bodyweight_good_morning/standard/bodyweight_good_morning_frame_bottom.png
+        source_scripts:
+            - scripts/s1_squat.py                                   # motion basis (feet-planted analytic-IK)
+            - library/bodyweight_lunge/standard/build_lunge.py      # akimbo hand-pose reference (v3 3-seg curl + X-mirror)
+            - library/bodyweight_good_morning/standard/build_gm.py  # v3 build: hip-hinge + akimbo + foot fix
+            - library/bodyweight_good_morning/standard/stills.py
+            - library/bodyweight_good_morning/standard/render.py
+  calf_raise:
+    display: 카프 레이즈 (종아리)
+    variants:
+      standard:
+        kind: rep
+        rom: full
+        status: done
+        rig_version: v2
+        camera_deg_off_front: 39
+        fps: 30
+        duration_s: 5.23
+        built: 2026-07-20
+        note: >
+          standing calf raise -- inverts the heels-down rule correctly: the BALL of
+          each foot stays pinned on the floor while the heels + body rise onto the
+          toes, legs kept straight, then lower. FULL plantarflexion (foot pivot ~54deg)
+          -> heels clearly lifted off the floor (verified in a foot close-up), arms at
+          sides. no floating / no clipping (ball z constant, foot pivots about ball).
+        outputs:
+          video:  library/calf_raise/standard/calf_raise_rep.mp4
+          gif:    library/calf_raise/standard/calf_raise_rep.gif
+          stills:
+            - library/calf_raise/standard/calf_raise_frame_top.png
+            - library/calf_raise/standard/calf_raise_frame_mid.png
+            - library/calf_raise/standard/calf_raise_frame_bottom.png
+        source_scripts:
+            - scripts/s1_squat.py   # template basis (feet-planted analytic-IK)
+            - library/calf_raise/standard/build_calf.py
+            - library/calf_raise/standard/stills.py
+            - library/calf_raise/standard/render.py
+  back_squat:
+    display: 바벨 백스쿼트
+    variants:
+      standard:
+        kind: rep
+        rom: parallel
+        status: done
+        rig_version: v3
+        camera_deg_off_front: 39
+        fps: 30
+        duration_s: 5.23
+        built: 2026-07-20
+        note: >
+          FIRST equipment-integrated demo. Re-rendered on the v3 rig (3-segment
+          grouped fingers) with three fixes over the first cut. HAND GRIP: the v3
+          hand wraps the bar as a clean grouped fist -- fingers curl over/around the
+          shaft, thumb over the top, just outside the shoulders; no crush/shard
+          (built by rigidly transferring hand_regrip_v3's zero-penetration closed
+          grip onto the bar, shaft radius matched to 16.6mm so the fist seats on the
+          surface; hand encircles the shaft ~360deg, no visible poke-through). BAR
+          HEIGHT: raised to a proper HIGH-BAR position on the upper-trap shelf just
+          below C7 (bar center z=0.566, ~4.5cm above the old low-ish z=0.520). bar
+          center stays BEHIND the neck and is occluded by the body from the front
+          camera (no skewer); bone-parented to spine.002 so it rides with the torso.
+          FEET: ground plane dropped to (measured planted-sole min - 4mm epsilon) so
+          the soles sit flat just ABOVE the floor every frame -- no z-fight clip, no
+          float. Motion: feet-planted analytic-IK legs, ~parallel depth (thigh ~6deg
+          above horizontal), extra torso lean so the trap-mounted bar tracks over the
+          midfoot (7cm behind midfoot, well forward of the heel) for COM balance;
+          head stays up and CLEARS the raised bar at depth (min head->bar 2.8cm,
+          neutral gaze, no bar-across-face). Verified from zoomed hand/foot/bar crops.
+        outputs:
+          video:  library/back_squat/standard/back_squat_rep.mp4
+          gif:    library/back_squat/standard/back_squat_rep.gif
+          stills:
+            - library/back_squat/standard/back_squat_frame_top.png
+            - library/back_squat/standard/back_squat_frame_mid.png
+            - library/back_squat/standard/back_squat_frame_bottom.png
+        source_scripts:
+            - scripts/s1_squat.py          # motion basis (feet-planted analytic-IK squat)
+            - scripts/prop_barbell.py      # shared parametric barbell prop
+            - scripts/hand_regrip_v3.py    # canonical v3 closed-grip curl (reused as the wrap)
+            - scripts/e_back_squat_v3.py   # v3 build: high-bar placement + v3 rigid grip + foot fix
+            - scripts/e_back_squat.py      # (superseded) v2 first cut
+  deadlift:
+    display: 바벨 컨벤셔널 데드리프트
+    variants:
+      conventional:
+        kind: rep
+        rom: full
+        status: done                # REVIEW GATE: PASSED (2026-08-08, N6 = v5 body + straight-arm).
+                                    # Owner round-2 defects fixed and coordinator-verified on
+                                    # independently-extracted full frame strips: arms rope-straight
+                                    # every frame (min elbow 168.6deg, no descent flail), v5 re-rigged
+                                    # body (clean knee folds, per-finger fists, no blob hands), bar
+                                    # welded/horizontal/anterior, no drift, feet planted.
+                                    # Remaining cosmetics for a later refine pass: anterior bar bow
+                                    # passing the knees; pec shading smudge under key light;
+                                    # featureless plates; drawers cloth pucker at deep hip fold.
+        rig_version: mpfb-n4        # MPFB HumanService body (n4_dl_start build), NOT the glb v2/v3 rig
+        camera_deg_off_front: 39
+        fps: 30
+        duration_s: 3.2
+        built: 2026-08-07
+        note: >
+          FIRST mocap-retargeted demo. Motion skeleton = CMU MoCap 26_10.bvh
+          ("bend, lift", commercial-safe CMU license) retargeted onto the MPFB
+          'default' rig. Approach after hand-posed numeric solvers failed:
+          (1) TORSO/hips retargeted from the BVH via constraint-free local-delta
+          (rest-offset) transfer against a MATCHED-NEUTRAL reference (source
+          standing frame <-> MPFB rest A-pose) -- gives the real hip-hinge shape
+          and timing/weight-shift character. (2) LEGS = pinned-foot analytic IK
+          (Blender 2-bone IK, ankles fixed to the floor every frame) so feet stay
+          planted and knee bend emerges from the hip trajectory -- this is also
+          the hinge-correction lever. (3) HINGE CORRECTION layer: mocap 26_10 is a
+          knee-heavy squat-style pickup with a rounded back; corrected by slerping
+          the upper-spine + neck toward neutral (flat back, neutral head) while
+          keeping the low-spine + pelvis hinge, plus a hip-back/height trim.
+          (4) ARMS hang rope-straight to a welded barbell each frame (analytic aim,
+          elbows near-full-ext ~171deg); grip solved ONCE at the setup-bottom with
+          the proven n4 measured finger-wrap solver and held through the rep.
+          BARBELL: real proportions -- shaft Ø28mm, sleeves Ø50mm, plates Ø450mm
+          (bar axis sits 225mm off the floor at the start), plates ~55mm thick,
+          flush at the inner collars, perpendicular to the bar axis (coaxial 0.0deg).
+          Clip loops: standing-lockout -> eccentric lower bar to the floor -> pull
+          back to lockout (bar always in hands; start==end).
+          ROUND-2 REVIEW FIXES (round-1 stills failed: hands off bar, staggered
+          look, head yaw): (a) keyframe-channel bug -- torso bones were posed in
+          QUATERNION mode but euler-keyframed, so the rendered spine froze while
+          arm keys replayed against the wrong parent chain (hands landed in the
+          thigh / behind the back); now the keyed channel matches each bone's
+          rotation mode. (b) source yaw-align: the CMU subject stands ~89deg off
+          axis; hip axis aligned to world X before reference capture, and all
+          retargeted deltas are reduced to the sagittal pitch component (twistX)
+          -- kills the sideways head-yaw/lean, motion mirror-symmetric by
+          construction. (c) closed-loop depth calib: extra torso pitch (u-scaled,
+          +8.9deg) solved so the bottom shoulder-to-bar distance = 0.99x arm
+          chain. (d) bar WELDED to the measured knuckle midpoint (+ bottom-solve
+          delta) each frame, single shared y/z -> bar horizontal, never leaves the
+          fists. (e) wrist solved ONCE at the bottom grip pose and held rigid --
+          the per-frame greedy wrist descent had folded one hand 18cm off on some
+          frames. (f) R knee IK pole re-picked at the deep pose to mirror L.
+          NUMERIC CHECKS (fcurve-replay = what renders): ankle 3D dev from pinned
+          targets max 0.1mm both sides; hand->bar radial L and R both constant
+          0.011-0.027m across all 96 frames; knee mirror asym 0.0000m; bar-Y range
+          3.9mm (vertical path over midfoot), bar-X 0.000; plates touch floor at
+          the bottom (gap 0.000); elbow lockout 171deg; plate/bar coaxial 0.0deg.
+          Bottom: knee 107deg interior, hip 67deg, torso 27deg from horizontal.
+          Visually verified on the FINAL rendered PNGs: both fists on the bar in
+          setup/midpull/lockout, closed-fist wrap in the closeup, symmetric planted
+          feet, neutral in-line head, flat back, no interpenetration.
+          KNOWN LIMITS: torso at the bottom is 27deg from horizontal (deep fold --
+          heavier-back-angle look than the 40-50deg textbook mid-range; the
+          closed-loop depth calib trades torso angle for guaranteed floor reach);
+          motion is strictly sagittal (yaw/roll removed by design, so no lateral
+          weight-shift texture); plates are featureless black discs; thumb sits as
+          a small nub at the fist rather than a full thumb-over wrap.
+        outputs:
+          video:  library/deadlift/conventional/deadlift_conventional_rep.mp4
+          gif:    library/deadlift/conventional/deadlift_conventional_rep.gif
+          stills:
+            - library/deadlift/conventional/deadlift_conventional_frame_setup.png
+            - library/deadlift/conventional/deadlift_conventional_frame_midpull.png
+            - library/deadlift/conventional/deadlift_conventional_frame_lockout.png
+            - library/deadlift/conventional/deadlift_conventional_diag_grip.png
+            - library/deadlift/conventional/deadlift_conventional_diag_barbreak_side.png
+        source_scripts:
+            - scratch/mocap/SOURCES.md                          # mocap provenance + license (CMU 26_10.bvh)
+            - scratch/n4_dl_start.py                            # approved MPFB body build + measured grip solver (reused)
+            - library/deadlift/conventional/build_deadlift.py   # full build: retarget + leg IK + hinge correction + grip + barbell
+            - scratch/n5_encode.sh                              # PNG seq -> mp4 + gif
