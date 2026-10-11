@@ -1,0 +1,1009 @@
+#!/usr/bin/env python3
+"""hk-ingest -- HealthKit (Transporter) -> kit_life ingest, pack-owned.
+
+Reads the Transporter receiver through its stdio MCP server
+(transporter_mcp.py) and writes kit_life through the kit facade
+(kit_life.sh). Kit tables are READ in-process, read-only (the fatigue-brief
+idiom: reads through the read model, writes through the facade).
+
+USAGE
+  hk-ingest pass     [--now ISO] [--dry-run]   scheduled pass (04:50, 09:00)
+  hk-ingest callback [--now ISO] [--dry-run]   transporter callback; stdin =
+                                               {"source","kind","id"}
+  hk-ingest consent KIND [KIND ...]            onboarding approval hook
+  hk-ingest revoke KIND [KIND ...]             revoke approved kinds
+  hk-ingest status                             consent floors + ledger probe
+
+WHAT A PASS WRITES
+  workout            -> workouts row (date = START local date, minutes =
+                        duration_s/60, kcal = active_energy_kcal ONLY, avg_hr).
+                        total_energy_kcal is the TOTAL burn and is never
+                        stored as kcal; no active value -> kcal left empty.
+                        Strength attaches to the same-day set-logged session;
+                        a chat-logged row of the same workout (time overlap)
+                        is filled, never duplicated. Mapping: hk_activity_map.tsv
+  steps              -> metric_log steps          (local day sum, closed days)
+  heart_rate         -> metric_log hr_avg_bpm     (mean of hourly avgs, closed days)
+  resting_heart_rate -> metric_log resting_hr_bpm (latest of the day)
+  sleep              -> metric_log sleep_min      (asleep minutes, WAKE day)
+  active_energy_day  -> metric_log active_energy_kcal, upserted by date EVERY
+                        pass; note = "closed=<0|1>[ as_of=<ts>]"
+
+DEDUPE: every transporter id goes through the kit ingest ledger. Each kind's
+consent floor is read from kit; unapproved kinds are skipped. No backfill.
+
+The callback fires once per NEW id and never for an update, so passes read
+by date window (HK_INGEST_WINDOW_DAYS, default 3) -- never a forward cursor.
+
+EXIT 0 done | 1 error | 2 blocked (kit has no ingest ledger / transporter
+unreachable) -- loud on purpose: a scheduled pass that cannot dedupe must not
+write.
+"""
+
+import datetime as _dt
+import fcntl
+import hashlib
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import time
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import transporter_mcp as TM                                   # noqa: E402
+
+PROJECT_ROOT = (os.environ.get("HK_ROOT")
+                or os.path.abspath(os.path.join(HERE, "..", "..")))
+MAP_PATH = os.path.join(HERE, "hk_activity_map.tsv")
+
+SOURCE = "healthkit"
+KINDS = ("workout", "steps", "heart_rate", "resting_heart_rate", "sleep",
+         "active_energy_day")
+EXIT_OK, EXIT_ERR, EXIT_BLOCKED = 0, 1, 2
+UNKNOWN_VERB = u"알 수 없는 명령"      # kit main()
+
+# The tokens this module writes, registered by the module itself:
+# token -> (scope_kind, accrual, unit_token). owner_module = health.
+METRIC_TOKENS = {
+    "steps": ("entity", "accrued", "count"),
+    "sleep_min": ("entity", "observed", "min"),
+    "resting_hr_bpm": ("entity", "observed", "bpm"),
+    "hr_avg_bpm": ("entity", "observed", "bpm"),
+    "active_energy_kcal": ("entity", "accrued", "kcal"),
+}
+
+# chat-logged overlap: a row logged by chat carries no start/end, only the
+# moment it was written. It is the same workout when that moment falls inside
+# [start - BEFORE, end + AFTER] (logged just before, or after finishing).
+OVERLAP_BEFORE_MIN = 30
+OVERLAP_AFTER_MIN = 180
+SLEEP_SESSION_GAP_MIN = 180
+
+
+# ---------------------------------------------------------------------------
+# paths + config
+# ---------------------------------------------------------------------------
+def conf_path():
+    return (os.environ.get("PACK_HEALTH_CONF")
+            or os.path.join(PROJECT_ROOT, "config", "pack_health.conf"))
+
+
+def agent_conf_path():
+    return os.path.join(PROJECT_ROOT, "config", "agent.conf")
+
+
+def kit_sh():
+    return (os.environ.get("KIT_LIFE_SH")
+            or os.path.join(PROJECT_ROOT, "database", "kit_life.sh"))
+
+
+def kit_db():
+    return (os.environ.get("KIT_DB")
+            or os.path.join(PROJECT_ROOT, "database", "kit_life.db"))
+
+
+def state_dir():
+    return (os.environ.get("LIFEKIT_HEALTH_STATE_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+
+
+def read_conf(path):
+    out = {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                k, v = line.split("=", 1)
+                out[k.strip()] = v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return out
+
+
+def conf():
+    return read_conf(conf_path())
+
+
+def tz():
+    """The instance's declared offset (AGENT_TZ_OFFSET_HOURS), else KST."""
+    raw = (os.environ.get("HK_TZ_OFFSET_HOURS")
+           or read_conf(agent_conf_path()).get("AGENT_TZ_OFFSET_HOURS")
+           or "9")
+    try:
+        hours = float(raw)
+    except ValueError:
+        hours = 9.0
+    return _dt.timezone(_dt.timedelta(hours=hours))
+
+
+# ---------------------------------------------------------------------------
+# time
+# ---------------------------------------------------------------------------
+_FRAC = re.compile(r"^(.*T\d\d:\d\d:\d\d)\.(\d+)(.*)$")
+
+
+def parse_ts(s):
+    """ISO-8601 (Z / offset / naive=UTC) -> aware datetime, or None."""
+    if not s:
+        return None
+    s = str(s).strip().replace(" ", "T", 1)
+    if s.endswith("Z"):
+        s = s[:-1] + "+00:00"
+    # python3.9 fromisoformat takes 3 or 6 fraction digits only: pad/trim.
+    m = _FRAC.match(s)
+    if m:
+        s = m.group(1) + "." + (m.group(2) + "000000")[:6] + m.group(3)
+    try:
+        d = _dt.datetime.fromisoformat(s)
+    except ValueError:
+        return None
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=_dt.timezone.utc)
+    return d
+
+
+def utc_z(d):
+    return d.astimezone(_dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+
+
+def local_date(d):
+    return d.astimezone(tz()).date().isoformat()
+
+
+def local_midnight(date_s):
+    y, m, dd = [int(x) for x in date_s.split("-")]
+    return _dt.datetime(y, m, dd, tzinfo=tz())
+
+
+def parse_local_naive(s):
+    """kit created_at / recorded_at ('YYYY-MM-DD HH:MM:SS', local)."""
+    if not s:
+        return None
+    try:
+        d = _dt.datetime.strptime(str(s)[:19], "%Y-%m-%d %H:%M:%S")
+    except ValueError:
+        return None
+    return d.replace(tzinfo=tz())
+
+
+def payload_hash(payload):
+    raw = json.dumps(payload, sort_keys=True, separators=(",", ":"),
+                     ensure_ascii=True)
+    return hashlib.sha256(raw.encode("ascii")).hexdigest()
+
+
+def num(v):
+    try:
+        if v is None or v == "":
+            return None
+        return float(v)
+    except (TypeError, ValueError):
+        return None
+
+
+def fmt(v, nd=1):
+    if v is None:
+        return ""
+    r = round(float(v), nd)
+    return str(int(r)) if r == int(r) else ("%.*f" % (nd, r)).rstrip("0")
+
+
+# ---------------------------------------------------------------------------
+# kit facade (writes) + read model (reads)
+# ---------------------------------------------------------------------------
+class Kit(object):
+    def __init__(self, dry=False, log=print):
+        self.dry = dry
+        self.log = log
+        self._fake = 0
+        self.ledger = {}            # (kind, ext_id) -> (table, target, hash)
+        self.claimed = set()        # workouts ids some ingest_ref points at
+
+    def run(self, args):
+        try:
+            p = subprocess.run([kit_sh()] + list(args), capture_output=True,
+                               text=True, timeout=120)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            return 127, "", "kit_life.sh unavailable: %s" % exc
+        return p.returncode, p.stdout, p.stderr
+
+    def write(self, args):
+        if self.dry:
+            self._fake += 1
+            self.log("DRY kit %s" % " ".join(args))
+            return 0, "dry-%d\t\n" % self._fake, ""
+        rc, out, err = self.run(args)
+        if rc != 0:
+            raise RuntimeError("kit %s failed (%s): %s"
+                               % (args[0], rc, (err or out).strip()[:300]))
+        return rc, out, err
+
+    # -- ledger --------------------------------------------------------------
+    def floors(self):
+        floors = {}
+        for kind in KINDS:
+            rc, out, err = self.run(["ingest-get", "--source", SOURCE,
+                                     "--kind", kind])
+            if rc == 6:
+                continue
+            if rc != 0:
+                raise RuntimeError("ingest-get %s failed (%s): %s" %
+                                   (kind, rc, (err or out).strip()[:200]))
+            match = re.search(r"(?:^|\s)floor=(\S+)", out)
+            floor = parse_ts(match.group(1)) if match else None
+            if floor is None:
+                raise RuntimeError("ingest-get %s has no valid floor: %s" %
+                                   (kind, out.strip()[:200]))
+            floors[kind] = floor
+        return floors
+
+    def allowed(self, kind, ev):
+        occurred = ev.get("occurred_at")
+        if parse_ts(occurred) is None:
+            return False
+        rc, out, err = self.run(["ingest-check", "--source", SOURCE,
+                                 "--kind", kind, "--occurred-at", str(occurred)])
+        if rc == 6:
+            return False
+        if rc != 0 or not out.startswith("ALLOW"):
+            raise RuntimeError("ingest-check %s failed (%s): %s" %
+                               (kind, rc, (err or out).strip()[:200]))
+        return True
+
+    def load_ledger(self):
+        try:
+            conn = ro(kit_db())
+        except sqlite3.Error:
+            return
+        try:
+            rows = conn.execute(
+                "SELECT kind, ext_id, target_table, target_id, payload_hash "
+                "FROM ingest_ref WHERE source=?", (SOURCE,)).fetchall()
+        except sqlite3.Error:
+            rows = []
+        finally:
+            conn.close()
+        for kind, ext, table, target, h in rows:
+            self.ledger[(kind, ext)] = (table, str(target), h)
+            if table == "workouts":
+                self.claimed.add(str(target))
+
+    def ledger_get(self, kind, ext_id):
+        return self.ledger.get((kind, ext_id))
+
+    def ledger_put(self, kind, ext_id, table, target, h, occurred_at):
+        args = ["ingest-put", "--source", SOURCE, "--kind", kind, "--id",
+                ext_id, "--occurred-at", str(occurred_at),
+                "--target-table", table, "--target-id", str(target),
+                "--hash", h]
+        if self.dry:
+            verdict = "DRY"
+        else:
+            _rc, out, _err = self.write(args)
+            verdict = (out.strip().split() or ["?"])[0]
+        self.ledger[(kind, ext_id)] = (table, str(target), h)
+        if table == "workouts":
+            self.claimed.add(str(target))
+        return verdict
+
+    # -- metric tokens ---------------------------------------------------------
+    def register_tokens(self):
+        """Module-owned token registration. Needs the kit verb
+        `metric-register`; on a kit without it the metric_log writes still
+        land (metric_log does not FK metric_def) and one NOTE says so."""
+        if self.dry:
+            return "dry"
+        for tok, (scope, accrual, unit) in sorted(METRIC_TOKENS.items()):
+            rc, out, err = self.run(["metric-register", "--token", tok,
+                                     "--scope", scope, "--accrual", accrual,
+                                     "--unit", unit, "--owner-module",
+                                     "health"])
+            if rc != 0:
+                if UNKNOWN_VERB in (err or ""):
+                    return "unavailable"
+                return "failed: %s" % (err or out).strip()[:200]
+        return "ok"
+
+    # -- metric write ------------------------------------------------------------
+    def log_metric(self, date, metric, value, note=None):
+        args = ["log-metric", date, metric, fmt(value, 1)]
+        if note:
+            args.append(note)
+        _rc, out, _err = self.write(args)
+        first = (out.strip().splitlines() or [""])[0]
+        return first.split("\t")[0]
+
+
+def ro(path):
+    if not os.path.exists(path):
+        raise sqlite3.OperationalError("no kit db at %s" % path)
+    return sqlite3.connect("file:%s?mode=ro" % os.path.abspath(path),
+                           uri=True)
+
+
+def day_workouts(date):
+    """Same-date workouts rows with what the matcher needs."""
+    conn = ro(kit_db())
+    try:
+        rows = conn.execute(
+            "SELECT w.id, w.minutes, w.kcal, w.avg_hr, COALESCE(w.note,''), "
+            "w.created_at, "
+            "(SELECT COUNT(*) FROM workout_sets s WHERE s.session_id=w.id), "
+            "(SELECT MIN(recorded_at) FROM workout_sets s "
+            " WHERE s.session_id=w.id), "
+            "(SELECT MAX(recorded_at) FROM workout_sets s "
+            " WHERE s.session_id=w.id), "
+            "(SELECT group_concat(DISTINCT wt.category) "
+            " FROM workout_classifications wc JOIN workout_types wt "
+            " ON wt.id=wc.type_id WHERE wc.workout_id=w.id) "
+            "FROM workouts w WHERE w.date=? ORDER BY w.id", (date,)).fetchall()
+    finally:
+        conn.close()
+    out = []
+    for r in rows:
+        out.append({
+            "id": str(r[0]), "minutes": r[1] or 0, "kcal": r[2] or 0,
+            "avg_hr": r[3], "note": r[4], "created_at": r[5],
+            "sets": r[6] or 0, "first_set": r[7], "last_set": r[8],
+            "cats": [c.strip() for c in (r[9] or "").split(",") if c.strip()],
+        })
+    return out
+
+
+def workout_row(wid):
+    conn = ro(kit_db())
+    try:
+        r = conn.execute(
+            "SELECT id, minutes, kcal, avg_hr, COALESCE(note,''), "
+            "(SELECT COUNT(*) FROM workout_sets s WHERE s.session_id=w.id) "
+            "FROM workouts w WHERE id=?", (int(wid),)).fetchone()
+    finally:
+        conn.close()
+    if r is None:
+        return None
+    return {"id": str(r[0]), "minutes": r[1] or 0, "kcal": r[2] or 0,
+            "avg_hr": r[3], "note": r[4], "sets": r[5] or 0}
+
+
+# ---------------------------------------------------------------------------
+# activity mapping
+# ---------------------------------------------------------------------------
+def load_map(path=MAP_PATH):
+    m = {"map": {}, "alias": {}, "other": ("", ""), "strength": set()}
+    with open(path, encoding="utf-8") as fh:
+        for line in fh:
+            if not line.strip() or line.startswith("#"):
+                continue
+            f = line.rstrip("\n").split("\t")
+            if f[0] == "map":
+                m["map"][f[1]] = (f[2], f[3])
+                if len(f) > 4 and f[4] == "strength":
+                    m["strength"].add(f[1])
+            elif f[0] == "alias":
+                m["alias"][f[1]] = f[2]
+            elif f[0] == "other":
+                m["other"] = (f[2], f[3])
+    return m
+
+
+def map_activity(amap, activity_type):
+    """-> (category, subtype, is_strength, canonical_type)."""
+    t = amap["alias"].get(activity_type, activity_type)
+    if t in amap["map"]:
+        cat, sub = amap["map"][t]
+        return cat, sub, t in amap["strength"], t
+    cat, sub = amap["other"]
+    return cat, sub, False, t
+
+
+# ---------------------------------------------------------------------------
+# workouts
+# ---------------------------------------------------------------------------
+def _distance_min(a0, a1, b0, b1):
+    """Minutes between two intervals (0 when they overlap)."""
+    if a1 < b0:
+        return (b0 - a1).total_seconds() / 60.0
+    if b1 < a0:
+        return (a0 - b1).total_seconds() / 60.0
+    return 0.0
+
+
+def workout_fields(ev, amap):
+    p = ev.get("payload") or {}
+    start = parse_ts(p.get("started_at") or p.get("start"))
+    end = parse_ts(p.get("ended_at") or p.get("end")) or parse_ts(
+        ev.get("occurred_at"))
+    dur = num(p.get("duration_s"))
+    if start is None and end is not None and dur is not None:
+        start = end - _dt.timedelta(seconds=dur)
+    if dur is None and start is not None and end is not None:
+        dur = (end - start).total_seconds()
+    if start is None and end is None:
+        return None
+    raw_type = str(p.get("activity_type") or "unknown")
+    cat, sub, strength, canon = map_activity(amap, raw_type)
+    lt = tz()
+    note = "healthkit %s %s-%s hk:%s" % (
+        raw_type,
+        start.astimezone(lt).strftime("%H:%M") if start else "?",
+        end.astimezone(lt).strftime("%H:%M") if end else "?",
+        ev.get("id"))
+    return {
+        "start": start, "end": end or start,
+        "date": local_date(start or end),
+        "minutes": round(dur / 60.0, 1) if dur is not None else None,
+        # ACTIVE only. total_energy_kcal is total burn: never read here.
+        "kcal": num(p.get("active_energy_kcal")),
+        "avg_hr": num(p.get("avg_heart_rate_bpm")),
+        "cat": cat, "sub": sub, "strength": strength,
+        "type": raw_type, "note": note,
+    }
+
+
+def find_session(rows, f, claimed):
+    """Same-day set-logged session closest in time, unclaimed."""
+    best = None
+    for r in rows:
+        if r["sets"] <= 0 or r["id"] in claimed:
+            continue
+        a0 = parse_local_naive(r["first_set"])
+        a1 = parse_local_naive(r["last_set"]) or a0
+        d = (_distance_min(a0, a1, f["start"], f["end"])
+             if a0 and f["start"] else 1e9)
+        if best is None or d < best[0]:
+            best = (d, r)
+    return best[1] if best else None
+
+
+def find_chat_row(rows, f, claimed):
+    """A chat-logged row of the same workout: same category, logged inside
+    [start - BEFORE, end + AFTER], no sets, not ingested, not claimed."""
+    if f["start"] is None:
+        return None
+    lo = f["start"] - _dt.timedelta(minutes=OVERLAP_BEFORE_MIN)
+    hi = f["end"] + _dt.timedelta(minutes=OVERLAP_AFTER_MIN)
+    best = None
+    for r in rows:
+        if (r["sets"] > 0 or r["id"] in claimed or "hk:" in r["note"]
+                or f["cat"] not in r["cats"]):
+            continue
+        at = parse_local_naive(r["created_at"])
+        if at is None or not (lo <= at <= hi):
+            continue
+        d = abs((at - f["end"]).total_seconds())
+        if best is None or d < best[0]:
+            best = (d, r)
+    return best[1] if best else None
+
+
+def attach_fields(f):
+    out = []
+    if f["minutes"] is not None:
+        out.append("minutes=%s" % fmt(f["minutes"]))
+    if f["kcal"] is not None:
+        out += ["kcal=%s" % fmt(f["kcal"]), "kcal_origin=measured"]
+    if f["avg_hr"] is not None:
+        out.append("avg_hr=%s" % fmt(f["avg_hr"]))
+    return out
+
+
+def fill_fields(f, row):
+    """Only what the chat row left empty -- the owner's words stay."""
+    out = []
+    if f["minutes"] is not None and not row["minutes"]:
+        out.append("minutes=%s" % fmt(f["minutes"]))
+    if f["kcal"] is not None and (not row["kcal"] or
+                                  "cardio-estimate:" in row["note"]):
+        out += ["kcal=%s" % fmt(f["kcal"]), "kcal_origin=measured"]
+        if "cardio-estimate:" in row["note"]:
+            out.append("note=%s" % f["note"])
+    if f["avg_hr"] is not None and row["avg_hr"] is None:
+        out.append("avg_hr=%s" % fmt(f["avg_hr"]))
+    return out
+
+
+def ingest_workout(kit, ev, amap, floor):
+    """One workout envelope -> one action word."""
+    eid = str(ev.get("id") or "")
+    occurred = parse_ts(ev.get("occurred_at"))
+    if not eid or occurred is None:
+        return "skip-bad", None
+    if occurred < floor or not kit.allowed("workout", ev):
+        return "skip-pre-consent", None
+    h = payload_hash(ev.get("payload") or {})
+    f = workout_fields(ev, amap)
+    if f is None:
+        return "skip-bad", None
+    prev = kit.ledger_get("workout", eid)
+    if prev is not None:
+        table, target, old_h = prev
+        if old_h == h:
+            return "same", target
+        row = workout_row(target) if not kit.dry else None
+        if row is None and not kit.dry:
+            kit.ledger_put("workout", eid, table, target, h, ev["occurred_at"])
+            return "changed-target-gone", target
+        if kit.dry:
+            upd = attach_fields(f)
+        elif ("hk:%s" % eid) in row["note"]:
+            upd = attach_fields(f) + ["date=%s" % f["date"]]
+            if "cardio-estimate:" in row["note"] and f["kcal"] is not None:
+                upd.append("note=%s" % f["note"])
+        elif row["sets"] > 0:
+            upd = attach_fields(f)
+        else:
+            upd = fill_fields(f, row)
+        if upd:
+            kit.write(["workout-upd", target] + upd)
+        kit.ledger_put("workout", eid, table, target, h, ev["occurred_at"])
+        return "changed", target
+
+    rows = day_workouts(f["date"])
+    claimed = kit.claimed
+    if f["strength"]:
+        sess = find_session(rows, f, claimed)
+        if sess is not None:
+            upd = attach_fields(f)
+            if upd:
+                kit.write(["workout-upd", sess["id"]] + upd)
+            kit.ledger_put("workout", eid, "workouts", sess["id"], h,
+                           ev["occurred_at"])
+            return "attached", sess["id"]
+    chat = find_chat_row(rows, f, claimed)
+    if chat is not None:
+        upd = fill_fields(f, chat)
+        if upd:
+            kit.write(["workout-upd", chat["id"]] + upd)
+        kit.ledger_put("workout", eid, "workouts", chat["id"], h,
+                       ev["occurred_at"])
+        return "filled", chat["id"]
+    # recovery: a row this id created on an earlier run whose ledger put
+    # never landed (the note carries the id) -- claim it, never duplicate.
+    for r in rows:
+        if ("hk:%s" % eid) in r["note"]:
+            kit.ledger_put("workout", eid, "workouts", r["id"], h,
+                           ev["occurred_at"])
+            return "reclaimed", r["id"]
+    _rc, out, _err = kit.write([
+        "workout-add", f["date"], f["cat"], f["sub"], fmt(f["minutes"]),
+        fmt(f["kcal"]), f["note"], fmt(f["avg_hr"]), "--new"]
+        + (["--kcal-origin", "measured"] if f["kcal"] is not None else []))
+    last = [ln for ln in out.strip().splitlines() if ln.strip()]
+    wid = (last[-1].split("\t")[0] if last else "").strip()
+    if not wid:
+        raise RuntimeError("workout-add printed no id: %r" % out)
+    kit.ledger_put("workout", eid, "workouts", wid, h, ev["occurred_at"])
+    return "new", wid
+
+
+# ---------------------------------------------------------------------------
+# day metrics
+# ---------------------------------------------------------------------------
+def window_days(now, floor, n):
+    today = local_date(now)
+    t = _dt.date.fromisoformat(today)
+    days = [(t - _dt.timedelta(days=i)).isoformat() for i in range(n - 1, -1, -1)]
+    return [d for d in days if d >= local_date(floor)], today
+
+
+def event_day(ev):
+    p = ev.get("payload") or {}
+    d = parse_ts(p.get("period_start")) or parse_ts(ev.get("occurred_at"))
+    return local_date(d) if d else None
+
+
+def _write_day(kit, kind, metric, day, value, events, note=None):
+    """Write one day value when any contributing envelope is NEW/CHANGED."""
+    events = [ev for ev in events if kit.allowed(kind, ev)]
+    fresh = [ev for ev in events
+             if (kit.ledger_get(kind, str(ev["id"])) or (0, 0, None))[2]
+             != payload_hash(ev.get("payload") or {})]
+    if not fresh:
+        return "same", None
+    mid = kit.log_metric(day, metric, value, note)
+    for ev in fresh:
+        kit.ledger_put(kind, str(ev["id"]), "metric_log", mid,
+                       payload_hash(ev.get("payload") or {}), ev["occurred_at"])
+    return "written", mid
+
+
+def ingest_bucket_metric(kit, client, kind, metric, days, value_fn, since, floor):
+    evs = client.list_events(source=SOURCE, kind=kind, since=since, limit=2000)
+    by_day = {}
+    for ev in evs:
+        d = event_day(ev)
+        if d in days and parse_ts(ev.get("occurred_at")) and \
+                parse_ts(ev["occurred_at"]) >= floor and kit.allowed(kind, ev):
+            by_day.setdefault(d, []).append(ev)
+    out = []
+    for d in sorted(by_day):
+        v = value_fn(by_day[d])
+        if v is None:
+            continue
+        verdict, _mid = _write_day(kit, kind, metric, d, v, by_day[d])
+        out.append((metric, d, v, verdict))
+    return out
+
+
+def steps_value(evs):
+    vals = [num((e.get("payload") or {}).get("steps")) for e in evs]
+    vals = [v for v in vals if v is not None]
+    return round(sum(vals)) if vals else None
+
+
+def hr_value(evs):
+    vals = [num((e.get("payload") or {}).get("avg_bpm")) for e in evs]
+    vals = [v for v in vals if v is not None]
+    return round(sum(vals) / len(vals), 1) if vals else None
+
+
+RESTING_KEYS = ("resting_bpm", "resting_heart_rate_bpm", "bpm", "value",
+                "avg_bpm")
+
+
+def resting_value(evs):
+    best = None
+    for e in evs:
+        p = e.get("payload") or {}
+        v = None
+        for k in RESTING_KEYS:
+            v = num(p.get(k))
+            if v is not None:
+                break
+        at = e.get("occurred_at") or ""
+        if v is not None and (best is None or at > best[0]):
+            best = (at, v)
+    return round(best[1], 1) if best else None
+
+
+def resting_day(ev):
+    p = ev.get("payload") or {}
+    if p.get("date"):
+        return str(p["date"])[:10]
+    return event_day(ev)
+
+
+def sleep_sessions(evs):
+    """Asleep intervals merged, clustered into sessions (gap > 3 h splits).
+    -> [(wake_day, asleep_minutes, [events])]"""
+    iv = []
+    for e in evs:
+        p = e.get("payload") or {}
+        if not str(p.get("stage") or "").startswith("asleep"):
+            continue
+        s = parse_ts(p.get("started_at") or p.get("start"))
+        t = parse_ts(p.get("ended_at") or p.get("end"))
+        if s is None or t is None or t <= s:
+            continue
+        iv.append((s, t, e))
+    iv.sort(key=lambda x: x[0])
+    sessions = []
+    for s, t, e in iv:
+        if sessions and (s - sessions[-1]["end"]).total_seconds() <= \
+                SLEEP_SESSION_GAP_MIN * 60:
+            cur = sessions[-1]
+        else:
+            cur = {"spans": [], "end": t, "events": []}
+            sessions.append(cur)
+        cur["events"].append(e)
+        if cur["spans"] and s <= cur["spans"][-1][1]:
+            if t > cur["spans"][-1][1]:
+                cur["spans"][-1][1] = t
+        else:
+            cur["spans"].append([s, t])
+        if t > cur["end"]:
+            cur["end"] = t
+    out = []
+    for c in sessions:
+        mins = sum((b - a).total_seconds() for a, b in c["spans"]) / 60.0
+        out.append((local_date(c["end"]), round(mins), c["events"]))
+    return out
+
+
+def ingest_sleep(kit, client, days, since, floor):
+    evs = client.list_events(source=SOURCE, kind="sleep", since=since,
+                             limit=5000)
+    evs = [e for e in evs if parse_ts(e.get("occurred_at")) and
+           parse_ts(e["occurred_at"]) >= floor and kit.allowed("sleep", e)]
+    per_day = {}
+    for day, mins, sevs in sleep_sessions(evs):
+        if day in days:
+            acc = per_day.setdefault(day, [0, []])
+            acc[0] += mins
+            acc[1].extend(sevs)
+    out = []
+    for d in sorted(per_day):
+        verdict, _ = _write_day(kit, "sleep", "sleep_min", d, per_day[d][0],
+                                per_day[d][1])
+        out.append(("sleep_min", d, per_day[d][0], verdict))
+    return out
+
+
+def ingest_resting(kit, client, days, since, floor):
+    evs = client.list_events(source=SOURCE, kind="resting_heart_rate",
+                             since=since, limit=500)
+    by_day = {}
+    for ev in evs:
+        d = resting_day(ev)
+        if d in days and parse_ts(ev.get("occurred_at")) and \
+                parse_ts(ev["occurred_at"]) >= floor and kit.allowed(
+                    "resting_heart_rate", ev):
+            by_day.setdefault(d, []).append(ev)
+    out = []
+    for d in sorted(by_day):
+        v = resting_value(by_day[d])
+        if v is None:
+            continue
+        verdict, _ = _write_day(kit, "resting_heart_rate", "resting_hr_bpm",
+                                d, v, by_day[d])
+        out.append(("resting_hr_bpm", d, v, verdict))
+    return out
+
+
+def ingest_active_energy(kit, client, days, floor):
+    """Read BY DATE (id = local date), upsert every pass."""
+    out = []
+    for d in days:
+        if d <= local_date(floor):
+            continue
+        ev = client.get_event(SOURCE, "active_energy_day", d)
+        if not ev or not kit.allowed("active_energy_day", ev):
+            continue
+        p = ev.get("payload") or {}
+        v = num(p.get("active_energy_kcal"))
+        if v is None:
+            continue
+        closed = p.get("closed") in (True, 1, "true", "1")
+        note = "closed=%d" % (1 if closed else 0)
+        if p.get("as_of"):
+            note += " as_of=%s" % p["as_of"]
+        mid = kit.log_metric(d, "active_energy_kcal", v, note)
+        verdict = kit.ledger_put("active_energy_day", str(ev.get("id") or d),
+                                 "metric_log", mid,
+                                 payload_hash(p), ev["occurred_at"])
+        out.append(("active_energy_kcal", d, v,
+                    "%s %s" % (verdict, note)))
+    return out
+
+
+# ---------------------------------------------------------------------------
+# entry points
+# ---------------------------------------------------------------------------
+class Lock(object):
+    def __init__(self, wait_s=180):
+        self.wait_s = wait_s
+        self.fh = None
+
+    def __enter__(self):
+        d = state_dir()
+        os.makedirs(d, exist_ok=True)
+        self.fh = open(os.path.join(d, ".hk-ingest.lock"), "w")
+        deadline = time.time() + self.wait_s
+        while True:
+            try:
+                fcntl.flock(self.fh, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                return self
+            except OSError:
+                if time.time() > deadline:
+                    raise RuntimeError("another hk-ingest run holds the lock")
+                time.sleep(1)
+
+    def __exit__(self, *exc):
+        try:
+            fcntl.flock(self.fh, fcntl.LOCK_UN)
+        finally:
+            self.fh.close()
+
+
+def _opts(argv):
+    o = {"now": None, "dry": False}
+    i = 0
+    while i < len(argv):
+        a = argv[i]
+        if a == "--dry-run":
+            o["dry"] = True
+        elif a == "--now" and i + 1 < len(argv):
+            o["now"] = parse_ts(argv[i + 1])
+            i += 1
+        else:
+            raise SystemExit("hk-ingest: unknown argument %s" % a)
+        i += 1
+    o["now"] = o["now"] or _dt.datetime.now(_dt.timezone.utc)
+    return o
+
+
+def _prepare(o):
+    kit = Kit(dry=o["dry"])
+    floors = kit.floors()
+    kit.load_ledger()
+    return kit, floors
+
+
+def cmd_pass(argv):
+    o = _opts(argv)
+    c = conf()
+    with Lock():
+        try:
+            kit, floors = _prepare(o)
+        except RuntimeError as exc:
+            print("HK-INGEST BLOCKED %s" % exc)
+            return EXIT_BLOCKED
+        amap = load_map()
+        try:
+            n = max(1, int(c.get("HK_INGEST_WINDOW_DAYS", "3")))
+        except ValueError:
+            n = 3
+        print("HK-INGEST pass now=%s approved=%s" %
+              (utc_z(o["now"]), ",".join(sorted(floors)) or "-"))
+        if not floors:
+            return EXIT_OK
+        reg = kit.register_tokens()
+        if reg != "ok":
+            print("NOTE metric-register %s" % reg)
+        try:
+            client = TM.Client(c.get("HK_TRANSPORTER_MCP") or None)
+            client.open()
+        except TM.TransporterError as exc:
+            print("HK-INGEST BLOCKED transporter unreachable: %s" % exc)
+            return EXIT_BLOCKED
+        try:
+            if c.get("HK_INGEST_REFRESH", "off") == "on":
+                try:
+                    r = client.refresh_events(wait_s=int(
+                        c.get("HK_INGEST_REFRESH_WAIT_S", "20")))
+                    print("REFRESH %s" % r.get("result"))
+                except (TM.TransporterError, ValueError) as exc:
+                    print("REFRESH failed: %s" % exc)
+            counts = {}
+            if "workout" in floors:
+                floor = floors["workout"]
+                days, _ = window_days(o["now"], floor, n)
+                since = utc_z(max(floor, local_midnight(days[0])) -
+                              _dt.timedelta(days=1)) if days else utc_z(floor)
+                for ev in sorted(client.list_events(source=SOURCE,
+                                                    kind="workout", since=since,
+                                                    limit=500),
+                                 key=lambda e: e.get("occurred_at") or ""):
+                    act, wid = ingest_workout(kit, ev, amap, floor)
+                    counts[act] = counts.get(act, 0) + 1
+                    if act not in ("same", "skip-pre-consent"):
+                        print("WORKOUT %s %s workouts/%s" %
+                              (ev.get("id"), act, wid))
+            metrics = []
+            for kind in KINDS[1:]:
+                if kind not in floors:
+                    continue
+                floor = floors[kind]
+                days, today = window_days(o["now"], floor, n)
+                if not days:
+                    continue
+                day_since = utc_z(local_midnight(days[0]) -
+                                  _dt.timedelta(days=1))
+                if kind == "steps":
+                    metrics += ingest_bucket_metric(
+                        kit, client, kind, "steps", [d for d in days if d < today],
+                        steps_value, day_since, floor)
+                elif kind == "heart_rate":
+                    metrics += ingest_bucket_metric(
+                        kit, client, kind, "hr_avg_bpm",
+                        [d for d in days if d < today], hr_value, day_since,
+                        floor)
+                elif kind == "resting_heart_rate":
+                    metrics += ingest_resting(kit, client, days, day_since, floor)
+                elif kind == "sleep":
+                    metrics += ingest_sleep(kit, client, days, day_since, floor)
+                elif kind == "active_energy_day":
+                    metrics += ingest_active_energy(kit, client, days, floor)
+            for m, d, v, verdict in metrics:
+                print("METRIC %s %s %s %s" % (m, d, fmt(v), verdict))
+            print("HK-INGEST done workouts=%s metrics=%d"
+                  % (",".join("%s:%d" % kv for kv in sorted(counts.items()))
+                     or "0", len(metrics)))
+        finally:
+            client.close()
+    return EXIT_OK
+
+
+def cmd_callback(argv):
+    o = _opts(argv)
+    try:
+        msg = json.loads(sys.stdin.read() or "{}")
+    except ValueError:
+        msg = {}
+    # filter at entry: the receiver calls back for every kind and source.
+    if msg.get("source") != SOURCE or msg.get("kind") != "workout" \
+            or not msg.get("id"):
+        return EXIT_OK
+    c = conf()
+    with Lock():
+        try:
+            kit, floors = _prepare(o)
+        except RuntimeError as exc:
+            print("HK-INGEST BLOCKED %s" % exc)
+            return EXIT_BLOCKED
+        if "workout" not in floors:
+            return EXIT_OK
+        try:
+            with TM.Client(c.get("HK_TRANSPORTER_MCP") or None) as client:
+                ev = client.get_event(SOURCE, "workout", str(msg["id"]))
+        except TM.TransporterError as exc:
+            print("HK-INGEST BLOCKED transporter unreachable: %s" % exc)
+            return EXIT_BLOCKED
+        if not ev:
+            print("HK-INGEST callback id=%s not found" % msg["id"])
+            return EXIT_OK
+        act, wid = ingest_workout(kit, ev, load_map(), floors["workout"])
+        print("WORKOUT %s %s workouts/%s" % (msg["id"], act, wid))
+    return EXIT_OK
+
+
+def cmd_status(_argv):
+    kit = Kit()
+    for kind, floor in sorted(kit.floors().items()):
+        print("%s floor=%s" % (kind, floor.isoformat()))
+    return EXIT_OK
+
+
+def cmd_consent(argv, revoke=False):
+    if not argv or any(kind not in KINDS for kind in argv):
+        raise RuntimeError("expected one or more kinds: %s" % ", ".join(KINDS))
+    kit = Kit()
+    for kind in dict.fromkeys(argv):
+        args = ["ingest-consent", SOURCE, kind]
+        if revoke:
+            args.append("--off")
+        args += ["--module", "health"]
+        rc, out, err = kit.run(args)
+        if rc:
+            raise RuntimeError("ingest-consent %s failed (%s): %s" %
+                               (kind, rc, (err or out).strip()[:200]))
+        print(out.strip())
+    return EXIT_OK
+
+
+def main(argv=None):
+    argv = sys.argv[1:] if argv is None else list(argv)
+    if not argv or argv[0] in ("-h", "--help"):
+        print(__doc__)
+        return EXIT_OK if argv else EXIT_ERR
+    cmd, rest = argv[0], argv[1:]
+    fn = {"pass": cmd_pass, "callback": cmd_callback,
+          "status": cmd_status, "consent": cmd_consent,
+          "revoke": lambda args: cmd_consent(args, True)}.get(cmd)
+    if fn is None:
+        print("hk-ingest: unknown command %s" % cmd, file=sys.stderr)
+        return EXIT_ERR
+    try:
+        return fn(rest)
+    except RuntimeError as exc:
+        print("HK-INGEST ERROR %s" % exc)
+        return EXIT_ERR
+
+
+if __name__ == "__main__":
+    sys.exit(main())

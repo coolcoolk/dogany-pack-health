@@ -1,0 +1,93 @@
+#!/usr/bin/env python3
+# protein-retro -- the daily retro's protein line (kit retro-sections provider).
+#
+# WHY (worklog 2026-08-15-protein-coaching-dynamic). The retro's [다음]
+# block said a static "단백질 목표 160g"; the owner asked for a nudge that knows
+# how short the day is, whether a scoop is on hand, and the last time to fill
+# before bed. The instance-local version was not carried into the pack; this is
+# the rebuild. Every number and the sentence come from the diet-status engine
+# (skills-bundle/diet-status/protein.py: dynamic threshold, per-meal cap,
+# bedtime back-computation, resource read); this file only adapts it to the
+# kit's provider contract (database/retro_sections.py):
+#
+#   protein-retro --lane daily|weekly [--mode line|section]
+#                 [--date YYYY-MM-DD] [--at HH:MM]
+#   exit 0 + one line   shown
+#   exit 3              nothing tonight: weekly lane, no meal rows, no stored
+#                       weight, or any failure (a provider never fails a retro)
+#
+# Read-only: the engine writes nothing (provider contract: the retro reports,
+# kit verbs act).
+import argparse
+import datetime
+import importlib.util
+import os
+import sys
+
+EXIT_OK, EXIT_NOTHING = 0, 3
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+
+
+def engine_path():
+    """diet-status/protein.py: env override, the installed skill (skills,
+    then skills-bundle), then this repo's payload layout."""
+    env = os.environ.get("DIET_STATUS_DIR")
+    cands = ([env] if env else []) + [
+        os.path.join(PROJECT_ROOT, ".claude", "skills", "diet-status"),
+        os.path.join(PROJECT_ROOT, ".claude", "skills-bundle", "diet-status"),
+        os.path.join(PROJECT_ROOT, "skills-bundle", "diet-status"),
+    ]
+    for d in cands:
+        p = os.path.join(d, "protein.py")
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def load_engine(path):
+    prev = sys.dont_write_bytecode
+    sys.dont_write_bytecode = True
+    try:
+        spec = importlib.util.spec_from_file_location("dietstatus_protein", path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+    finally:
+        sys.dont_write_bytecode = prev
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="protein-retro")
+    p.add_argument("--lane", choices=("daily", "weekly"), required=True)
+    p.add_argument("--mode", choices=("line", "section"), default="line")
+    p.add_argument("--date")
+    p.add_argument("--at")
+    a = p.parse_args(argv)
+    if a.lane != "daily":
+        return EXIT_NOTHING
+    path = engine_path()
+    if path is None:
+        print("protein-retro: diet-status/protein.py not found", file=sys.stderr)
+        return EXIT_NOTHING
+    try:
+        eng = load_engine(path)
+        day = {"date": a.date} if a.date else {}
+        now = None
+        if a.at:
+            hm = eng._hm(a.at)
+            base = (datetime.date.fromisoformat(a.date) if a.date
+                    else datetime.date.today())
+            now = datetime.datetime.combine(base, datetime.time(*hm))
+        out = eng.nudge(day, now)
+    except Exception as exc:  # noqa: BLE001 -- a provider never fails a retro
+        print("protein-retro: %s" % exc, file=sys.stderr)
+        return EXIT_NOTHING
+    if not out.get("line"):
+        return EXIT_NOTHING
+    print(out["line"])
+    return EXIT_OK
+
+
+if __name__ == "__main__":
+    sys.exit(main())

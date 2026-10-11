@@ -1,0 +1,24 @@
+id: health-onboarding
+type: module
+visibility: public
+status: official
+version: 0.1.0
+owns:
+  - "payload/skills-bundle/health-onboarding/**"
+requires:
+  framework: ">=1.30.0"
+  kit: "kit_life >=2.19.0"
+publish_target: dogany-agentpack-health-trainer
+
+# LANES (D10) -- declared, and declared ONCE, at
+#   payload/service/health/product.yaml  (id: health-domain-onboarding)
+#
+# Not here, and the reason is mechanical rather than stylistic: every rule step
+# of this module is carried by a service CLI (`onboarding-gate`, `program-init`),
+# and lane-lint's HARD rule L6 requires a rule step's carrier to live inside the
+# directory of the unit that declares it. A block here would either lie about
+# where its machines are, need a shim that becomes a second front door to a
+# writer with one named call site, or split across two units and break every
+# `after:` edge. The declaration lives with the machines; this file points at it
+# so a reader of the skill is one hop from its lanes rather than zero hops from
+# a second, drifting copy.

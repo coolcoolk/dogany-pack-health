@@ -1,0 +1,2056 @@
+#!/usr/bin/env python3
+# session-closeout -- canonical weight-session close-out device (DGN-388)
+#
+# Two jobs, one instance-side helper (stdlib only: sys, os, sqlite3, argparse,
+# subprocess -- the last one only to call the framework's pin owner API):
+#
+#   1. VALIDATOR (--check): decide whether the LATEST weight session is
+#      "properly closed" = has a non-NULL session_type_id AND >=1 workout_sets
+#      row. Used by routines/rx-gen.sh BEFORE it emits a normal rotation rx, so
+#      an un-closed session (untagged and/or setless) can never be silently
+#      rotated past. This is the device that would have caught sessions 44/45.
+#
+#   2. CLOSE-OUT (default action): finalize a session by writing
+#      workouts.session_type_id for a given session id + session_type code.
+#      kit_life.py / kit_life.sh are FRAMEWORK code and must NOT be hand-patched,
+#      so the tag write is a direct, idempotent sqlite3 UPDATE encapsulated
+#      here -- this is the ONE canonical close-out write path. The helper also
+#      reports whether the session carries workout_sets rows (warns if 0).
+#
+# Usage:
+#   session-closeout <session_id> <session_type_code> [--db PATH]   # close out
+#   session-closeout --check [--db PATH]                            # validator
+#   session-closeout --exercise-exit <session_id> <exercise> [--reason TEXT]
+#
+# Close-out also retires the 표3 종목카드 from the shared dashboard.md pin
+# (DGN-967 `--pin-clear workout`) -- best-effort, --no-pin-clear opts out.
+#
+# 2026-08-25 (session 10092 boundary defects). Three additions, each with its
+# own commented rationale block further down:
+#   D1  the session marker SWEEP -- .reply-pending above all, whose survival
+#       past this close-out deadlocked the next session's fast path 31/31.
+#   D4  the ZERO-MINUTE GATE -- a session with minutes=0/kcal=0 is REFUSED
+#       before any write, never silently booked as zero.
+#   D5/D6 the CLOSE-OUT CARD and the EXERCISE EXIT RESOLUTION -- stdout is now
+#       a renderable artifact, and no closed session leaves a dangling `[ ]`.
+#
+# CHANNELS (changed 2026-08-25): stdout of a CLOSE-OUT is the CARD. The operator
+# log ("session N has M rows", SWEPT..., PIN_CARD...) moved to stderr, so
+# `session-closeout ... 2>&1` reads exactly as it did before. --check is
+# unchanged: its OK / NEEDS_CLOSEOUT line is still stdout (rx-gen parses it).
+#
+# Default DB: <this dir>/../../database/kit_life.db
+#
+# Validator exit codes:
+#   0 = latest weight session properly closed (or no weight sessions) -> proceed
+#   3 = latest weight session NEEDS close-out (stdout: "NEEDS_CLOSEOUT <id> <date>")
+# Sweep (--sweep, the CRON's full-mode entry point) exit codes:
+#   0 = always. stdout: SWEEP_NONE / SWEEP_SKIP <id> <why> / SWEEP_CLEAN <id> /
+#       SWEPT <id> rc=<n> <reasons>. See do_sweep for what it may and may not do.
+# Close-out exit codes:
+#   0 = session tagged (idempotent; already-correct is a no-op success)
+#   1 = error (unknown session id / unknown session_type code / bad args)
+#   4 = REFUSED, nothing written: the session has no duration/energy (D4).
+#       stdout carries "CLOSEOUT_REFUSED unmeasured <id> <date>" plus the exact
+#       `kit_life.sh workout-upd` line that fixes it.
+#   5 = --exercise-exit only: the card's table could not be built, so the card
+#       was refused rather than degraded into prose.
+
+import sys
+import os
+import re
+import json
+import time
+import sqlite3
+import argparse
+import subprocess
+import importlib.machinery
+import importlib.util
+import datetime
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+if SCRIPT_DIR not in sys.path:
+    sys.path.insert(0, SCRIPT_DIR)
+from ui_labels import exercise_ko
+# LIVE-SAFETY: runtime-state root -- see set-arm. Tests MUST export
+# LIFEKIT_HEALTH_STATE_DIR=<temp dir>; unset means the LIVE marker surface.
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+# 2026-08-25: STATE_DIR no longer follows the SCRIPT DIRECTORY.
+# The runtime marker surface is pinned to files/program/ INDEPENDENTLY of where
+# this file lives, because bridge/bot.py:4239 reads .idrill-arm/ from that exact
+# path and IDRILL-ARM-CONTRACT.md declares it the single pack<->bridge surface.
+# Before this, `or HERE`/`or SCRIPT_DIR` worked only by the coincidence that code
+# and state shared one directory. Moving the engine to service/health/ dissolves
+# that coincidence and would silently kill EVERY inline button (arm written to the
+# new dir, bridge still reading the old one -> IDRILL_ARM_EXPIRED, no error).
+# Unset LIFEKIT_HEALTH_STATE_DIR resolves byte-identically to the pre-change behaviour.
+STATE_DIR = (os.environ.get("LIFEKIT_HEALTH_STATE_DIR")
+             or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_DB = os.path.join(SCRIPT_DIR, "..", "..", "database", "kit_life.db")
+# Session-active marker: set-add self-heals it during the session; close-out
+# is the canonical clear point so nothing treats the session as live after it
+# is closed. Best-effort.
+ACTIVE_MARKER = os.path.join(STATE_DIR, ".active-session")
+# F10/F28 exercise-entry gate: set-table drops per-(session, exercise) published
+# flags in this dir during the session (set-add reads them). Close-out is the
+# canonical clear point for THIS session's flags so they do not accumulate.
+# Best-effort, session-scoped (never touches another session's flags).
+PUBLISHED_DIR = os.path.join(STATE_DIR, ".set-table-published")
+# F1 (DGN-801) closed-session tombstone: workouts has NO status/ended_at column,
+# so "this session is closed" is carried by a marker instead of a schema change
+# (ladder rule -- avoid a migration). Close-out writes this tombstone (holding
+# the closed sid) atomically BEFORE removing .active-session, so set-add's
+# self-heal can refuse to REVIVE the .active-session gate marker for a session
+# that has already been closed (the phantom-logging FATAL F1). The data row still
+# logs; only the gate marker is withheld. set-add reads this same file.
+CLOSED_TOMBSTONE = os.path.join(STATE_DIR, ".session-closed")
+
+# ---------------------------------------------------------------------------
+# SESSION-SCOPED MARKER SWEEP (D1 leak, 2026-08-25).
+#
+# Close-out already cleared TWO of the markers a session leaves behind
+# (.active-session, .set-table-published/<sid>.*) and silently leaked the rest.
+# Measured on the morning after real session 10092: .reply-pending still named
+# 10092 (that single stale file was the 31/31 fast-path deadlock; the fast
+# path itself was removed 2026-10-08 and nothing writes the pending markers
+# now -- the sweep stays as cleanup of pre-removal leftovers, and it SURVIVED the close-out because nothing
+# here had ever heard of it), 29 .idrill-arm/<hash> arm files, 7
+# .exercise-entered/<sid>.<ex> flags, an .arm-gen/<sid> counter, a
+# .set-arm-override and .plate-cue entry -- all dead, all still on disk.
+#
+# A session's runtime markers are session-scoped state. The session lifecycle
+# has exactly one end, and this is it, so this is where they die. Every sweep is
+# BEST-EFFORT and SESSION-SCOPED: nothing that names another session is touched,
+# and a sweep failure can never fail a close-out.
+#
+# Two naming conventions, hence two sweep shapes:
+#   * `<sid>.<something>` filenames        -> prefix match (_sweep_prefix_dir)
+#   * content-hashed filenames carrying a  -> payload match (_sweep_arm_dir);
+#     "session_id" field (.idrill-arm)        the hash is of the arm CONTENT, so
+#                                             the sid is only inside the JSON.
+# ---------------------------------------------------------------------------
+TIP_PENDING = os.path.join(STATE_DIR, ".tip-pending")
+REPLY_PENDING = os.path.join(STATE_DIR, ".reply-pending")
+IDRILL_ARM_DIR = os.path.join(STATE_DIR, ".idrill-arm")
+ARM_GEN_DIR = os.path.join(STATE_DIR, ".arm-gen")
+ENTERED_DIR = os.path.join(STATE_DIR, ".exercise-entered")
+OVERRIDE_DIR = os.path.join(STATE_DIR, ".set-arm-override")
+PLATE_CUE_DIR = os.path.join(STATE_DIR, ".plate-cue")
+# D6: per-(session, exercise) EXIT RESOLUTION record -- see resolve_exercise().
+# Written when an exercise is closed (early or complete) so no set row is left
+# dangling. Not swept at close-out: it is the RESOLUTION, not runtime state.
+EXERCISE_CLOSED_DIR = os.path.join(STATE_DIR, ".exercise-closed")
+
+# DGN-967 pin section ownership: the live 표3 종목카드 occupies the "workout"
+# section of the shared dashboard.md pin surface (published by session-open /
+# exercise-enter through `status-footer.py --pin-set workout`). NOTHING used to
+# clear it, so a closed session kept showing a live lineup on the owner's pin
+# until the 24h TTL backstop fired. Close-out is the canonical session-lifecycle
+# end, so it is the canonical --pin-clear point.
+# The slug is DUPLICATED from exercise-enter.PIN_OWNER deliberately: importing
+# that whole module (program.yaml + rx-calc + the health lib) to read one string
+# is far heavier coupling than one literal in the same directory. Keep in sync.
+PIN_OWNER = "workout"
+STATUS_FOOTER = os.path.join(SCRIPT_DIR, "..", "..", "routines",
+                             "status-footer.py")
+# The SAME env override exercise-enter honours, so a test can redirect the whole
+# pin surface (dashboard.md + its section store) to a scratch dir.
+DASHBOARD_FILE = os.environ.get(
+    "WARG_DASHBOARD_FILE",
+    os.path.join(SCRIPT_DIR, "..", "..", ".telegram_bot", "dashboard.md"))
+
+
+def clear_pin_card(owner=PIN_OWNER):
+    """Drop the 표3 card's section from the shared pin surface (DGN-967).
+
+    Clearing ONE section is not the bridge's HIDE signal: the framework composer
+    re-renders whatever other owners still hold and only an all-empty compose
+    writes "" (which is what unpins). So this removes our card without touching
+    the workbench board.
+
+    BEST-EFFORT: a pin that will not clear must NEVER fail a close-out -- the
+    tag + tombstone + marker are the critical path. Inert when the framework
+    hook or the bot data dir is absent. Returns True when the clear was applied.
+    """
+    try:
+        data_dir = os.path.dirname(os.path.abspath(DASHBOARD_FILE)) or "."
+        footer = os.path.abspath(STATUS_FOOTER)
+        if not os.path.isfile(footer) or not os.path.isdir(data_dir):
+            return False
+        env = dict(os.environ)
+        env["DOGANY_BOT_DATA_DIR"] = data_dir
+        proc = subprocess.run([sys.executable, footer, "--pin-clear", owner],
+                              capture_output=True, text=True, timeout=15,
+                              env=env)
+        return proc.returncode == 0
+    except Exception:  # noqa: BLE001 -- a pin miss never blocks a close-out
+        return False
+
+
+def read_closed_tombstone(path=CLOSED_TOMBSTONE):
+    """Return the closed session id held in the .session-closed tombstone, or
+    None. Shared read convention (F1) -- set-add mirrors this exact reader.
+    Best-effort: any error -> None (never blocks a set write)."""
+    try:
+        with open(path) as fh:
+            txt = fh.read().strip()
+        return int(txt) if txt else None
+    except (OSError, ValueError):
+        return None
+
+
+def _write_closed_tombstone(session_id, tombstone_path=CLOSED_TOMBSTONE):
+    """Atomically stamp .session-closed with the closed sid (tmp + rename), so a
+    concurrent set-add self-heal never sees a half-written tombstone. Best-effort:
+    a tombstone failure must NEVER block the close-out itself. tombstone_path is
+    overridable so tests isolate it from the live marker (default = live)."""
+    try:
+        tmp = "%s.tmp.%d" % (tombstone_path, os.getpid())
+        with open(tmp, "w") as fh:
+            fh.write("%d" % int(session_id))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, tombstone_path)
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+
+
+def _clear_active_marker(session_id=None, marker_path=ACTIVE_MARKER,
+                         tombstone_path=CLOSED_TOMBSTONE):
+    # F1: stamp the closed-session tombstone (atomic) BEFORE removing the active
+    # marker, so there is no window where .active-session is gone but the
+    # tombstone is not yet in place. session_id is the session being closed.
+    if session_id is not None:
+        _write_closed_tombstone(session_id, tombstone_path)
+    try:
+        os.remove(marker_path)
+    except (FileNotFoundError, OSError):
+        pass
+
+
+def _clear_published_flags(session_id, published_dir=PUBLISHED_DIR):
+    """Remove this session's set-table published flags (best-effort). Files are
+    named `<session_id>.<exercise>` so only THIS session's flags are cleared.
+    published_dir is overridable so tests isolate it from the live dir.
+
+    Kept as its own function (rather than folded into sweep_session_markers)
+    because do_close has called it by name since F10/F28 and undo_lib imports
+    this module; _sweep_prefix_dir below is the shared implementation."""
+    return _sweep_prefix_dir(published_dir, session_id)
+
+
+def _sweep_prefix_dir(dirpath, session_id):
+    """Remove `<session_id>.*` and the exact name `<session_id>` from dirpath.
+
+    Both shapes exist on the live surface: .exercise-entered uses
+    `<sid>.<exercise>`, .arm-gen uses a bare `<sid>` file. Returns the number
+    removed. Best-effort throughout -- a marker we cannot delete is a leak, not
+    a failed close-out.
+
+    The prefix is `<sid>.` and NOT a bare startswith(str(sid)): "1009" must not
+    match "10092". The one bare-name case is compared for EQUALITY."""
+    removed = 0
+    prefix = "%s." % session_id
+    exact = str(session_id)
+    try:
+        names = os.listdir(dirpath)
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        return 0
+    for name in names:
+        if not (name == exact or name.startswith(prefix)):
+            continue
+        try:
+            os.remove(os.path.join(dirpath, name))
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _sweep_arm_dir(dirpath, session_id):
+    """Remove .idrill-arm entries belonging to session_id.
+
+    These filenames are a hash of the arm CONTENT, so the session id lives only
+    inside the one-line JSON payload -- a name-prefix sweep cannot see them, and
+    that is exactly why 29 of them survived session 10092. Each file is read and
+    matched on its `session_id` field.
+
+    A file that will not parse is LEFT ALONE. It is not ours to judge: the sweep
+    is session-scoped, and "unreadable" is not "belongs to this session"."""
+    removed = 0
+    try:
+        names = os.listdir(dirpath)
+    except (FileNotFoundError, NotADirectoryError, OSError):
+        return 0
+    for name in names:
+        path = os.path.join(dirpath, name)
+        try:
+            with open(path) as fh:
+                obj = json.loads(fh.read())
+        except (OSError, ValueError):
+            continue
+        if not isinstance(obj, dict):
+            continue
+        try:
+            if int(obj.get("session_id")) != int(session_id):
+                continue
+        except (TypeError, ValueError):
+            continue
+        try:
+            os.remove(path)
+            removed += 1
+        except OSError:
+            pass
+    return removed
+
+
+def _sweep_pending(path, session_id):
+    """Remove a pending marker if it is THIS session's, or if it is garbage.
+
+    Accepts both legacy payload shapes (bare sid, or the JSON
+    `{"sid":..,"ts":..}` the removed fast path wrote). A marker naming a
+    DIFFERENT session is left alone -- it is not this close-out's business, and
+    the next session-open sweeps it.
+
+    Returns "removed" / "garbage" / "foreign" / "absent"."""
+    if not os.path.exists(path):
+        return "absent"
+    try:
+        with open(path) as fh:
+            txt = fh.read().strip()
+    except OSError:
+        return "absent"
+    sid = None
+    if txt.startswith("{"):
+        try:
+            obj = json.loads(txt)
+            sid = int(obj.get("sid"))
+        except (ValueError, TypeError):
+            sid = None
+    else:
+        try:
+            sid = int(txt)
+        except ValueError:
+            sid = None
+    if sid is not None and sid != int(session_id):
+        return "foreign"
+    verdict = "removed" if sid is not None else "garbage"
+    try:
+        os.remove(path)
+    except OSError:
+        return "absent"
+    return verdict
+
+
+def sweep_session_markers(session_id, state_dir=None):
+    """Retire every runtime marker this session owns. Returns an ordered list of
+    (label, detail) pairs for the operator log. Never raises.
+
+    state_dir is overridable for tests; None means the module-level constants
+    (which already honour LIFEKIT_HEALTH_STATE_DIR)."""
+    if state_dir is None:
+        tip, reply = TIP_PENDING, REPLY_PENDING
+        arm_dir, gen_dir = IDRILL_ARM_DIR, ARM_GEN_DIR
+        entered, override, plate = ENTERED_DIR, OVERRIDE_DIR, PLATE_CUE_DIR
+    else:
+        tip = os.path.join(state_dir, ".tip-pending")
+        reply = os.path.join(state_dir, ".reply-pending")
+        arm_dir = os.path.join(state_dir, ".idrill-arm")
+        gen_dir = os.path.join(state_dir, ".arm-gen")
+        entered = os.path.join(state_dir, ".exercise-entered")
+        override = os.path.join(state_dir, ".set-arm-override")
+        plate = os.path.join(state_dir, ".plate-cue")
+    out = []
+    out.append(("reply-pending", _sweep_pending(reply, session_id)))
+    out.append(("tip-pending", _sweep_pending(tip, session_id)))
+    out.append(("idrill-arm", _sweep_arm_dir(arm_dir, session_id)))
+    out.append(("arm-gen", _sweep_prefix_dir(gen_dir, session_id)))
+    out.append(("exercise-entered", _sweep_prefix_dir(entered, session_id)))
+    out.append(("set-arm-override", _sweep_prefix_dir(override, session_id)))
+    out.append(("plate-cue", _sweep_prefix_dir(plate, session_id)))
+    return out
+
+# Note substrings that mark an untagged/setless row as a WEIGHT session, so the
+# validator can still catch a fully-unclosed weight session (no tag, no sets)
+# without false-positiving on cardio rows. Tag / sets remain the primary signal;
+# session_type codes are appended dynamically from the DB.
+WEIGHT_NOTE_HINTS = ["헬스", "근력"]
+
+
+def _has_workout_sets_table(conn):
+    row = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='workout_sets'"
+    ).fetchone()
+    return row is not None
+
+
+def _set_count(conn, session_id):
+    if not _has_workout_sets_table(conn):
+        return 0
+    row = conn.execute(
+        "SELECT COUNT(*) FROM workout_sets WHERE session_id = ?", (session_id,)
+    ).fetchone()
+    return int(row[0]) if row else 0
+
+
+def _weight_note_hints(conn):
+    """Full hint list = static markers + every session_type code in the DB."""
+    hints = list(WEIGHT_NOTE_HINTS)
+    try:
+        for (code,) in conn.execute("SELECT code FROM session_type"):
+            if code:
+                hints.append(str(code))
+    except sqlite3.OperationalError:
+        pass
+    return hints
+
+
+def _latest_weight_candidate(conn):
+    """
+    Return (id, date, session_type_id, has_sets) for the most recent session
+    that looks like a weight session, or None.
+
+    A row is a weight-session candidate when it is tagged OR carries >=1
+    workout_sets row OR its note matches a weight-session hint. The note fallback
+    is what lets the validator flag a fully-unclosed weight session (no tag, no
+    sets) while leaving cardio rows alone.
+    """
+    has_sets_tbl = _has_workout_sets_table(conn)
+    rows = conn.execute(
+        """
+        SELECT w.id, w.date, w.session_type_id, w.note
+        FROM workouts w
+        ORDER BY w.date DESC, w.created_at DESC, w.id DESC
+        """
+    ).fetchall()
+    hints = _weight_note_hints(conn)
+    for sid, date, stype, note in rows:
+        set_n = _set_count(conn, sid) if has_sets_tbl else 0
+        is_candidate = stype is not None or set_n > 0
+        if not is_candidate and note:
+            is_candidate = any(h in note for h in hints)
+        if is_candidate:
+            return sid, date, stype, set_n > 0
+    return None
+
+
+def do_check(db_path):
+    conn = sqlite3.connect(db_path)
+    try:
+        cand = _latest_weight_candidate(conn)
+        if cand is None:
+            print("OK no weight sessions")
+            return 0
+        sid, date, stype, has_sets = cand
+        # D4: measurement is part of "properly closed". This is the device
+        # rx-gen consults before advancing the rotation, and session 10092
+        # walked straight through it at minutes=0/kcal=0 -- tagged, 32 sets,
+        # and worth nothing to every aggregate downstream. An explicit
+        # UNMEASURED_STAMP on the note counts as closed: the owner said so.
+        row = measure_row(conn, sid)
+        measured = True
+        if row is not None:
+            measured = (not _missing_measures(row)
+                        or is_unmeasured_declared(row[4]))
+        properly_closed = (stype is not None) and has_sets and measured
+        if properly_closed:
+            print("OK session %s (%s) properly closed" % (sid, date))
+            return 0
+        # Not properly closed -> caller must NOT emit a normal rotation rx.
+        print("NEEDS_CLOSEOUT %s %s" % (sid, date))
+        return 3
+    finally:
+        conn.close()
+
+
+# ---------------------------------------------------------------------------
+# CRON-REACHABLE STATE SWEEP (--sweep, 2026-08-26).
+#
+# THE GAP. The 05:00 cron reached this script through exactly one call --
+# routines/rx-gen.sh, `--check` only. --check is a VALIDATOR: it reads, prints
+# OK / NEEDS_CLOSEOUT, and returns. So the cron could DETECT a dirty session
+# and nag about it, and could never CLEAN anything. The only full-mode caller
+# in the tree is .claude/skills-bundle/workout-log/close_task.sh:173, which is
+# model/turn-driven -- it fires when the owner happens to close the task in
+# chat. Nothing scheduled could ever complete a close.
+#
+# WHAT --sweep MAY NOT DO. It must NOT auto-close a NEEDS_CLOSEOUT session.
+# Every one of the three ways a session earns NEEDS_CLOSEOUT needs the OWNER:
+#   * untagged (session_type_id NULL)  -> the cron would have to GUESS a split;
+#   * zero workout_sets rows           -> there is nothing to close, and closing
+#                                         it destroys the signal that the owner
+#                                         never logged;
+#   * minutes/kcal missing             -> D4 REFUSES on purpose (session 10092
+#                                         was 118 minutes and one screenshot
+#                                         away from being booked as zero).
+# Auto-closing any of them would be the cron overriding a deliberate refusal.
+# So the nag path is untouched: NEEDS_CLOSEOUT still exits 3 and still nags.
+#
+# WHAT --sweep DOES. It closes the OTHER hole, the one nothing reached at all:
+# a session whose DB CONTENT is complete (tagged + sets + measured, so --check
+# says OK and rx-gen sails past) but whose STATE TRANSITION never ran, because
+# nobody ever executed a full close-out. That session leaves .active-session
+# standing, no tombstone, .set-table-published flags on disk, an unresolved
+# `[ ]` on its last exercise, a pinned 표3 card, and the day's 헬스 timeblock
+# open. Measured on the live DB tonight: sessions 10090 / 10091 / 10092 have no
+# 헬스 timeblock row at all.
+#
+# A standing .active-session is not cosmetic -- it is the F1 phantom-logging
+# hazard: the next typed number is logged into the PREVIOUS session.
+#
+# NEVER GUESSES: the session_type code is READ BACK from the row's existing
+# session_type_id, so the tag write is a "noop_same". Idempotent: a session
+# already swept reports SWEEP_CLEAN and writes nothing.
+# ---------------------------------------------------------------------------
+def _sweep_dirty_reasons(sid, marker_path, tombstone_path):
+    """Why this properly-closed session still needs a state transition. []=clean."""
+    reasons = []
+    if os.path.exists(marker_path):
+        held = ""
+        try:
+            with open(marker_path) as fh:
+                held = "".join(ch for ch in fh.read() if ch.isdigit())
+        except OSError:
+            pass
+        # A marker naming ANOTHER session is that session's business, not ours.
+        if held == str(sid):
+            reasons.append("active-marker still names %s" % sid)
+    stamped = None
+    try:
+        with open(tombstone_path) as fh:
+            stamped = "".join(ch for ch in fh.read() if ch.isdigit())
+    except (OSError, FileNotFoundError):
+        stamped = None
+    if stamped != str(sid):
+        reasons.append("tombstone=%s, expected %s" % (stamped or "(none)", sid))
+    return reasons
+
+
+def do_sweep(db_path, marker_path=ACTIVE_MARKER, tombstone_path=CLOSED_TOMBSTONE,
+             published_dir=PUBLISHED_DIR, clear_pin=True, state_dir=None,
+             program_path=None, closed_dir=None):
+    """Cron entry point. Always returns 0 -- a sweep may never fail an rx run.
+
+    stdout is ONE status line (never a card; a cron has no reader for one):
+      SWEEP_NONE                       no weight sessions
+      SWEEP_SKIP <sid> needs-closeout  --check would say NEEDS_CLOSEOUT: nag,
+                                       do not touch (the owner's call)
+      SWEEP_CLEAN <sid>                properly closed AND state already swept
+      SWEPT <sid> rc=<n> <reasons>     state was dirty; full close-out ran
+    """
+    conn = sqlite3.connect(db_path)
+    try:
+        cand = _latest_weight_candidate(conn)
+        if cand is None:
+            print("SWEEP_NONE")
+            return 0
+        sid, date, stype, has_sets = cand
+        row = measure_row(conn, sid)
+        measured = True
+        if row is not None:
+            measured = (not _missing_measures(row)
+                        or is_unmeasured_declared(row[4]))
+        if not ((stype is not None) and has_sets and measured):
+            # Exactly the --check exit-3 population. Owner-gated, never swept.
+            print("SWEEP_SKIP %s needs-closeout" % sid)
+            return 0
+        code_row = conn.execute("SELECT code FROM session_type WHERE id = ?",
+                                (stype,)).fetchone()
+        code = code_row[0] if code_row and code_row[0] else None
+        if not code:
+            print("SWEEP_SKIP %s no-session-type-code" % sid)
+            return 0
+        reasons = _sweep_dirty_reasons(sid, marker_path, tombstone_path)
+        if not reasons:
+            print("SWEEP_CLEAN %s" % sid)
+            return 0
+    finally:
+        conn.close()
+
+    # do_close opens its own connection; ours is closed above on purpose so the
+    # sweep never holds a second handle on the owner's DB while it writes.
+    _op("SWEEP session %s (%s) dirty: %s" % (sid, date, "; ".join(reasons)))
+    rc = do_close(db_path, sid, code, post_gate=False,
+                  marker_path=marker_path, tombstone_path=tombstone_path,
+                  published_dir=published_dir, clear_pin=clear_pin,
+                  unmeasured=False, make_card=False, resolve_exercises=True,
+                  program_path=program_path, closed_dir=closed_dir,
+                  state_dir=state_dir)
+    print("SWEPT %s rc=%s %s" % (sid, rc, "; ".join(reasons)))
+    return 0
+
+
+# ---------------------------------------------------------------------------
+# SHARED CANONICAL TAG WRITE (DGN session-lifecycle-determinism)
+# ---------------------------------------------------------------------------
+# This is the ONE canonical write path for workouts.session_type_id. Both the
+# close-out (death) and session-open (birth) primitives route their tag through
+# here so there is a single encapsulated SQL write (kit_life.py / kit_life.sh are
+# framework code and must NOT be hand-patched -- the tag is a direct idempotent
+# UPDATE encapsulated on the domain side). session-open imports this function.
+#
+# Returns (rc, result) where rc is 0 on success (1 on a hard error) and result
+# is one of: "noop_same" (already this tag), "tagged" (NULL/other -> target),
+# "skip_birth_clobber" (birth_only and row already carries a DIFFERENT tag --
+# never overwrite an existing tag at birth), "err_no_session", "err_unknown_code".
+def tag_session_type(conn, session_id, session_type_code, birth_only=False,
+                     stream=None):
+    """Write workouts.session_type_id for session_id -> the id of
+    session_type_code. Idempotent. When birth_only is True, an already-tagged
+    row (session_type_id NOT NULL) is left untouched (birth must never clobber a
+    closeout/manual tag). Prints a human status line; returns (rc, result_key).
+    Uses the caller's open connection (no commit contention with the caller).
+
+    `stream` is where the status line goes; None = stdout, which keeps
+    session-open (the other caller of this shared write) byte-identical.
+    do_close passes stderr, because since 2026-08-25 its stdout is the CARD and
+    an operator line in the middle of a rendered artifact is a defect."""
+    out = sys.stdout if stream is None else stream
+    wrow = conn.execute(
+        "SELECT id, date, session_type_id FROM workouts WHERE id = ?",
+        (session_id,),
+    ).fetchone()
+    if wrow is None:
+        print("ERROR: no workouts row with id=%s" % session_id, file=sys.stderr)
+        return 1, "err_no_session"
+
+    strow = conn.execute(
+        "SELECT id FROM session_type WHERE code = ? ORDER BY id DESC LIMIT 1",
+        (session_type_code,),
+    ).fetchone()
+    if strow is None:
+        print(
+            "ERROR: unknown session_type code %r (valid: %s)"
+            % (
+                session_type_code,
+                ", ".join(
+                    r[0]
+                    for r in conn.execute(
+                        "SELECT code FROM session_type ORDER BY id"
+                    )
+                ),
+            ),
+            file=sys.stderr,
+        )
+        return 1, "err_unknown_code"
+    target_type_id = strow[0]
+
+    current_type_id = wrow[2]
+    if current_type_id == target_type_id:
+        print(
+            "OK session %s already tagged %s (id=%s) -- no-op"
+            % (session_id, session_type_code, target_type_id), file=out
+        )
+        return 0, "noop_same"
+
+    if birth_only and current_type_id is not None:
+        # Birth tag never overwrites an existing tag (a prior closeout, a manual
+        # correction, or a previous session-open run own the tag). No-op.
+        print(
+            "OK session %s already tagged (id=%s) -- birth skip, no clobber"
+            % (session_id, current_type_id), file=out
+        )
+        return 0, "skip_birth_clobber"
+
+    conn.execute(
+        "UPDATE workouts SET session_type_id = ? WHERE id = ?",
+        (target_type_id, session_id),
+    )
+    conn.commit()
+    prev = "NULL" if current_type_id is None else str(current_type_id)
+    print(
+        "OK session %s tagged %s (session_type_id %s -> %s)"
+        % (session_id, session_type_code, prev, target_type_id), file=out
+    )
+    return 0, "tagged"
+
+
+# ---------------------------------------------------------------------------
+# D4 -- THE ZERO-MINUTE GATE.
+#
+# WHAT BROKE. Session 10092 was closed at 08:17:21 and this helper printed
+# "OK session 10092 already tagged 뒷A -- no-op / 32 workout_sets rows /
+# PIN_CARD cleared=yes". At that instant the workouts row read minutes=0.0,
+# kcal=0.0, avg_hr=NULL. A 118-minute session was booked as zero and the
+# close-out called it fine. It was only rescued because the owner volunteered an
+# Apple Watch screenshot three minutes later.
+#
+# A tag is not a close-out. A session with no duration and no energy is not
+# finished being recorded, and every downstream number (agg-day, agg-week, the
+# weekly review, rx-calc's fatigue model) silently consumed the zeros.
+#
+# THE POLICY -- refuse, or say "unmeasured" out loud. There is no third state:
+#   * minutes/kcal present  -> close normally.
+#   * either missing        -> REFUSE (exit 4), write NOTHING, and print the
+#                              exact workout-upd command that fixes it.
+#   * genuinely unmeasured  -> `--unmeasured` stamps the row's note with
+#     (watch dead, phone left    UNMEASURED_STAMP and closes. The session is then
+#      at home, ...)             closed AND honestly labelled; a reader can tell
+#                                "we did not measure" from "it was zero".
+#
+# REFUSE-BEFORE-WRITE is the load-bearing ordering. The gate runs before the tag
+# write, before the F1 tombstone and before the marker clear, so a refused
+# close-out leaves the session EXACTLY as it was -- still open, still
+# fast-pathable, nothing half-closed. A refusal that had already stamped the
+# tombstone would be worse than the bug it replaces.
+#
+# WHY THE REFUSAL PRINTS A COMMAND (the second half of D4). The owner's rescue
+# path was itself broken: `workout-add` for an existing (date, category) exits 3
+# EXISTS, and the verb that actually edits an existing row -- `workout-upd` -- is
+# missing from kit_life.sh's usage banner, so it had to be hunted for in the
+# source mid-session. kit_life.py is framework code this lane must not patch, so
+# the discoverability is fixed HERE, at the exact moment the operator needs it:
+# the refusal names the verb, the field syntax and a ready-to-paste line.
+# ---------------------------------------------------------------------------
+UNMEASURED_STAMP = "[unmeasured]"
+LIFEKIT_SH = os.path.join(SCRIPT_DIR, "..", "..", "database", "kit_life.sh")
+
+
+def measure_row(conn, session_id):
+    """(date, minutes, kcal, avg_hr, note) for a session, or None."""
+    row = conn.execute(
+        "SELECT date, minutes, kcal, avg_hr, note FROM workouts WHERE id = ?",
+        (session_id,)).fetchone()
+    if row is None:
+        return None
+    return row
+
+
+def _missing_measures(row):
+    """Which of the two REQUIRED measures are absent. avg_hr is deliberately
+    NOT required: a heart-rate average is a nice-to-have that many sessions
+    legitimately lack, while duration and energy are what every aggregate reads."""
+    _date, minutes, kcal, _hr, _note = row
+    missing = []
+    if minutes is None or float(minutes) <= 0:
+        missing.append("minutes")
+    if kcal is None or float(kcal) <= 0:
+        missing.append("kcal")
+    return missing
+
+
+def is_unmeasured_declared(note):
+    """True when the row already carries the explicit unmeasured declaration."""
+    return UNMEASURED_STAMP in (note or "")
+
+
+WATCH_ONBOARDED = "onboarded"
+WATCH_CONSENT_ONLY = "consent_only"
+WATCH_NONE = "none"
+WATCH_SAY = {
+    WATCH_ONBOARDED: "the watch is onboarded: its workout overlapping this "
+                     "session fills minutes / kcal / avg HR; ask only what is "
+                     "still missing",
+    WATCH_CONSENT_ONLY: "NOT onboarded: a consent row with nothing ever "
+                        "ingested (e.g. placed by hand) is not onboarding -- "
+                        "asking the owner by hand is correct",
+    WATCH_NONE: "no watch link: asking the owner by hand is correct",
+}
+
+
+def watch_state(conn):
+    """(state, ingested workout count). Onboarded = an active healthkit
+    workout consent AND at least one workout the pipe actually delivered."""
+    try:
+        c = conn.execute(
+            "SELECT revoked_at FROM ingest_consent WHERE source='healthkit' "
+            "AND kind='workout'").fetchone()
+        if not c or c[0] is not None:
+            return WATCH_NONE, 0
+        n = conn.execute(
+            "SELECT COUNT(*) FROM ingest_ref WHERE source='healthkit' AND "
+            "kind='workout'").fetchone()[0]
+    except sqlite3.Error:
+        return WATCH_NONE, 0
+    return (WATCH_ONBOARDED if n else WATCH_CONSENT_ONLY), int(n)
+
+
+def watch_attached(conn, session_id):
+    """True when an ingested watch workout was attached to this session's
+    row (hk-ingest: strength attaches to the same-day set-logged session)."""
+    try:
+        return conn.execute(
+            "SELECT 1 FROM ingest_ref WHERE source='healthkit' AND "
+            "kind='workout' AND target_table='workouts' AND target_id=? "
+            "LIMIT 1", (str(session_id),)).fetchone() is not None
+    except sqlite3.Error:
+        return False
+
+
+def pull_watch(state_dir=None):
+    """One hk-ingest pass (best-effort, bounded) so a watch workout that
+    has not attached yet gets its chance before the owner is asked."""
+    exe = os.environ.get("WARG_HK_INGEST") or os.path.join(SCRIPT_DIR,
+                                                            "hk-ingest")
+    if not os.access(exe, os.X_OK):
+        return False
+    try:
+        r = subprocess.run([exe, "pass"], capture_output=True, text=True,
+                           timeout=90)
+        _op("WATCH_PULL rc=%s" % r.returncode)
+        return r.returncode == 0
+    except (OSError, subprocess.SubprocessError) as exc:
+        _op("WARN watch pull: %s" % exc)
+        return False
+
+
+def unmeasured_refusal_text(session_id, row, missing, code="<session_type_code>",
+                            computed_minutes=None):
+    """The refusal an operator can act on without leaving the terminal.
+
+    0.36.0 item 4: `computed_minutes` (session_clock: open -> last record)
+    means the duration is KNOWN -- the owner is asked for the watch kcal only
+    (ASK_WATCH_KCAL), never for the minutes."""
+    head = unmeasured_refusal_core(session_id, row, missing, code)
+    if computed_minutes:
+        ask = _t("health.close.ask_watch_kcal", minutes=computed_minutes)
+        extra = [
+            "  minutes=%d is COMPUTED from the session's timestamps (open ->"
+            % computed_minutes,
+            "  close request) and is written with the close-out -- never ask "
+            "it, never patch it after the card (workout-upd).",
+            "ASK_WATCH_KCAL: %s" % ask,
+            "  FIX (the owner's watch kcal; recorded on the session row only,",
+            "  never used to set a food target):",
+            "    %s %s %s --watch-kcal <kcal>"
+            % (os.path.join(SCRIPT_DIR, "session-closeout"), session_id,
+               code),
+        ]
+    else:
+        extra = ["ASK_WATCH_KCAL: %s" % _t("health.close.ask_watch_kcal_nomin")]
+    return head + "\n" + "\n".join(extra)
+
+
+def _t(key, **kw):
+    """Owner copy from the i18n bundle (code stays ASCII)."""
+    try:
+        import ui_labels
+        return ui_labels.i18n(key, **kw)
+    except Exception:  # noqa: BLE001
+        return ""
+
+
+WATCH_KCAL_STAMP = "watch-kcal:record-only"
+
+
+def unmeasured_refusal_core(session_id, row, missing,
+                            code="<session_type_code>"):
+    date, minutes, kcal, _hr, _note = row
+    lk = os.path.normpath(LIFEKIT_SH)
+    have = "minutes=%s kcal=%s" % (
+        "0" if minutes is None else _fmt_num(minutes),
+        "0" if kcal is None else _fmt_num(kcal))
+    fields = " ".join("%s=<value>" % m for m in missing)
+    return "\n".join([
+        "CLOSEOUT_REFUSED unmeasured %s %s (missing: %s)"
+        % (session_id, date, ", ".join(missing)),
+        "  A session with no %s is not closed -- it would book a real session"
+        % " and no ".join(missing),
+        "  as zero into every aggregate. Nothing was written; the session is",
+        "  still open.",
+        "",
+        "  FIX (supply the measurement, then re-run this close-out):",
+        "    %s workout-upd %s %s" % (lk, session_id, fields),
+        "    # e.g.  %s workout-upd %s minutes=118 kcal=512 avg_hr=90"
+        % (lk, session_id),
+        "    # `workout-upd <id> field=value ...` is the verb that EDITS an",
+        "    # existing row. field: date minutes kcal note avg_hr.",
+        "    # `workout-add` will NOT work here -- an existing (date, category)",
+        "    # row makes it exit 3 EXISTS. workout-upd is absent from the",
+        "    # kit_life.sh usage banner; this line is the discoverable copy.",
+        "",
+        "  OR, if it genuinely was not measured, say so on the record:",
+        "    %s %s %s --unmeasured"
+        % (os.path.join(SCRIPT_DIR, "session-closeout"), session_id, code),
+        "    # stamps the note with %s and closes. Never silent, never zero-"
+        % UNMEASURED_STAMP,
+        "    # by-accident.",
+        "  (currently on the row: %s)" % have,
+    ])
+
+
+def write_measures(conn, session_id, row, computed_minutes, watch_kcal):
+    """0.36.0 item 4: write the timestamp-computed minutes (only where the
+    row had none) and the owner's watch kcal (stamped WATCH_KCAL_STAMP: a
+    recorded number, never a food-target input). Returns the new row."""
+    date, minutes, kcal, hr, note = row
+    if computed_minutes and (minutes is None or float(minutes) <= 0):
+        minutes = int(computed_minutes)
+        conn.execute("UPDATE workouts SET minutes = ? WHERE id = ?",
+                     (minutes, session_id))
+        _op("MINUTES session %s = %d (computed: open -> close)"
+            % (session_id, minutes))
+    if watch_kcal is not None and watch_kcal > 0:
+        kcal = float(watch_kcal)
+        if WATCH_KCAL_STAMP not in (note or ""):
+            note = ("%s %s" % ((note or "").strip(), WATCH_KCAL_STAMP)).strip()
+        conn.execute("UPDATE workouts SET kcal = ?, note = ? WHERE id = ?",
+                     (kcal, note, session_id))
+        _op("KCAL session %s = %s (watch, record-only)"
+            % (session_id, _fmt_num(kcal)))
+    conn.commit()
+    return (date, minutes, kcal, hr, note)
+
+
+def _post_blocks():
+    if SCRIPT_DIR not in sys.path:
+        sys.path.insert(0, SCRIPT_DIR)
+    import post_blocks
+    return post_blocks
+
+
+def post_refusal_text(session_id, code, post_state, open_keys):
+    """CLOSEOUT_REFUSED post_blocks: nothing was written; the next block's
+    argv and the explicit-skip argv for each open block."""
+    pb = _post_blocks()
+    names = ", ".join(
+        (pb.block(post_state, k) or {}).get("name") or k for k in open_keys)
+    sp = os.path.join(SCRIPT_DIR, "session-post")
+    lines = ["CLOSEOUT_REFUSED post_blocks %s open=%s"
+             % (session_id, ",".join(open_keys)),
+             "CLOSE_SAY: %s" % _t("health.close.refused_post", names=names),
+             "  Nothing was written; the session is still open.",
+             "POST_NEXT_CMD %s next %s --code %s" % (sp, session_id, code)]
+    for k in open_keys:
+        lines.append("POST_SKIP_CMD %s skip %s %s --code %s"
+                     % (sp, session_id, k, code))
+    return "\n".join(lines)
+
+
+def post_card_by_code(session_id, card, state_dir):
+    """Post the completion card BY CODE (0.36.0 item 3) through the in-place
+    ledger (key closeout-card:<sid>), fenced as the lineup card is. Returns
+    the operator line; a miss means the reply relays the stdout card."""
+    push = os.environ.get("WARG_PUSH") or os.path.join(
+        SCRIPT_DIR, "..", "..", "routines", "push.sh")
+    try:
+        import inplace_delivery
+        body = "```\n%s\n```" % card.strip()
+        ok, detail, mid = inplace_delivery.deliver(
+            "closeout-card:%s" % session_id, body, push, state_dir,
+            timeout=25)
+    except Exception as exc:  # noqa: BLE001 -- the stdout card stands
+        ok, detail, mid = False, "error:%s" % type(exc).__name__, None
+    if ok:
+        return ("CARD_POSTED by=code key=closeout-card:%s detail=%s mid=%s -- "
+                "the card is on the owner's screen: do NOT re-post it"
+                % (session_id, detail, mid))
+    return ("CARD_POSTED by=none reason=%s -- relay the card above verbatim"
+            % detail)
+
+
+def stamp_unmeasured(conn, session_id, note):
+    """Append the unmeasured declaration to the row's note (idempotent).
+
+    Direct encapsulated UPDATE for the same reason tag_session_type is one:
+    kit_life.py is framework code and must not be hand-patched, so the domain
+    side owns its own write. Returns the new note."""
+    if is_unmeasured_declared(note):
+        return note
+    base = (note or "").strip()
+    new = ("%s %s" % (base, UNMEASURED_STAMP)).strip()
+    conn.execute("UPDATE workouts SET note = ? WHERE id = ?", (new, session_id))
+    conn.commit()
+    return new
+
+
+# ---------------------------------------------------------------------------
+# D5 -- THE CLOSE-OUT CARD (block contract).
+#
+# What close-out used to emit was three lines of operator log. Nothing
+# renderable, so the owner's session summary was model-authored bullets -- prose
+# standing in for an artifact, which is the same class of defect as a missing
+# table.
+#
+# The shape here is deliberately the SAME shape as the sibling
+# `session_harness` (dogany-agentpack-health-trainer .../session_harness/
+# blocks.py + events.py): an ordered list of blocks, slot-ranked
+# TABLE(1) -> CUE(2) -> KEYBOARD(3) -> PROSE(4), each with a delivery target,
+# published through a function that ORDERS them and REFUSES a publication whose
+# required TABLE is missing or empty (harness rule R-TABLE-REQUIRED). The
+# harness contracts for the two events this file emits are:
+#   SessionClose  required={TABLE}, table_required=True, targets NEW_BUBBLE|PIN_EDIT
+#   ExerciseExit  required={TABLE}, table_required=True, targets NEW_BUBBLE|PIN_EDIT
+# so when the harness lands, `_publish(...)` becomes
+# `events.emit(Event.SessionClose, [Block(...)], ledger)` and the payload
+# builders below are unchanged. A re-wire, not a rewrite.
+#
+# Slot integers, target tokens and the refusal semantics are copied ON PURPOSE
+# rather than imported: that package is a different repo on a different lane
+# (the pack must not edit it, and this live workspace must not take a runtime
+# dependency on an unlanded pack). Keep the integers in sync.
+# ---------------------------------------------------------------------------
+SLOT_TABLE, SLOT_CUE, SLOT_KEYBOARD, SLOT_PROSE = 1, 2, 3, 4
+TARGET_PIN_EDIT, TARGET_NEW_BUBBLE = "pin_edit", "new_bubble"
+
+
+class CardPublishError(Exception):
+    """A card that may not be published. Mirrors harness blocks.PublishError;
+    R-TABLE-REQUIRED is the only rule this file can currently violate."""
+
+
+def block(slot, target, payload):
+    return {"slot": slot, "target": target, "payload": payload}
+
+
+def publish_card(blocks, require_table=True):
+    """Order the blocks and refuse a card that has no table.
+
+    The refusal is the point: an exercise or a session close-out whose table
+    could not be built must FAIL, so the caller cannot quietly fall back to
+    sentences. Prose never substitutes for the artifact (harness defect #8)."""
+    blocks = list(blocks)
+    if require_table:
+        tables = [b for b in blocks if b["slot"] == SLOT_TABLE]
+        if not tables or not any((b["payload"] or "").strip() for b in tables):
+            raise CardPublishError(
+                "R-TABLE-REQUIRED: this card requires a non-empty TABLE block "
+                "and none was built; refusing to publish prose in its place")
+    return sorted(blocks, key=lambda b: b["slot"])
+
+
+def render_card(blocks):
+    """Blocks -> the text the bridge sends. Ordering is publish_card's."""
+    return "\n\n".join((b["payload"] or "").strip()
+                       for b in blocks if (b["payload"] or "").strip())
+
+
+def _fmt_num(v):
+    """Numbers the owner reads: 118.33 -> 118, 512.0 -> 512, 28.75 -> 28.75."""
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return str(v)
+    if abs(f - round(f)) < 0.005:
+        return str(int(round(f)))
+    return ("%.2f" % f).rstrip("0").rstrip(".")
+
+
+# ---------------------------------------------------------------------------
+# D6 -- EXERCISE EXIT RESOLUTION.
+#
+# WHAT BROKE. leg_curl ended at 3 of 4 sets when the user typed an
+# abandon-and-move-on message. Nothing resolved set 4: the table kept rendering
+# `|  4  |  40.0kg |  15  | 0-1 | [ ] |` -- an UNRESOLVED row, indistinguishable
+# from a set still to come -- and the model substituted a sentence for the
+# missing close-out. Seven exercise boundaries in that session produced zero
+# closing cards.
+#
+# `[ ]` means "planned, not yet done". After an exercise is over that state is a
+# lie: the set is not pending, it was abandoned. The resolution introduces the
+# missing third state:
+#     [v] done      [-] not done, exercise closed      [ ] still to come
+# and after resolve_exercise() an exercise has NO `[ ]` rows left, by
+# construction -- the resolution rewrites every one of them.
+#
+# WHERE THE STATE LIVES. workouts/workout_sets have no per-exercise status
+# column and this lane does not migrate schema for a display state (ladder
+# rule), so the resolution is a marker: .exercise-closed/<sid>.<exercise>.json,
+# the same convention as .exercise-entered which marks the other end of the same
+# lifecycle. The marker records the stop point, the planned count and the
+# reason, so the card is reproducible after the fact.
+#
+# THE TABLE ITSELF is not re-implemented here -- set-table is the single
+# renderer and stays that way (a second table builder is a second ledger). This
+# resolves set-table's OUTPUT. The durable fix is four lines inside set-table's
+# planned-row loop, which is another lane's file; the diff is in the handoff.
+# ---------------------------------------------------------------------------
+SET_TABLE = os.path.join(SCRIPT_DIR, "set-table")
+UNDONE_CELL = "[ ]"
+ABANDONED_CELL = "[·]"
+
+
+def _safe_token(name):
+    return re.sub(r"[^A-Za-z0-9_.-]", "_", str(name or ""))
+
+
+def exercise_closed_path(session_id, exercise_name, closed_dir=None):
+    d = closed_dir or EXERCISE_CLOSED_DIR
+    return os.path.join(d, "%s.%s.json"
+                        % (session_id, _safe_token(exercise_name)))
+
+
+def read_exercise_closed(session_id, exercise_name, closed_dir=None):
+    try:
+        with open(exercise_closed_path(session_id, exercise_name,
+                                       closed_dir)) as fh:
+            obj = json.loads(fh.read())
+        return obj if isinstance(obj, dict) else None
+    except (OSError, ValueError):
+        return None
+
+
+def write_exercise_closed(session_id, exercise_name, record, closed_dir=None):
+    """Atomically persist the exit resolution. Best-effort: a marker that will
+    not write costs reproducibility, never the close-out."""
+    path = exercise_closed_path(session_id, exercise_name, closed_dir)
+    tmp = "%s.tmp.%d" % (path, os.getpid())
+    try:
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(tmp, "w") as fh:
+            fh.write(json.dumps(record, ensure_ascii=False))
+            fh.flush()
+            os.fsync(fh.fileno())
+        os.replace(tmp, path)
+        return True
+    except OSError:
+        try:
+            os.remove(tmp)
+        except OSError:
+            pass
+        return False
+
+
+def render_set_table(session_id, exercise_name, db_path, program_path=None):
+    """set-table's stdout for one exercise, or None. Read path only."""
+    # `--surface owner`: this render becomes the close-out card the owner
+    # reads. _card_body below already stops at the closing fence, so the tail
+    # was never pasted into the card -- declaring the surface makes that a
+    # property of the CALL rather than of one downstream helper that happens to
+    # trim, which is what the two rails above lacked when they started leaking.
+    cmd = [sys.executable, SET_TABLE, str(session_id), str(exercise_name),
+           "--db", db_path, "--surface", "owner"]
+    if program_path:
+        cmd += ["--program", program_path]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+    except Exception:  # noqa: BLE001 -- a render miss degrades, never crashes
+        return None
+    if proc.returncode != 0:
+        return None
+    return _card_body(proc.stdout) or None
+
+
+def _card_body(stdout):
+    """Keep only the RENDERABLE part of a set-table run.
+
+    set-table's stdout is the fenced table FOLLOWED BY operator telemetry
+    (`RAMP_DECISION exercise=... reason=machine_ladder ...`). That tail is a
+    diagnostic for whoever is reading a terminal, not something to paste into a
+    card the owner sees -- so the card takes the fenced block and stops at the
+    closing fence. Output with no fence is passed through whole (a degraded
+    render is still better than nothing, and there is nothing to trim)."""
+    text = (stdout or "").strip()
+    if not text.startswith("```"):
+        return text
+    lines = text.splitlines()
+    for i in range(1, len(lines)):
+        if lines[i].strip().startswith("```"):
+            return "\n".join(lines[:i + 1])
+    return text
+
+
+def resolve_table_text(text):
+    """Rewrite every unresolved grid cell to the abandoned marker.
+
+    Only GRID rows are touched (a set-table grid row starts with '|'), so the
+    header, the trend sparklines and the footer are untouched. Returns
+    (resolved_text, rows_rewritten)."""
+    lines, n = [], 0
+    for line in (text or "").splitlines():
+        if line.startswith("|") and UNDONE_CELL in line:
+            line = line.replace(UNDONE_CELL, ABANDONED_CELL)
+            n += 1
+        lines.append(line)
+    return "\n".join(lines), n
+
+
+_VOL_RE = re.compile(r"누적\s*([0-9.,]+)kg\s*·\s*(\d+)/(\d+)세트")
+
+
+def parse_table_meta(text):
+    """(display, volume_kg, done, planned) from a set-table render.
+
+    The counts and the volume are READ from set-table's own summary line rather than
+    recomputed from the DB, deliberately: two places deriving "how many sets did
+    this exercise get" is how the card and the table start disagreeing. One
+    ledger, one renderer.
+
+    Because of that, the ASSIST inversion fix needs no change here: set-table's
+    header already emits the corrected (bodyweight - counterweight) x reps
+    number for an assisted exercise, and this parse inherits it. NOTE the one
+    place it does NOT reach -- `volume_kg` is then CACHED into
+    .exercise-closed/<sid>.<exercise>.json, and records written BEFORE the fix
+    still hold the old figure. That cache is a one-shot close-time summary (it
+    is not re-read into any later trend), so it is a declared stale artifact,
+    not a live wrong number."""
+    display, volume, done, planned = None, None, None, None
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if display is None and line and not line.startswith(("`", "═")):
+            display = line
+        m = _VOL_RE.search(line)
+        if m:
+            volume = float(m.group(1).replace(",", ""))
+            done, planned = int(m.group(2)), int(m.group(3))
+    return display, volume, done, planned
+
+
+def resolve_exercise(db_path, session_id, exercise_name, reason="",
+                     program_path=None, closed_dir=None, now=None):
+    """Close ONE exercise: resolve its table and record the resolution.
+
+    Returns (record, table_text). Raises CardPublishError only through the
+    caller's publish step -- here a failed render yields table_text None and the
+    caller decides."""
+    text = render_set_table(session_id, exercise_name, db_path, program_path)
+    resolved, rewritten = resolve_table_text(text) if text else (None, 0)
+    display, volume, done, planned = parse_table_meta(text)
+    record = {
+        "session_id": int(session_id),
+        "exercise_name": str(exercise_name),
+        "display": display,
+        "done_sets": done,
+        "planned_sets": planned,
+        "volume_kg": volume,
+        "rows_resolved": rewritten,
+        "early_stop": bool(planned is not None and done is not None
+                           and done < planned),
+        "reason": str(reason or ""),
+        "closed_at": time.strftime("%Y-%m-%d %H:%M:%S",
+                                   time.localtime(now or time.time())),
+    }
+    write_exercise_closed(session_id, exercise_name, record, closed_dir)
+    return record, resolved
+
+
+def exercise_exit_card(record, table_text):
+    """The ExerciseExit close-out card, as ordered blocks.
+
+    Harness contract: required={TABLE}, table_required=True, and the block is a
+    NEW_BUBBLE because ExerciseExit is one of the three sanctioned bubble points
+    (SPEC A5 (c) 종목 마감)."""
+    done, planned = record.get("done_sets"), record.get("planned_sets")
+    name = record.get("display") or exercise_ko(record.get("exercise_name"))
+    head = "🏁 %s 마감" % name
+    if done is not None and planned is not None:
+        head += "  ·  %d/%d 세트" % (done, planned)
+    body = "\n".join([head, (table_text or "").strip()])
+    blocks = [block(SLOT_TABLE, TARGET_NEW_BUBBLE, body)]
+
+    if record.get("early_stop"):
+        left = (planned or 0) - (done or 0)
+        cue = ("조기 종료: 남은 %d세트는 미실시로 마감했습니다. "
+               "다음 세션 플랜에 이 결과가 반영됩니다." % left)
+    else:
+        cue = "계획한 세트를 모두 마쳤습니다."
+    blocks.append(block(SLOT_CUE, TARGET_NEW_BUBBLE, cue))
+
+    prose = []
+    if record.get("reason"):
+        prose.append("사유: %s" % record["reason"])
+    if record.get("rows_resolved"):
+        prose.append("표기: [v] 완료 · [·] 미실시 · [ ] 예정")
+    if prose:
+        blocks.append(block(SLOT_PROSE, TARGET_NEW_BUBBLE, "\n".join(prose)))
+    return publish_card(blocks, require_table=True)
+
+
+def session_exercises(conn, session_id):
+    """[(slot_num, exercise_name)] for the session, in slot order."""
+    if not _has_workout_sets_table(conn):
+        return []
+    rows = conn.execute(
+        "SELECT exercise_name, MIN(slot_num) FROM workout_sets "
+        "WHERE session_id = ? GROUP BY exercise_name ORDER BY MIN(slot_num), "
+        "MIN(id)", (session_id,)).fetchall()
+    return [(int(slot or 0), str(name)) for name, slot in rows]
+
+
+def resolve_open_exercises(db_path, conn, session_id, reason,
+                           program_path=None, closed_dir=None):
+    """Close every exercise of the session that is not closed yet.
+
+    This is what guarantees the D6 invariant at SESSION scope: an exercise the
+    owner walked away from mid-set (leg_curl 3/4) and never formally exited is
+    resolved here, so a closed session leaves NO `[ ]` row anywhere. Already
+    resolved exercises are left exactly as they were -- their recorded reason
+    ("털렸어") is better evidence than "session_close"."""
+    records = []
+    for _slot, name in session_exercises(conn, session_id):
+        prior = read_exercise_closed(session_id, name, closed_dir)
+        if prior is not None:
+            records.append(prior)
+            continue
+        rec, _text = resolve_exercise(db_path, session_id, name, reason,
+                                      program_path, closed_dir)
+        records.append(rec)
+    return records
+
+
+def planned_exercises(program_path, code):
+    """Read the accepted program so unstarted lifts appear at close-out."""
+    if not program_path or not code:
+        return []
+    try:
+        path = os.path.join(SCRIPT_DIR, 'rx-calc')
+        loader = importlib.machinery.SourceFileLoader('closeout_rx', path)
+        spec = importlib.util.spec_from_loader('closeout_rx', loader)
+        rx = importlib.util.module_from_spec(spec)
+        loader.exec_module(rx)
+        return (rx.load_yaml(program_path).get('days', {}).get(code, {})
+                .get('exercises') or [])
+    except (OSError, ValueError, KeyError, ImportError):
+        return []
+
+
+def include_unstarted(records, program_path, code):
+    by_name = {r['exercise_name']: r for r in records}
+    ordered = []
+    for ex in planned_exercises(program_path, code):
+        name = ex.get('name')
+        if not name:
+            continue
+        if name in by_name:
+            rec = by_name.pop(name)
+            rec['display'] = ex.get('display') or rec.get('display') or name
+        else:
+            rec = {'exercise_name': name, 'display': ex.get('display') or name,
+                   'done_sets': 0, 'planned_sets': ex.get('sets') or 0,
+                   'volume_kg': 0, 'early_stop': True}
+        ordered.append(rec)
+    return ordered + list(by_name.values())
+
+
+# ---------------------------------------------------------------------------
+# THE CLOSEOUT CARD (owner 2026-10-02) -- the lineup card's shape, not a grid.
+#
+#     🏁 뒷A 종료 · 75분 · 420kcal
+#
+#     [v] 데드리프트 · 둔근
+#         120kg · 4세트 · 2,400kg
+#     [ ] 페이스 풀 · 어깨
+#
+#     [갱신]
+#      데드리프트 e1RM 138kg (+4)
+#
+#     [부위별 부하]
+#      등       4,885kg  ▁▃▅▆█▇ ↑
+#     회복 늦은 곳: 등 · 수요일 아침
+#
+# The +---+ grid it replaces put Korean names in an aligned column, which no
+# phone font keeps straight. Every row now has the lineup pin's grammar: a
+# name line (Korean only at line start) and an indented value line.
+#
+# NO SECOND IMPLEMENTATION. Rows, names, 주동근, weights, set counts, session
+# volume and the effective-volume block all come from exercise-enter's
+# gather_card_state / card_row_name / card_volume_lines -- the pin's builder.
+# [갱신] reads e1rm_rx.session_points, the e1RM engine the prescription uses.
+#
+# MARKERS: the one session set (card_lib). At close nothing is in progress:
+# a lift that reached its planned sets is [v], a lift ended short of them is
+# [-] (owner 2026-10-02 09:15; its value line says 2/4세트) and a lift never
+# started is [ ].
+# ---------------------------------------------------------------------------
+CLOSE_EMOJI = "🏁"
+CLOSE_IMPROVED_HEAD = "[갱신]"
+CLOSE_VOLUME_HEAD = "[부위별 부하]"
+_MODS = {}
+
+
+def _sibling(name, filename):
+    """A sibling script as a module (cached). None when it cannot load."""
+    if name in _MODS:
+        return _MODS[name]
+    mod = None
+    try:
+        loader = importlib.machinery.SourceFileLoader(
+            name, os.path.join(SCRIPT_DIR, filename))
+        spec = importlib.util.spec_from_loader(name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+    except Exception as exc:  # noqa: BLE001 -- the card degrades, never fails
+        _op("WARN closeout card: %s not loadable: %s" % (filename, exc))
+        mod = None
+    _MODS[name] = mod
+    return mod
+
+
+def _thousands(v):
+    return format(int(round(float(v or 0))), ",")
+
+
+def _close_title(code, row):
+    """`🏁 <split> 종료 · <분> · <kcal>`; a declared-unmeasured session says so."""
+    _d, minutes, kcal, _hr, note = row
+    parts = ["%s %s 종료" % (CLOSE_EMOJI, code)]
+    if minutes:
+        parts.append("%d분" % int(round(float(minutes))))
+    if kcal:
+        parts.append("%skcal" % _fmt_num(kcal))
+    if is_unmeasured_declared(note):
+        parts.append("측정없음")
+    return " · ".join(parts)
+
+
+def _close_slots(records):
+    """records (include_unstarted order) -> lineup slots for the card builder."""
+    return [{"name": r.get("exercise_name"),
+             "display": r.get("display") or exercise_ko(r.get("exercise_name")),
+             "sets": r.get("planned_sets") or 0}
+            for r in records if r.get("exercise_name")]
+
+
+def close_rows(slots, card_state, records=None):
+    """[(marker, name line, value line | '')] -- one per lift, session order."""
+    ee = _sibling("closeout_exercise_enter", "exercise-enter")
+    cl = _sibling("closeout_card_lib", "card_lib.py")
+    done_mark = getattr(cl, "MARK_DONE", "[v]")
+    pending_mark = getattr(cl, "MARK_PENDING", "[ ]")
+    # owner 2026-10-02 11:06: a lift ended short reads like in-progress
+    # ([>]) on the closeout card too -- one marker set [v] / [>] / [ ].
+    passed_mark = getattr(cl, "MARK_CURRENT", "[>]")
+    cs = card_state or {}
+    prog = cs.get("progress") or {}
+    prim = cs.get("primary_ko") or {}
+    by_name = {r.get("exercise_name"): r for r in (records or [])}
+    out = []
+    for idx, slot in enumerate(slots):
+        ex = slot.get("name")
+        rec = by_name.get(ex) or {}
+        p = prog.get(idx)
+        if p is None:                       # no card state: the record alone
+            p = {"done": rec.get("done_sets") or 0,
+                 "total": rec.get("planned_sets"),
+                 "weight": None, "volume": rec.get("volume_kg") or 0}
+        done = int(p.get("done") or 0)
+        planned = p.get("total") or slot.get("sets") or 0
+        name = (ee.card_row_name(slot.get("display") or ex, prim.get(ex))
+                if ee is not None else (slot.get("display") or ex))
+        if not done:
+            out.append((pending_mark, name, ""))
+            continue
+        finished = not planned or done >= planned
+        cells = []
+        if p.get("weight") is not None:
+            cells.append(weight_cell(p.get("weight_min"), p["weight"]))
+        cells.append("%d세트" % done if finished
+                     else "%d/%d세트" % (done, planned))
+        if p.get("volume"):
+            cells.append("%skg" % _thousands(p["volume"]))
+        out.append((done_mark if finished else passed_mark, name,
+                    " · ".join(cells)))
+    return out
+
+
+def weight_cell(lo, hi):
+    """`7.5kg`, or the RANGE `5-7.5kg` for a lift done at mixed weights
+    (0.36.0 item 3: the completion card never shows only the max)."""
+    try:
+        if lo is not None and float(lo) < float(hi) - 1e-9:
+            return "%s-%skg" % (_fmt_num(lo), _fmt_num(hi))
+    except (TypeError, ValueError):
+        pass
+    return "%skg" % _fmt_num(hi)
+
+
+def close_improvements(db_path, session_id, slots):
+    """[갱신] lines: lifts that beat their PREVIOUS session of that lift.
+
+    One line per lift, the first rule that holds (top set = heaviest, then
+    most reps -- e1rm_rx.session_points' own top-set rule):
+      heavier top set              -> `<name> 72.5kg × 6 (+2.5kg)`
+      same weight, more reps       -> `<name> 70kg × 8 (+1회)`
+      higher e1RM (rounded)        -> `<name> e1RM 138kg (+4)`
+    A lift with no previous session has nothing to beat. [] -> the section is
+    omitted."""
+    er = _sibling("closeout_e1rm_rx", "e1rm_rx.py")
+    ee = _sibling("closeout_exercise_enter", "exercise-enter")
+    if er is None or not db_path:
+        return []
+    out = []
+    for slot in slots:
+        ex = slot.get("name")
+        try:
+            pts = er.session_points(db_path, ex, keep_excluded=True)
+        except Exception:  # noqa: BLE001 -- no history -> no claim
+            continue
+        idx = next((i for i, pt in enumerate(pts)
+                    if pt["session_id"] == session_id), None)
+        if idx is None or idx + 1 >= len(pts):
+            continue
+        now, prev = pts[idx], pts[idx + 1]
+        name = (ee.card_base_name(slot.get("display") or ex)
+                if ee is not None else (slot.get("display") or ex))
+        if now["weight_kg"] > prev["weight_kg"]:
+            out.append(" %s %skg × %d (+%skg)" % (
+                name, _fmt_num(now["weight_kg"]), now["reps"],
+                _fmt_num(now["weight_kg"] - prev["weight_kg"])))
+        elif (now["weight_kg"] == prev["weight_kg"]
+              and now["reps"] > prev["reps"]):
+            out.append(" %s %skg × %d (+%d회)" % (
+                name, _fmt_num(now["weight_kg"]), now["reps"],
+                now["reps"] - prev["reps"]))
+        elif int(round(now["e1rm"])) > int(round(prev["e1rm"])):
+            out.append(" %s e1RM %dkg (+%d)" % (
+                name, int(round(now["e1rm"])),
+                int(round(now["e1rm"])) - int(round(prev["e1rm"]))))
+    return out
+
+
+def session_close_table(session_id, code, row, records, db_path=None,
+                        program_path=None, fatigue_line="", post_state=None):
+    """The SessionClose TABLE payload (the card text), in the lineup shape."""
+    slots = _close_slots(records)
+    cs = None
+    if db_path and slots:
+        ee = _sibling("closeout_exercise_enter", "exercise-enter")
+        if ee is not None:
+            try:
+                cs = ee.gather_card_state(db_path, program_path, session_id,
+                                          slots, rotation_day=code)
+            except Exception as exc:  # noqa: BLE001 -- degrade to records
+                _op("WARN closeout card state: %s" % exc)
+                cs = None
+    title_code = (cs or {}).get("session_code") or code
+    lines = [_close_title(title_code, row), ""]
+    for mark, name, value in close_rows(slots, cs, records):
+        lines.append("%s %s" % (mark, name))
+        if value:
+            lines.append("    " + value)
+    # 0.36.0 item 2: the post-lift blocks are rows of the same card, in
+    # program order, with the card's own [v] / [>] / [ ] markers.
+    if post_state:
+        cl = _sibling("closeout_card_lib", "card_lib.py")
+        marks = (getattr(cl, "MARK_DONE", "[v]"),
+                 getattr(cl, "MARK_CURRENT", "[>]"),
+                 getattr(cl, "MARK_PENDING", "[ ]"))
+        for mark, name, value in _post_blocks().card_rows(post_state, marks):
+            lines.append("%s %s" % (mark, name))
+            if value:
+                lines.append("    " + value)
+    improved = close_improvements(db_path, session_id, slots) if cs else []
+    if improved:
+        lines += ["", CLOSE_IMPROVED_HEAD] + improved
+    vol = (cs or {}).get("volume") or []
+    if vol:
+        ee = _sibling("closeout_exercise_enter", "exercise-enter")
+        vlines = ee.card_volume_lines(vol, caption=False) if ee else []
+        if vlines:
+            lines += ["", CLOSE_VOLUME_HEAD] + vlines
+    if fatigue_line:
+        if not vol:
+            lines.append("")
+        lines.append(fatigue_line)
+    return "\n".join(lines)
+
+
+def session_close_card(session_id, date, code, row, records, db_path=None,
+                       program_path=None, fatigue_line="", post_state=None):
+    """The SessionClose card, as ordered blocks (harness: required={TABLE},
+    table_required=True, NEW_BUBBLE -- the session's one closing artifact).
+
+    The card is the whole summary: done / ended-short / not-started lifts
+    are its [v] / [-] / [ ] rows, so the old "마친 종목: … 남은 종목: …" cue sentence (a prose copy of
+    the same rows) is gone. `date` stays in the signature for callers."""
+    table = session_close_table(session_id, code, row, records, db_path,
+                                program_path, fatigue_line, post_state)
+    blocks = [block(SLOT_TABLE, TARGET_NEW_BUBBLE, table)]
+    if is_unmeasured_declared(row[4]):
+        blocks.append(block(
+            SLOT_PROSE, TARGET_NEW_BUBBLE,
+            "이 세션은 시간/칼로리가 측정되지 않은 것으로 기록됐습니다 "
+            "(%s). 나중에 워치 값이 나오면 알려주세요." % UNMEASURED_STAMP))
+    return publish_card(blocks, require_table=True)
+
+
+def do_exercise_exit(db_path, session_id, exercise_name, reason="",
+                     program_path=None, closed_dir=None):
+    """D6 entry point: close one exercise and print its ExerciseExit card.
+
+    Exit 0 = card printed. 1 = the exercise has no rows in this session (a typo
+    is a refusal, not a card). 5 = the card was refused because its table could
+    not be built -- explicitly NOT a degrade into prose."""
+    conn = sqlite3.connect(db_path)
+    try:
+        names = [n for _s, n in session_exercises(conn, session_id)]
+    finally:
+        conn.close()
+    if exercise_name not in names:
+        print("ERROR: session %s has no sets for exercise %r (has: %s)"
+              % (session_id, exercise_name, ", ".join(names) or "none"),
+              file=sys.stderr)
+        return 1
+    record, table = resolve_exercise(db_path, session_id, exercise_name,
+                                     reason, program_path, closed_dir)
+    _op("EXERCISE_EXIT %s %s done=%s planned=%s rows_marked_abandoned=%s"
+        % (session_id, exercise_name, record.get("done_sets"),
+           record.get("planned_sets"), record.get("rows_resolved")))
+    try:
+        print(render_card(exercise_exit_card(record, table)))
+    except CardPublishError as exc:
+        _op("ERROR exercise-exit card refused: %s" % exc)
+        return 5
+    return 0
+
+
+def _op(msg):
+    """One operator-log line. STDERR, because stdout is now the CARD (D5).
+
+    These lines are not decoration -- they are how a close-out is debugged after
+    the fact -- so they are kept in full and merely moved off the product
+    channel. `session-closeout ... 2>&1` reads exactly like it used to."""
+    print(msg, file=sys.stderr)
+
+
+# ---------------------------------------------------------------------------
+# TIMEBLOCK CLOSE CARRIER (2026-08-25 -- the workout timeblock was not being
+# renamed and completed at session close)
+#
+# close_task.sh renames the day's 헬스 timeblock to "헬스 - <split>" and
+# completes it. It worked; it simply was not reachable. Its ONLY caller was a
+# PROSE step in .claude/skills-bundle/workout-log/SKILL.md ("4. auto-close
+# workout task ... run after successful workout-add"), i.e. the block close was
+# MODEL-REMEMBERED and lived on the workout-add branch only.
+#
+# Measured both ways on consecutive days:
+#   2026-08-24 08:43:52 session-closeout 10091 앞A -> 08:44:34 close_task.sh
+#              -> timeblock 12766 "헬스 - 앞A", status=done.   (remembered)
+#   2026-08-25 08:17:21 session-closeout 10092 뒷A -> close_task.sh NEVER run
+#              -> timeblock 12768 "헬스" sat unsettled all day while 32 real
+#              set rows were on disk.                          (forgotten)
+# Same skill, same model, same owner, opposite outcome. A coin flip is not a
+# lifecycle.
+#
+# CODE decides, not the model -- the same discipline kit_life.py already applies
+# to TASK_OWNING_AGENT ("a CLI flag alone would depend on the model remembering
+# to pass it, which is exactly the failure mode this codebase keeps repeating").
+# Closing the session and closing the day's block are ONE event, so they get ONE
+# carrier: this function, called from do_close. Whichever entry point the model
+# picks, the block now closes.
+#
+# RE-ENTRANCY. close_task.sh drives session-closeout at ITS end (the reverse
+# edge of this same pair), so an unguarded call here is mutual recursion.
+# LIFEKIT_SESSION_CLOSE_CHAIN is the single chain flag: whoever enters the chain
+# first sets it, and the other edge no-ops. Both edges read this exact name.
+#
+# LIVE GATE. close_task.sh always talks to the LIVE kit_life.sh / kit_life.db --
+# it has no --db and kit_life.py hardcodes DB_PATH next to itself. do_close, by
+# contrast, is routinely called by the test suite against a scratch --db. An
+# unconditional call out would let a TEST close-out settle the OWNER'S real
+# timeblock. So this fires only when the DB being closed IS the live DB; a
+# scratch-DB close-out skips and says so on stderr.
+#
+# STDOUT. D5 says stdout carries exactly one renderable artifact (the card).
+# close_task.sh prints its CLOSED/NONE/MULTI verdict on stdout, so the verdict
+# is captured and re-emitted through _op (stderr). Never printed raw.
+# ---------------------------------------------------------------------------
+# KIT FILE (0.17.0). close_task.sh ships with the KIT's workout-log skill
+# (kit_life >=2.27.0, pinned by requires_kit); this pack no longer carries it.
+# The installer lands every kit skill at <instance>/.claude/skills-bundle/<name>/
+# (pack_install.sh skills-bundle step), so the path below is unchanged. The
+# chain flag name is the kit's (close_task.sh reads LIFEKIT_SESSION_CLOSE_CHAIN
+# and LIFEKIT_HEALTH_STATE_DIR); both edges must use the same name or the
+# re-entrancy guard is dead.
+CLOSE_CHAIN_ENV = "LIFEKIT_SESSION_CLOSE_CHAIN"
+CLOSE_TASK_SH = os.path.join(PROJECT_ROOT, ".claude", "skills-bundle",
+                             "workout-log", "close_task.sh")
+
+
+def _is_live_db(db_path, live_db=DEFAULT_DB):
+    """True iff db_path resolves to the same file as the live kit_life.db.
+    realpath on both sides: the live path is a symlink into the shared crews DB,
+    and --db is commonly passed as a relative or non-canonical path."""
+    try:
+        return os.path.realpath(db_path) == os.path.realpath(live_db)
+    except OSError:
+        return False
+
+
+def close_day_timeblock(db_path, day, close_task_sh=CLOSE_TASK_SH):
+    """Rename + complete `day`'s 헬스 timeblock via close_task.sh.
+
+    `day` is the SESSION's date (workouts.date), not today -- a close-out run
+    the morning after, or a backfill of a past session, must settle the block
+    that session belongs to.
+
+    Returns the close_task.sh verdict ('CLOSED\\t<title>' / 'NONE' / 'MULTI'),
+    or None when skipped or failed. BEST-EFFORT throughout: never raises, never
+    fails a close-out, never writes to stdout.
+    """
+    if os.environ.get(CLOSE_CHAIN_ENV):
+        return None          # close_task.sh started this chain; it owns the block
+    if not _is_live_db(db_path):
+        _op("TIMEBLOCK skipped -- not the live db (%s); live-only carrier"
+            % db_path)
+        return None
+    if not os.path.isfile(close_task_sh):
+        _op("TIMEBLOCK skipped -- close_task.sh not found at %s" % close_task_sh)
+        return None
+    env = dict(os.environ)
+    env[CLOSE_CHAIN_ENV] = "1"
+    # Force, not setdefault: close_task.sh resolves kit_life.sh from PROJECT_ROOT
+    # first, and an inherited PROJECT_ROOT from some other tree would send the
+    # write to the wrong instance. We are already past the live-db gate.
+    env["PROJECT_ROOT"] = PROJECT_ROOT
+    try:
+        proc = subprocess.run(
+            ["bash", close_task_sh, day],
+            cwd=PROJECT_ROOT, env=env, timeout=60,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+    except Exception as exc:  # noqa: BLE001 -- a block close never fails a close-out
+        _op("WARN timeblock close failed: %s" % exc)
+        return None
+    err = (proc.stderr or b"").decode("utf-8", "replace").strip()
+    if err:
+        _op("TIMEBLOCK stderr: %s" % err.replace("\n", " | "))
+    if proc.returncode != 0:
+        _op("WARN close_task.sh exit=%s" % proc.returncode)
+        return None
+    verdict = (proc.stdout or b"").decode("utf-8", "replace").strip()
+    _op("TIMEBLOCK %s" % (verdict.replace("\n", " | ") or "(no output)"))
+    return verdict
+
+
+def _fatigue_tail(db_path, session_id, program_path=None, state_dir=None):
+    """fatigue-brief close_card_line(): (card line, extra lines), or ('', [])
+    on any failure (never blocks). The line becomes the closeout card's last
+    line; `extra` is the one-time draft-map confirmation printed under it."""
+    try:
+        path = os.path.join(SCRIPT_DIR, "fatigue-brief")
+        if not os.path.exists(path):
+            return "", []
+        loader = importlib.machinery.SourceFileLoader("fatigue_brief_tail",
+                                                      path)
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+        return mod.close_card_line(db_path, session_id, program=program_path,
+                                   state_dir=state_dir)
+    except Exception as exc:  # noqa: BLE001 -- a close-out never fails here
+        _op("WARN fatigue tail skipped: %s" % exc)
+        return "", []
+
+
+def do_close(db_path, session_id, session_type_code,
+             marker_path=ACTIVE_MARKER, tombstone_path=CLOSED_TOMBSTONE,
+             published_dir=PUBLISHED_DIR, clear_pin=True,
+             unmeasured=False, make_card=True, resolve_exercises=True,
+             program_path=None, closed_dir=None, state_dir=None,
+             post_gate=True, watch_kcal=None, post_card=True):
+    from free_session import is_free, effective_path, CODE
+    if is_free(db_path, session_id):
+        session_type_code = CODE
+    program_path = effective_path(program_path, db_path, session_id)
+    conn = sqlite3.connect(db_path)
+    try:
+        # -- D4 GATE, BEFORE ANY WRITE ------------------------------------
+        # A refused close-out must leave the session byte-identical: still
+        # tagged as it was, still open, still fast-pathable. So the measurement
+        # verdict is taken first, ahead of the tag write and the tombstone.
+        row = measure_row(conn, session_id)
+        if row is None:
+            print("ERROR: no workouts row with id=%s" % session_id,
+                  file=sys.stderr)
+            return 1
+        date, _minutes, _kcal, _hr, note = row
+        # -- 0.36.0 item 2: the post-lift blocks gate, before any write ----
+        post_state = None
+        try:
+            post_state = _post_blocks().ensure(
+                session_id, session_type_code, program_path,
+                sd=state_dir or STATE_DIR)
+        except Exception as exc:  # noqa: BLE001 -- no plan -> no gate
+            _op("WARN post blocks: %s" % exc)
+        open_post = (_post_blocks().open_keys(post_state)
+                     if post_state else [])
+        if post_gate and open_post:
+            print(post_refusal_text(session_id, session_type_code,
+                                    post_state, open_post))
+            return 6
+        # -- r2 2026-10-10 items 24/25: the watch first, decided BEFORE any
+        # card. Onboarded (consent AND the pipe has delivered) -> the
+        # ingested watch workout overlapping this session carries minutes /
+        # kcal / avg HR (hk-ingest fills the row); a pass is pulled once when
+        # it has not attached yet. Not onboarded (no consent, or a consent row
+        # with nothing ever ingested) -> the kcal is asked by hand.
+        missing = _missing_measures(row)
+        if missing:
+            wstate, wn = watch_state(conn)
+            attached = watch_attached(conn, session_id)
+            if wstate == WATCH_ONBOARDED and not attached:
+                pull_watch(state_dir)
+                attached = watch_attached(conn, session_id)
+                if attached:
+                    row = measure_row(conn, session_id) or row
+                    missing = _missing_measures(row)
+            print("WATCH state=%s ingested=%d attached=%s -- %s"
+                  % (wstate, wn, "yes" if attached else "no",
+                     WATCH_SAY.get(wstate, "")))
+        # -- 0.36.0 item 4: minutes from timestamps, kcal from the watch ----
+        computed = None
+        if "minutes" in missing:
+            try:
+                import session_clock
+                computed, _o, _e = session_clock.session_minutes(
+                    db_path, session_id,
+                    extra=_post_blocks().ended_stamps(post_state),
+                    sd=state_dir or STATE_DIR)
+            except Exception as exc:  # noqa: BLE001
+                _op("WARN session clock: %s" % exc)
+                computed = None
+            if computed and computed > 0:
+                missing = [m for m in missing if m != "minutes"]
+            else:
+                computed = None
+        if "kcal" in missing and watch_kcal is not None and watch_kcal > 0:
+            missing = [m for m in missing if m != "kcal"]
+        if missing and not is_unmeasured_declared(note):
+            if not unmeasured:
+                print(unmeasured_refusal_text(session_id, row, missing,
+                                              session_type_code,
+                                              computed_minutes=computed))
+                return 4
+            note = stamp_unmeasured(conn, session_id, note)
+            row = (row[0], row[1], row[2], row[3], note)
+            _op("UNMEASURED session %s declared %s (missing: %s)"
+                % (session_id, UNMEASURED_STAMP, ", ".join(missing)))
+
+        rc, _result = tag_session_type(
+            conn, session_id, session_type_code, birth_only=False,
+            stream=sys.stderr)
+        if rc != 0:
+            return rc
+        if computed or (watch_kcal is not None and watch_kcal > 0):
+            row = write_measures(conn, session_id, row, computed, watch_kcal)
+
+        set_n = _set_count(conn, session_id)
+        if set_n == 0:
+            _op("WARN session %s has 0 workout_sets rows -- tag set, but "
+                "per-set data missing; not fully closed until sets are logged"
+                % session_id)
+        else:
+            _op("session %s has %s workout_sets rows" % (session_id, set_n))
+
+        # -- D6: resolve every still-open exercise BEFORE the markers go -----
+        # Ordering is load-bearing twice over: resolve_exercise runs set-table,
+        # which reads .set-arm-override / .exercise-entered, so it must happen
+        # before the sweep; and it must happen before the pin clear so the card
+        # it builds is the same card the pin was showing.
+        records = []
+        if make_card or resolve_exercises:
+            try:
+                records = resolve_open_exercises(
+                    db_path, conn, session_id, "session_close",
+                    program_path=program_path, closed_dir=closed_dir)
+                records = include_unstarted(records, program_path,
+                                            session_type_code)
+                unresolved = sum(r.get("rows_resolved") or 0 for r in records)
+                _op("EXERCISES resolved=%d rows_marked_abandoned=%d"
+                    % (len(records), unresolved))
+            except Exception as exc:  # noqa: BLE001 -- never block a close-out
+                _op("WARN exercise resolution failed: %s" % exc)
+
+        # Session is closed -> stamp the F1 tombstone then clear the active
+        # marker (best-effort). Tombstone-before-remove ordering lives in the
+        # helper so set-add's self-heal cannot revive a closed session's marker.
+        _clear_active_marker(session_id, marker_path, tombstone_path)
+        # Clear this session's set-table entry-gate flags (best-effort).
+        _clear_published_flags(session_id, published_dir)
+        # D1 leak: retire every OTHER marker this session owns -- above all
+        # .reply-pending, whose survival past close-out is what poisoned the
+        # next morning. Session-scoped and best-effort throughout.
+        for label, detail in sweep_session_markers(session_id,
+                                                   state_dir=state_dir):
+            _op("SWEPT %s=%s" % (label, detail))
+        # DGN-967: retire the 표3 종목카드 from the shared pin (best-effort).
+        # Last, and after the tombstone: an un-cleared pin is cosmetic, a
+        # mis-ordered tombstone is the F1 phantom-logging bug.
+        if clear_pin:
+            _op("PIN_CARD cleared=%s" % ("yes" if clear_pin_card() else "no"))
+            try:
+                subprocess.run([sys.executable, os.path.join(SCRIPT_DIR, "workbench.py"),
+                                "--db", db_path, "--state",
+                                os.path.join(STATE_DIR, ".program-plan.json")],
+                               capture_output=True, timeout=20, check=False)
+            except (OSError, subprocess.TimeoutExpired):
+                pass
+
+        # The day's 헬스 timeblock is part of the same session end -- rename it
+        # to "헬스 - <split>" and complete it. See close_day_timeblock() for why
+        # this lives in code rather than in SKILL.md prose. Placed AFTER the
+        # durable state transition and BEFORE the card, on the same rule as the
+        # pin clear: once the session is closed, nothing downstream may un-close
+        # it, so every step from here on is best-effort and cannot change the
+        # return code. `date` is the SESSION's day (from measure_row above), not
+        # today -- a next-morning close-out settles the right day's block.
+        close_day_timeblock(db_path, date)
+
+        # -- D5: the CARD is the stdout product ----------------------------
+        # Operator lines went to stderr (_op); stdout carries one renderable
+        # artifact. A card that cannot be built REFUSES rather than degrading
+        # into sentences -- but it refuses AFTER the state transition, which is
+        # already durable, so the exit code stays 0 and the failure is loud on
+        # stderr. (Same reasoning as the fast path's post-commit rule: once the
+        # session is closed, a render problem may not un-close it.)
+        if make_card:
+            # Muscle-fatigue session end (worklog 2026-09-26, phase 2), folded
+            # into the card as its last line (owner 2026-10-02): slowest
+            # recovery, else the most-used regions. The sentence is
+            # fatigue-brief's (the only fatigue copy owner). The one-time
+            # confirmation of muscle maps drafted mid-session prints under the
+            # card. Fail-open: a kit without the 056 read model prints nothing.
+            fline, fextra = _fatigue_tail(db_path, session_id, program_path,
+                                          state_dir)
+            try:
+                card = render_card(
+                    session_close_card(session_id, date, session_type_code,
+                                       row, records, db_path=db_path,
+                                       program_path=program_path,
+                                       fatigue_line=fline,
+                                       post_state=post_state))
+                print(card)
+                if post_card:
+                    _op(post_card_by_code(session_id, card,
+                                          state_dir or STATE_DIR))
+            except CardPublishError as exc:
+                _op("WARN close-out card refused: %s" % exc)
+            if fextra:
+                print("")
+                print("\n".join(fextra))
+            # 0.38.2: the iPhone Health app link, offered ONCE after the
+            # update to an install whose calorie target was already settled
+            # (a natural moment, never a first message); dev channel + the
+            # Dogany app only (health_link.offer_gate). Fail-open.
+            try:
+                import health_link
+                offer = health_link.closeout_offer(
+                    db_path, state_dir or STATE_DIR, date)
+            except Exception as exc:  # noqa: BLE001
+                _op("WARN health link offer skipped: %s" % exc)
+                offer = []
+            if offer:
+                print("")
+                print("\n".join(offer))
+        return 0
+    finally:
+        conn.close()
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="session-closeout",
+        description="Weight-session close-out validator + writer (DGN-388).",
+    )
+    p.add_argument("session_id", nargs="?", type=int, help="workouts.id to close out")
+    p.add_argument(
+        "session_type_code",
+        nargs="?",
+        help="session_type.code to tag (e.g. 앞A, 뒷A, 앞B, 뒷B)",
+    )
+    p.add_argument("--db", default=DEFAULT_DB, help="path to kit_life.db")
+    p.add_argument("--marker", default=ACTIVE_MARKER,
+                   help="active-session marker to clear on close (default: live; "
+                        "tests point this at a scratch path for isolation)")
+    p.add_argument("--tombstone", default=CLOSED_TOMBSTONE,
+                   help="closed-session tombstone to stamp (default: live)")
+    p.add_argument("--published-dir", default=PUBLISHED_DIR,
+                   help="set-table published-flag dir to clear (default: live)")
+    p.add_argument("--no-pin-clear", action="store_true",
+                   help="skip the DGN-967 pin section clear (tests / a close-out "
+                        "that must not touch the owner's pinned card)")
+    p.add_argument(
+        "--check",
+        action="store_true",
+        help="validator mode: is the latest weight session properly closed?",
+    )
+    p.add_argument(
+        "--sweep",
+        action="store_true",
+        help="cron mode: run the FULL close-out for the latest weight session "
+             "when its DB content is complete but its state transition never "
+             "ran. NEVER auto-closes a NEEDS_CLOSEOUT session (that refusal is "
+             "the owner's call). Always exits 0.",
+    )
+    p.add_argument("--unmeasured", action="store_true",
+                   help="D4: this session's duration/energy genuinely were not "
+                        "measured -- stamp the note %s and close anyway. "
+                        "Without this a session with minutes=0 or kcal=0 is "
+                        "REFUSED (exit 4), never silently booked as zero."
+                        % UNMEASURED_STAMP)
+    p.add_argument("--watch-kcal", type=float, default=None,
+                   help="0.36.0 item 4: the kcal the owner read off the watch. "
+                        "Recorded on the session row (stamped %s) and never "
+                        "used to set a food target; the minutes come from "
+                        "the session's timestamps." % "watch-kcal:record-only")
+    p.add_argument("--no-card", action="store_true",
+                   help="suppress the D5 close-out card on stdout (state "
+                        "transition only; operator log still goes to stderr)")
+    p.add_argument("--no-resolve", action="store_true",
+                   help="skip the D6 exercise-exit resolution sweep")
+    p.add_argument("--program", default=None,
+                   help="program.yaml for the set-table renders (default: "
+                        "set-table's own default)")
+    p.add_argument("--closed-dir", default=None,
+                   help=".exercise-closed dir (default: live)")
+    p.add_argument("--state-dir", default=None,
+                   help="runtime-marker root for the session sweep (default: "
+                        "$LIFEKIT_HEALTH_STATE_DIR or this script's dir)")
+    p.add_argument("--exercise-exit", nargs=2, metavar=("SESSION_ID", "EXERCISE"),
+                   help="D6: close ONE exercise -- resolve every unfinished set "
+                        "row and emit the ExerciseExit card. Use this at the "
+                        "moment the owner abandons an exercise mid-way.")
+    p.add_argument("--reason", default="",
+                   help="free text recorded with --exercise-exit "
+                        '(e.g. "털렸어, 넘어가자")')
+    args = p.parse_args(argv)
+
+    db_path = os.path.abspath(args.db)
+    if not os.path.exists(db_path):
+        print("ERROR: db not found: %s" % db_path, file=sys.stderr)
+        return 1
+
+    if args.check:
+        return do_check(db_path)
+
+    if args.sweep:
+        return do_sweep(db_path,
+                        marker_path=os.path.abspath(args.marker),
+                        tombstone_path=os.path.abspath(args.tombstone),
+                        published_dir=os.path.abspath(args.published_dir),
+                        clear_pin=not args.no_pin_clear,
+                        state_dir=args.state_dir,
+                        program_path=args.program,
+                        closed_dir=args.closed_dir)
+
+    if args.exercise_exit:
+        return do_exercise_exit(db_path, int(args.exercise_exit[0]),
+                                args.exercise_exit[1], reason=args.reason,
+                                program_path=args.program,
+                                closed_dir=args.closed_dir)
+
+    if args.session_id is not None:
+        # The owner's close request is the session's end (owner 2026-10-10:
+        # "go home" at 14:07 -- the card said 22 minutes, open -> last set).
+        try:
+            import session_clock
+            session_clock.stamp_close_request(
+                args.session_id, sd=args.state_dir or STATE_DIR)
+        except Exception:  # noqa: BLE001
+            pass
+    from free_session import is_free, effective_path, CODE
+    if args.session_id is not None and is_free(db_path, args.session_id):
+        args.session_type_code = CODE
+        args.program = effective_path(args.program, db_path, args.session_id)
+    if args.session_id is None or args.session_type_code is None:
+        p.error("close-out needs <session_id> <session_type_code> (or use --check)")
+    return do_close(db_path, args.session_id, args.session_type_code,
+                    marker_path=os.path.abspath(args.marker),
+                    tombstone_path=os.path.abspath(args.tombstone),
+                    published_dir=os.path.abspath(args.published_dir),
+                    clear_pin=not args.no_pin_clear,
+                    unmeasured=args.unmeasured,
+                    make_card=not args.no_card,
+                    resolve_exercises=not args.no_resolve,
+                    program_path=args.program,
+                    closed_dir=args.closed_dir,
+                    state_dir=args.state_dir,
+                    watch_kcal=args.watch_kcal)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

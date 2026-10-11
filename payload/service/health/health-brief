@@ -1,0 +1,122 @@
+#!/usr/bin/env python3
+# health-brief -- the health agent's morning brief lines (kit retro-sections
+# provider, lane `morning`; pack_health 0.30.0, owner 2026-10-02 08:27;
+# message + pin split, owner 2026-10-02 11:40-11:53).
+#
+# Sent by the kit's morning-brief.sh domain path at the time the owner picked
+# in program-plan's setup tail (proposed 30 minutes before the earliest weekly
+# training start; the weekly-retro answer hands it to the kit's
+# brief-standard.sh activate). Rest days too.
+#
+# THE MESSAGE (under the kit's title):
+#   today's diet target (the carry folded in)       every day
+#   "today's workout is pinned above . <split> . ~N min"   training day
+# THE PIN is the ONE daily pin card (workbench.pin -- the one writer of that
+# section, rotating per the framework's DASHBOARD_ROTATE; owner 2026-10-02
+# 12:41-13:00): title, [diet] (eaten / target, macros, eaten meals), [week]
+# (ISO week header, the 3-row calendar between two rules) and [today] (the
+# lineup on a training day before its session, the session's rows after it,
+# one rest line otherwise). This provider refreshes it before printing, so
+# the line it prints is true. When the pin did not go up with the lineup (no
+# pin surface, a live session card, no program state), the training-day line
+# falls back to the session line (split . lifts . sets . minutes) -- the day
+# is never shown zero times.
+#
+# Rest day: the diet line only. This folds in what rx-gen.sh used to push on
+# its own at 05:00 (retired 0.30.0).
+#
+#   health-brief --lane morning [--mode line|section] [--date YYYY-MM-DD]
+#   exit 0 + lines   shown (<= 3, no decision)
+#   exit 3           nothing: another lane, no training calendar and no
+#                    program, a trip-class all-day block today, no line,
+#                    or any failure (a provider never fails a brief)
+# The database is read-only. The pin refresh is skipped when the database is
+# not this instance's own (a --db / HEALTH_BRIEF_DB override) unless
+# WARG_DASHBOARD_FILE names where that pin goes, and with HEALTH_BRIEF_NO_PIN=1.
+# Facts and rules: brief_lib.py.
+import argparse
+import datetime
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brief_lib as BL                                          # noqa: E402
+
+
+def lines_for(conn, day, db=None, pinned=False):
+    """The message lines. `pinned`: the workbench pin carries today's lineup
+    (pin_today() == 'lineup')."""
+    sched = BL.schedule(conn)
+    if not sched and not os.path.isfile(BL.program_path()):
+        return []
+    if BL.trip_today(conn, day):
+        return []
+    out = [BL.diet_text(BL.diet_target(conn, day, before_training=True))]
+    hit, start = BL.planned(sched, day)
+    if hit:
+        rx = BL.session_rx(day, db)
+        ex = [e for e in (rx or {}).get("exercises") or () if e.get("sets")]
+        code = (rx or {}).get("rotation_day") or BL.t(
+            "health.retro.session_label_default")
+        if ex and pinned:
+            out.append(BL.t("health.brief.pinned", split=code,
+                            minutes=BL.session_estimate_minutes(code, ex)))
+        elif ex:
+            out.append(BL.t(
+                "health.brief.session", code=code, lifts=BL.lifts_text(ex),
+                sets=sum(int(e["sets"]) for e in ex),
+                minutes=BL.session_estimate_minutes(code, ex)))
+        elif start:
+            out.append(BL.t("health.brief.session_time", time=BL.clock(start)))
+    return BL.capped(out)
+
+
+def pin_today(day):
+    """Refresh the workbench pin for `day` (workbench.pin); its kind, or
+    None when skipped or not applied. Never raises."""
+    if os.environ.get("HEALTH_BRIEF_NO_PIN"):
+        return None
+    try:
+        db = os.path.abspath(BL.db_path())
+        own = os.path.join(BL.PROJECT_ROOT, "database", "kit_life.db")
+        if (os.path.realpath(db) != os.path.realpath(own)
+                and not os.environ.get("WARG_DASHBOARD_FILE")):
+            return None
+        state = os.path.join(os.path.dirname(BL.program_path()),
+                             ".program-plan.json")
+        with BL.quiet():
+            wb = BL._load("brief_workbench", os.path.join(HERE, "workbench.py"))
+            return wb.pin(db, state,
+                          None if day == datetime.date.today() else day)
+    except BaseException:                        # noqa: BLE001
+        return None
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="health-brief")
+    p.add_argument("--lane", choices=("morning", "daily", "weekly"), required=True)
+    p.add_argument("--mode", choices=("line", "section", "grid"), default="section")
+    p.add_argument("--date")
+    p.add_argument("--db")
+    a = p.parse_args(argv)
+    if a.lane != "morning" or a.mode == "grid":
+        return BL.EXIT_NOTHING
+    try:
+        if a.db:
+            os.environ["HEALTH_BRIEF_DB"] = a.db
+        day = BL.run_date(a.date)
+        pinned = pin_today(day) == "lineup"
+        conn = BL.connect()
+        try:
+            lines = lines_for(conn, day, pinned=pinned)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 -- a provider never fails a brief
+        print("health-brief: %s" % exc, file=sys.stderr)
+        return BL.EXIT_NOTHING
+    return BL.emit(lines, a.mode)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

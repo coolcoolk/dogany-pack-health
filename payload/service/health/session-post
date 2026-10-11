@@ -1,0 +1,407 @@
+#!/usr/bin/env python3
+# session-post -- run the post-lift blocks (finisher / cardio / cooldown) in
+# program order, by the tool (0.36.0 item 2). See post_blocks.py for the plan,
+# the state and the gate; this file is the verbs and the side effects.
+#
+# Usage:
+#   session-post next   <sid> [--code C]         the next block / cooldown row:
+#                                                prompt + code-posted start button
+#   session-post start  <sid> <block> [--row i]  arm its countdown (5s ticks for
+#                                                a cooldown hold) + post the done
+#                                                button
+#   session-post done   <sid> <block> [--row i]  record it, then print `next`
+#   session-post skip   <sid> <block> [--row i]  explicit skip (the gate accepts it)
+#   session-post status <sid>                    POST_GATE open=<keys>|none
+#   session-post reopen <sid> cooldown           after close-out ("stretch now"):
+#                                                the session's cooldown runs again
+#   session-post interval <sid> --name N --work W --rest R --rounds K
+#                                                owner-asked interval rounds (r2
+#                                                2026-10-10, swing 3 rounds): a
+#                                                finisher block, started now on
+#                                                the existing countdown (one
+#                                                timer for the whole block --
+#                                                per-round work/rest cues are a
+#                                                gap, INTERVAL_GAP)
+#   common: [--code C] [--program P] [--db D] [--kit K] [--dry-run]
+#
+# Never an either/or: `next` names ONE block, the program's next. The owner
+# skipping one is `skip`; the agent never offers a choice between blocks.
+#
+# stdout tokens (reference/stdout-tokens.md):
+#   POST_BLOCK key=<k> status=<s> i=<n>/<N>     machine line (suppress)
+#   POST_SAY: <copy>                            relay verbatim
+#   POST_ROW key=cooldown row=<i>/<N> sec=<s>   machine line (suppress)
+#   POST_KEYBOARD posted=code|no label=<l>      code posted the button (no) ->
+#                                               render ONE button with <l>
+#   POST_TAP_CMD <verb> <argv>                  what a tap on that button runs
+#   POST_COUNTDOWN armed=<yes|dry> sec=<s> cadence=<c>
+#   POST_RECORDED key=<k> [row=<i>] elapsed=<s>
+#   POST_DONE all=final                         every block done/skipped:
+#                                               the close-out may run
+#   POST_GATE open=<k,k>|none
+# Exit: 0 ok; 1 bad args / unknown block; 3 no post-lift blocks for the session.
+# stdlib only. ASCII source.
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import sqlite3
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:
+    sys.path.insert(0, HERE)
+import post_blocks as PB  # noqa: E402
+
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DEFAULT_DB = os.path.join(PROJECT_ROOT, "database", "kit_life.db")
+POST_EXERCISE = "__post__"        # the row-keyboard key of a post-lift row
+CADENCE_HOLD = 5                  # owner 2026-08-21: holds tick every 5s
+CADENCE_LONG = 60                 # a 20-minute cardio is not edited every 5s
+_SA = None
+
+
+def _set_arm():
+    """set-arm as a module, for emit_countdown / row_kb / PUSH / CH2_LOG."""
+    global _SA
+    if _SA is None:
+        try:
+            path = os.path.join(HERE, "set-arm")
+            loader = importlib.machinery.SourceFileLoader("_post_sa", path)
+            spec = importlib.util.spec_from_loader("_post_sa", loader)
+            mod = importlib.util.module_from_spec(spec)
+            loader.exec_module(mod)
+            _SA = mod
+        except Exception:  # noqa: BLE001 -- no timer / no code keyboard
+            _SA = False
+    return _SA or None
+
+
+def _seq(st, key, row=None):
+    idx = next((i for i, b in enumerate(st["blocks"]) if b["key"] == key), 0)
+    return 900 + idx * 50 + (row or 0)
+
+
+def _code(db_path, session_id, given):
+    if given:
+        return given
+    try:
+        conn = sqlite3.connect("file:%s?mode=ro" % db_path, uri=True)
+        try:
+            row = conn.execute(
+                "SELECT st.code FROM workouts w JOIN session_type st ON "
+                "st.id = w.session_type_id WHERE w.id = ?",
+                (session_id,)).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _argv(verb, a, key=None, row=None):
+    out = [os.path.join(HERE, "session-post"), verb, str(a.session_id)]
+    if key:
+        out.append(key)
+    if row is not None:
+        out += ["--row", str(row)]
+    if a.code:
+        out += ["--code", a.code]
+    return " ".join(out)
+
+
+def post_button(st, key, row, text, label, a, out):
+    """ONE code-posted button (row_keyboard `opt:` rail: the tap reaches the
+    agent as a message, which runs the POST_TAP_CMD). Falls back to asking
+    the reply for the one button when code cannot post."""
+    sa = None if a.dry_run else _set_arm()
+    mod = sa.row_kb() if sa is not None else None
+    verdict = None
+    if mod is not None:
+        verdict = mod.schedule(
+            sa.STATE_DIR, sa.PUSH, a.session_id, POST_EXERCISE,
+            _seq(st, key, row), mod.KIND_TAP, mod.RAIL_OPT, text,
+            mod.opt_rows(label), db_path=a.db, delay=0, ch2_log=sa.CH2_LOG,
+            channel="post-block")
+    if verdict in ("scheduled", "already"):
+        out.append("POST_KEYBOARD posted=code label=%s -- the button is on "
+                   "the owner's screen: do NOT render one" % label)
+    else:
+        out.append("POST_KEYBOARD posted=no label=%s -- render ONE button "
+                   "with exactly this label, nothing else" % label)
+
+
+def clear_button(st, key, row, a):
+    sa = None if a.dry_run else _set_arm()
+    mod = sa.row_kb() if sa is not None else None
+    if mod is not None:
+        try:
+            mod.on_logged(sa.STATE_DIR, a.session_id, POST_EXERCISE,
+                          _seq(st, key, row), tapped=False)
+        except Exception:  # noqa: BLE001
+            pass
+
+
+def countdown(seconds, label, cadence, a, out):
+    sa = _set_arm()
+    if sa is None or seconds <= 0:
+        out.append("POST_COUNTDOWN armed=no sec=%d" % seconds)
+        return
+    lines = []
+    # done_button False: the completion button is the code-posted done row
+    # below, one keyboard per row (row_keyboard), never a second one.
+    sa.emit_countdown(seconds, a.dry_run, lines, label=label,
+                      cadence=cadence, done_button=False)
+    out.append("POST_COUNTDOWN armed=%s sec=%d cadence=%ds"
+               % ("dry" if a.dry_run else "yes", seconds, cadence))
+    out.extend("  " + ln for ln in lines)
+
+
+def do_next(st, a, out):
+    b, i = PB.current(st)
+    if b is None:
+        out.append("POST_DONE all=final -- every post-lift block is done or "
+                   "skipped; the close-out may run")
+        out.append("POST_SAY: %s" % PB.t("health.post.all_done"))
+        return 0
+    n = len(st["blocks"])
+    pos = st["blocks"].index(b) + 1
+    out.append("POST_BLOCK key=%s status=%s i=%d/%d"
+               % (b["key"], b.get("status"), pos, n))
+    if b["key"] == "cooldown" and i is not None:
+        r = b["rows"][i]
+        if b.get("status") == PB.ST_PENDING and i == 0:
+            out.append("POST_SAY: %s" % PB.block_say(b))
+        out.append("POST_ROW key=cooldown row=%d/%d sec=%d per_side=%s"
+                   % (i + 1, len(b["rows"]), PB.row_seconds(r),
+                      "yes" if r.get("per_side") else "no"))
+        say = PB.row_say(b, i)
+        import movement_cues
+        import ui_labels
+        say = "\n".join([say] + movement_cues.lines(
+            r.get("code"), ui_labels.lang(), recorded=r))
+        out.append("POST_SAY: %s" % say)
+        if r.get("status") == PB.ST_ACTIVE:
+            post_button(st, "cooldown", i, say, PB.t("health.post.btn.done"),
+                        a, out)
+            out.append("POST_TAP_CMD done %s" % _argv("done", a, "cooldown",
+                                                     i))
+        else:
+            post_button(st, "cooldown", i, say, PB.t("health.post.btn.start"),
+                        a, out)
+            out.append("POST_TAP_CMD start %s" % _argv("start", a,
+                                                      "cooldown", i))
+        out.append("POST_TAP_CMD skip %s" % _argv("skip", a, "cooldown", i))
+        return 0
+    say = PB.block_say(b)
+    out.append("POST_SAY: %s" % say)
+    verb = "done" if b.get("status") == PB.ST_ACTIVE else "start"
+    post_button(st, b["key"], None, say,
+                PB.t("health.post.btn.%s" % verb), a, out)
+    out.append("POST_TAP_CMD %s %s" % (verb, _argv(verb, a, b["key"])))
+    out.append("POST_TAP_CMD skip %s" % _argv("skip", a, b["key"]))
+    return 0
+
+
+def do_start(st, a, out):
+    b = PB.block(st, a.block)
+    row = a.row
+    if b is None:
+        out.append("ERROR: no post-lift block %r" % a.block)
+        return 1
+    if b["key"] == "cooldown" and row is None:
+        _b, row = PB.current(st)
+        if _b is not b or row is None:
+            row = 0
+    target = PB.mark(st, b["key"], PB.ST_ACTIVE, row=row)
+    if target is None:
+        out.append("ERROR: no row %s in %s" % (row, b["key"]))
+        return 1
+    PB.write(st)
+    if b["key"] == "cooldown":
+        r = b["rows"][row]
+        countdown(PB.row_seconds(r), r["display"], CADENCE_HOLD, a, out)
+        say = PB.row_say(b, row)
+        post_button(st, "cooldown", row, say, PB.t("health.post.btn.done"),
+                    a, out)
+        out.append("POST_TAP_CMD done %s" % _argv("done", a, "cooldown", row))
+        return 0
+    sec = PB.block_seconds(b)
+    countdown(sec, b["name"], CADENCE_HOLD if b["key"] != "cardio"
+              else CADENCE_LONG, a, out)
+    post_button(st, b["key"], None, PB.block_say(b),
+                PB.t("health.post.btn.done"), a, out)
+    out.append("POST_TAP_CMD done %s" % _argv("done", a, b["key"]))
+    return 0
+
+
+def do_interval(st, a, out):
+    """Owner-asked interval rounds: one finisher block (before the cooldown),
+    started on the existing countdown for rounds x (work + rest)."""
+    if not (a.name and a.work and a.work > 0 and a.rounds and a.rounds > 0):
+        out.append("ERROR: interval needs --name, --work > 0 and --rounds > 0")
+        return 1
+    rest = max(int(a.rest or 0), 0)
+    blk = {"key": "finisher", "name": a.name, "work_sec": int(a.work),
+           "rest_sec": rest, "rounds": int(a.rounds),
+           "minutes": max(1, int(round(a.rounds * (a.work + rest) / 60.0))),
+           "status": PB.ST_PENDING, "asked": True}
+    blocks = [b for b in st.get("blocks") or ()
+              if not (b.get("key") == "finisher"
+                      and b.get("status") not in PB.FINAL)]
+    at = next((i for i, b in enumerate(blocks) if b.get("key") == "cooldown"),
+              len(blocks))
+    blocks.insert(at, blk)
+    st["blocks"] = blocks
+    st.setdefault("session_id", int(a.session_id))
+    PB.write(st)
+    out.append("POST_SAY: %s" % PB.block_say(blk))
+    out.append("INTERVAL_GAP -- the countdown runs the whole block (%d x "
+               "%ds work + %ds rest = %ds); it does not cue each round's "
+               "work/rest switch yet. Say so plainly in one line, never send "
+               "the owner to a phone timer silently."
+               % (blk["rounds"], blk["work_sec"], rest,
+                  PB.block_seconds(blk)))
+    a.block = "finisher"
+    return do_start(st, a, out)
+
+
+def _elapsed(target):
+    s, e = (PB.datetime.datetime.strptime(target[k], PB.FMT)
+            if target.get(k) else None for k in ("started_at", "ended_at"))
+    return int((e - s).total_seconds()) if s and e else None
+
+
+def _cardio_record(b, a, out):
+    """Record the cardio through cardio-record (kit facade) when a kit is
+    given; else print the argv the agent runs."""
+    argv = [sys.executable, os.path.join(HERE, "cardio-record"),
+            b.get("pick") or "", str(int(b.get("minutes") or 0)),
+            "--db", a.db]
+    if a.kit:
+        argv += ["--kit", a.kit]
+    if a.dry_run or not a.kit or b.get("pick") not in (
+            "stepmill", "run", "incline_walk", "bike", "row"):
+        out.append("CARDIO_RECORD_CMD %s" % " ".join(argv[1:]))
+        return
+    try:
+        p = subprocess.run(argv, capture_output=True, text=True, timeout=60)
+        out.append("CARDIO_RECORDED rc=%d %s" % (p.returncode,
+                                                 (p.stdout or "").strip()))
+    except (OSError, subprocess.TimeoutExpired) as e:
+        out.append("CARDIO_RECORDED rc=-1 error=%s" % type(e).__name__)
+
+
+def do_final(st, a, out, status):
+    b = PB.block(st, a.block)
+    if b is None:
+        out.append("ERROR: no post-lift block %r" % a.block)
+        return 1
+    row = a.row
+    if b["key"] == "cooldown" and row is None and status == PB.ST_DONE:
+        _b, row = PB.current(st)
+    if b["key"] == "cooldown" and row is None:
+        for i, r in enumerate(b.get("rows") or ()):        # skip the block
+            if r.get("status") not in PB.FINAL:
+                PB.mark(st, "cooldown", status, row=i)
+                clear_button(st, "cooldown", i, a)
+        b["status"] = status if status == PB.ST_SKIPPED else b["status"]
+        target = b
+    else:
+        target = PB.mark(st, b["key"], status, row=row)
+        if target is None:
+            out.append("ERROR: no row %s in %s" % (row, b["key"]))
+            return 1
+        clear_button(st, b["key"], row, a)
+    PB.write(st)
+    if status == PB.ST_DONE:
+        out.append("POST_RECORDED key=%s%s elapsed=%ss"
+                   % (b["key"], "" if row is None else " row=%d" % (row + 1),
+                      _elapsed(target)))
+        if b["key"] == "cardio":
+            _cardio_record(b, a, out)
+    else:
+        out.append("POST_SKIPPED key=%s%s" % (b["key"], "" if row is None
+                                              else " row=%d" % (row + 1)))
+        out.append("POST_SAY: %s" % PB.t("health.post.skipped",
+                                         name=(target.get("display")
+                                               or b.get("name"))))
+    return do_next(st, a, out)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="session-post")
+    p.add_argument("verb", choices=("next", "start", "done", "skip",
+                                    "status", "reopen", "interval"))
+    p.add_argument("session_id", type=int)
+    p.add_argument("block", nargs="?")
+    p.add_argument("--row", type=int, default=None,
+                   help="cooldown row, 0-based")
+    p.add_argument("--code", default=None)
+    p.add_argument("--program", default=None)
+    p.add_argument("--db", default=DEFAULT_DB)
+    p.add_argument("--kit", default=os.environ.get("KIT_LIFE_SH"))
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--name", default=None, help="interval: what is done")
+    p.add_argument("--work", type=int, default=None, help="interval: work s")
+    p.add_argument("--rest", type=int, default=None, help="interval: rest s")
+    p.add_argument("--rounds", type=int, default=None,
+                   help="interval: rounds")
+    a = p.parse_args(argv)
+    a.db = os.path.abspath(a.db)
+    program = a.program or os.path.join(PB.data_dir(), "program.yaml")
+    from free_session import effective_path
+    try:
+        program = effective_path(program, a.db, a.session_id)
+    except ValueError:
+        pass                        # a free session with no file: no blocks
+    a.code = _code(a.db, a.session_id, a.code)
+    st = PB.read(a.session_id)
+    if st is None:
+        if not a.code:
+            print("ERROR: no session code -- pass --code <split>",
+                  file=sys.stderr)
+            return 1
+        st = PB.ensure(a.session_id, a.code, program)
+    if a.verb == "interval":
+        out = []
+        rc = do_interval(st, a, out)
+        print("\n".join(out))
+        return rc
+    if not st.get("blocks"):
+        print("POST_NONE session=%s -- the program has no post-lift block "
+              "for this session" % a.session_id)
+        return 3
+    out = []
+    if a.verb in ("start", "done", "skip", "reopen") and not a.block:
+        p.error("%s needs a block (%s)" % (a.verb, ", ".join(
+            b["key"] for b in st["blocks"])))
+    if a.verb == "status":
+        keys = PB.open_keys(st)
+        out.append("POST_GATE open=%s" % (",".join(keys) or "none"))
+        rc = 0
+    elif a.verb == "next":
+        rc = do_next(st, a, out)
+    elif a.verb == "start":
+        rc = do_start(st, a, out)
+    elif a.verb == "done":
+        rc = do_final(st, a, out, PB.ST_DONE)
+    elif a.verb == "skip":
+        rc = do_final(st, a, out, PB.ST_SKIPPED)
+    else:
+        if a.block != "cooldown" or PB.reopen_cooldown(st) is None:
+            print("ERROR: only the session's cooldown block reopens "
+                  "(this session has none)", file=sys.stderr)
+            return 1
+        PB.write(st)
+        out.append("POST_REOPENED key=cooldown session=%s -- run the rows "
+                   "below; no prose cooldown" % a.session_id)
+        rc = do_next(st, a, out)
+    print("\n".join(out))
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

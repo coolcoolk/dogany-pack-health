@@ -1,0 +1,49 @@
+# kit retro-sections registry (read by the kit's retro_sections.py):
+#   <module>\t<command>[\t<lanes>]
+# The reader ships with kit_life 2.28.0 (database/retro_sections.py); the
+# optional third column (lanes: morning|daily|weekly|grid) with kit_life
+# 2.38.0. A row without it serves daily,weekly (the 2.28 contract). A
+# pre-2.38 reader takes the lanes column as an argument, so the provider
+# refuses it and that row is skipped with one stderr line (fail-open); the
+# release that ships these rows requires kit_life >=2.38.0. Rows run in FILE
+# ORDER, so the order below is the card's order: each slot's tail row
+# (the next session, the next-week proposal -- the one decision) comes last.
+#
+# Weekly (the domain weekly, kit weekly-review.sh): sessions vs plan, body
+# trend, goal check (<= 3 lines, no decision); also the Mon..Sun grid rows.
+module_health	week-health	weekly,grid
+# The weekly muscle facts: at most 3 lines, no decision or offer writes; silent
+# (exit 3) on a week with no training and on the daily lane.
+module_health	fatigue-brief retro --facts-only
+# Morning (kit morning-brief.sh domain path): this week so far, today's
+# session, today's diet target. Rest day: no session line.
+module_health	health-brief	morning
+# Daily glance card (kit daily-retro.sh domain path; owner 2026-10-10 21:14):
+# each row below is its own block of <= 3 lines, so the card reads
+#   today's session (minutes + burn as reference) or "rest today"
+#   one block per lift: record call-out, ramp folded to one line, every
+#   working set (slots 1..6; slot 6 counts the rest)
+#   the session-end fatigue text (most-loaded regions + recovery time)
+#   the meal line: intake vs target, or one ask when nothing is logged
+# The protein-retro row left the daily card the same day (the owner asked for
+# ONE meal line: kcal / protein vs target); the tool stays for a re-add.
+module_health	session-retro	daily
+module_health	session-retro --part lift --slot 1	daily
+module_health	session-retro --part lift --slot 2	daily
+module_health	session-retro --part lift --slot 3	daily
+module_health	session-retro --part lift --slot 4	daily
+module_health	session-retro --part lift --slot 5	daily
+module_health	session-retro --part lift --slot 6	daily
+module_health	session-retro --part fatigue	daily
+module_health	session-retro --part meal	daily
+# The card's attachments (the fatigue body figure, the meal ask's buttons):
+# data rows the kit reads with `--mode attach` (a kit change, not shipped
+# yet). Called in line / section mode, as the current kit does, it is silent.
+module_health	session-retro --part attach	daily,attach
+# Daily tail: "내일 운동: <day> · <time>" -- on any card that speaks.
+module_health	session-retro --part next	daily
+# Weekly calorie signals (owner 2026-10-11): the first trend recalibration
+# and the NEAT-drop line, each once; silent (exit 3) on every other week.
+module_health	week-health --part calorie	weekly
+# Weekly tail: the next-week placement proposal, the weekly's one decision.
+module_health	week-health --part next	weekly

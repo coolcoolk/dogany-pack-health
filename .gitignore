@@ -1,0 +1,18 @@
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyo
+
+# pytest scratch. Not just hygiene: compat-lint C4b fails the pack on a
+# `.pytest_cache` path component, so an uncommitted one left by a test run
+# makes `pack_install.sh` refuse the pack.
+.pytest_cache/
+
+# OS cruft
+.DS_Store
+
+# in-place edit backups (<name>.bak-<slug>-<date>) -- a plain *.bak glob does NOT match these
+*.bak-*
+
+# test-pool durations (run-suite.sh)
+.test-durations

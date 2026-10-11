@@ -1,0 +1,228 @@
+# 준비운동/쿨다운 데이터 (prep.yaml) -- 템플릿
+#
+# ===========================================================================
+# 템플릿은 배포된다. 데이터는 배포되지 않는다. 둘은 다른 자리에 있다.
+# ===========================================================================
+# 이 파일이 설치되는 자리:  <PROJECT_ROOT>/service/health/sot/prep.TEMPLATE.yaml
+# 코드가 읽는 데이터 자리:  <PROJECT_ROOT>/files/program/prep.yaml
+# 소유권: workout-program 스킬 (design-data ownership 절)
+#
+# 왜 payload/service/health/sot/ 인가 -- 지우지 말 것
+# ---------------------------------------------------
+# prep.yaml 은 program.yaml / program-history.json / gym-layout.md 와 같은
+# ** 사용자 데이터 ** 다. 그 사람의 부상 이력, 그 사람의 처방, 그 사람의 룰링이
+# 들어 있다. service/health/README.md 의 "NOT shipped -- user data" 절이 그
+# 이유를 든다: 설치가 `files/program/prep.yaml` 을 `cp -f` 로 덮으면 남의
+# 준비운동이 사용자의 실제 프로그램을 지운다. 부상 가드레일이 걸린 파일에서
+# 그것은 되돌릴 수 없는 사고다. 그래서 팩은 `files/` 레인을 갖지 않는다.
+#
+# 그러나 2026-09-12 감사(2.4)까지 이 파일은 저장소 루트 `sot/` 에 있었고,
+# **어떤 설치 레인도 payload_root 바깥을 읽지 않는다.** 즉 새로 민팅된
+# 인스턴스에는 이 스키마 문서가 아예 도착하지 않았다 -- prep.yaml 을 정본으로
+# 취급하는 스킬 문서 네 개가 존재하지 않는 형식을 참조하고 있었다.
+#
+# 지금 자리는 그 둘을 분리한다: **템플릿**은 팩 소유 읽기 전용 경로
+# (`service/health/sot/`) 로 배송되므로 `cp -f` 가 덮는 것은 팩 자신의 이전
+# 템플릿뿐이고, **데이터**는 여전히 `files/program/` 에만 있으며 어떤 레인도
+# 그 디렉터리에 쓰지 않는다.
+#
+# 자동 시드를 하지 않는 이유: 아래 예시 날(`예시A`)은 예시다. 설치가 이걸
+# files/program/prep.yaml 로 복사하면 예시 드릴이 실제 처방으로 발사된다 --
+# 빈 값보다 나쁜, 자신 있게 틀린 상태다. 시드는 사용자가 실제 드릴을 확정한
+# 뒤 에이전트가 명시적으로 수행한다:
+#
+#     cp service/health/sot/prep.TEMPLATE.yaml files/program/prep.yaml
+#     # 그리고 `예시A` 블록을 실제 세션 타입/드릴로 교체한 뒤에만 유효하다.
+#
+# 이미 있는 파일을 구조적으로 바꿔야 할 때
+# ----------------------------------------
+# 팩이 소유하지 않은 데이터를 팩 패치가 바꿔야 하면 스크립트로 싣는다 --
+# `health_taxonomy_seed.py` / `us_reseed.py` 와 같은 형태다:
+#
+#     service/health/prep-migrate --list
+#     service/health/prep-migrate <name>            # 드라이런(기본), diff 만
+#     service/health/prep-migrate <name> --apply    # 백업 후 기록
+#
+# 마이그레이션은 재구조화만 한다. 처방·이름·zone·cue 를 새로 만들지 않는다 --
+# 쓰는 값은 전부 파일에 이미 있던 텍스트에서 나와야 하고, 출처를 주석으로
+# 남긴다. (자세한 계약은 prep-migrate 헤더.)
+#
+# 파서 제약 (중요)
+# ----------------
+# 읽는 쪽은 rx-calc `_parse_yaml_lines` -- 손으로 쓴 stdlib-only 파서다(대상
+# 머신에 PyYAML 이 없다). 지원: 중첩 dict, dict 의 블록 리스트, 스칼라 블록
+# 리스트, 따옴표 문자열, 인라인 리스트/dict, 따옴표 인식 인라인 주석 제거.
+# ** 미지원: 여러 줄 문자열, 앵커, 태그, merge key. 쓰지 말 것. **
+#
+# ===========================================================================
+
+
+# ---------------------------------------------------------------------------
+# blocks -- 하루는 세 개의 동급 컬렉션이다
+# ---------------------------------------------------------------------------
+# prep / work / cooldown 은 동급(SLOT-EQUAL)이고, 그 안의 드릴은 워킹세트와
+# 동급(SET-EQUAL)이다. 동급은 ** 스키마 진술이지 볼륨 진술이 아니다 ** --
+# `volume: false` 가 그 경계이고 코드가 강제한다(rx-calc block_registry 가
+# NON_VOLUME_KINDS 를 무조건 false 로 덮는다). 여기서 true 로 바꿔도 집계는
+# 오염되지 않고 rx-calc 자체 점검이 시끄럽게 실패한다.
+blocks:
+  - kind: prep
+    order: 1
+    volume: false
+    source: "prep.yaml days.<day>.prep"
+  - kind: work
+    order: 2
+    volume: true
+    source: "program.yaml days.<day>.exercises"
+  - kind: cooldown
+    order: 3
+    volume: false
+    source: "prep.yaml days.<day>.cooldown"
+
+
+# ---------------------------------------------------------------------------
+# drills -- 드릴의 ** 고유 속성 ** 의 SoT (카탈로그)
+# ---------------------------------------------------------------------------
+# 날마다 달라지지 않는 것은 전부 여기 있다. day item 은 날마다 달라지는 것만
+# 싣는다(처방 + 배치). 이 분리가 없으면 같은 코드가 날마다 다른 정보를 갖는다.
+#
+#   name        내부 식별용 정식 명칭. 사용자가 읽지 않아도 되는 이름.
+#   display     ** 사용자가 읽는 문자열. verbatim 계약. ** 모델이 발명하거나
+#               바꿔 말하지 않는다. 바꾸려면 이 값을 고친다.
+#   zone        mat | equipment -- ** 어디서 하는가. ** 장비를 쓰느냐가 아니다.
+#               밴드는 들고 다니므로 mat. 바닥에 눕는 것도 mat.
+#               고정 스테이션(머신/랙/벤치/케이블)이 equipment.
+#               미선언은 기본값이 아니라 스키마 위반이다(fail-visible).
+#   timing      OPTIONAL. immediate_primer | cooldown -- ** 언제. ** zone 에서
+#               유도되는 phase 를 덮는다. where 와 when 은 다른 축이다.
+#   phase       ** 선언하지 않는다. 유도된다. ** timing 이 있으면 그것,
+#               없으면 zone + "_prep". day item 이 명시하면 그것이 이긴다.
+#   requires    OPTIONAL. [inventory token, ...] -- ** 조건을 데이터로. **
+#               display 문자열 안에 "(벤치 시)" 처럼 쓰면 소리 내어 읽히기만
+#               하고 해결되지 않는다. 필드면 말하기 전에 재고와 대조된다.
+#               band/mat/bodyweight/seat 은 PORTABLE 취급(항상 충족).
+#   implement   OPTIONAL. 손에 드는 것. 없으면 없는 것 -- 기본값 없음.
+#   load_kg     OPTIONAL. 같은 규칙.
+#   cue.setup   OPTIONAL. 자세/각도/그립 -- 몸이 무엇을 하는가.
+#   howto       OPTIONAL. 한 줄 설명(구판 형식). 아래 steps 가 없으면 이 줄이
+#               단계 하나로 읽힌다.
+#   steps       OPTIONAL. [단계, ...] -- 순서대로 하는 동작. 사용자에게
+#               1. 2. 3. 으로 나간다. 한 동작짜리 드릴은 한 줄. (2026-10-08)
+#   fault       OPTIONAL. 가장 흔한 실수 한 줄 -- ⚠️ 줄로 나간다.
+#   rep_unit    OPTIONAL. ** 1회가 무엇인가. ** 한 가지 정의만. "또는" 금지.
+#               예: "1회 = 1걸음: 반대쪽 손과 발을 함께 한 번 옮기기".
+#               {n} 은 처방 횟수/초로 채워진다. 좌우 드릴은 "좌우 각 {n}회" 를,
+#               방향이 있는 드릴은 "방향별 {n}회" 를 쓴다. 팩의 정의는 지식창고
+#               kimwog exercise 741 과 같다(owner 2026-10-08 "지식창고 기준").
+#               steps/fault/rep_unit 이 없으면 팩의 prep_cues.json (드릴
+#               코드 기준, ko+en) 이 채운다. 둘 다 없으면 없는 것이다.
+#   cue.sensation OPTIONAL. ** 어떤 느낌이어야 하는가. **
+#               ABSENT STAYS ABSENT. 발명 금지, 드릴 이름에서 생성 금지, 비슷한
+#               드릴에서 빌려오기 금지. {} 는 정상적이고 흔한 답이다.
+#
+# ** 드릴 하나에 동작 하나. ** 여러 동작을 한 cue 문자열에 묶지 말 것 --
+# 묶으면 완료 버튼 하나, 진행률 한 칸으로 세 가지 일이 뭉개진다. 문자열 끝에
+# "하나씩 순차 안내" 같은 말이 붙어 있으면 스키마가 할 일을 산문이 대신하고
+# 있다는 신호다. (그 상태를 푸는 마이그레이션: prep-migrate unbundle-u2)
+drills:
+  EX1:
+    name: "예시 매트 드릴"
+    display: "예시 매트 드릴"
+    zone: mat
+    cue:
+      setup: "매트에서 수행하는 동작 설명."
+    steps: ["매트에 자세를 잡아요.", "동작을 천천히 해요.", "시작 자세로 돌아와요."]
+    fault: "반동을 쓰지 마세요."
+    rep_unit: "1회 = 시작 자세에서 동작 후 다시 시작 자세까지"
+
+  EX2:
+    name: "예시 밴드 드릴"
+    display: "예시 밴드 드릴"
+    zone: mat
+    requires: [band]
+    implement: "밴드"
+    steps: ["밴드를 잡아요.", "밴드를 당겨요.", "천천히 돌아와요."]
+    fault: "어깨를 으쓱 올리지 마세요."
+    rep_unit: "1회 = 당겼다가 돌아오기까지"
+
+  EX3:
+    name: "예시 머신 드릴"
+    display: "예시 머신 드릴"
+    # equipment -- 고정 스테이션이 필요하다. 이 축이 표면까지 나가야 사용자가
+    # 매트에서 머신으로 이동해야 한다는 걸 미리 안다(PREP_ZONE_MOVE).
+    zone: equipment
+    requires: [example_machine]
+
+  EX4:
+    name: "예시 즉시 프라이머"
+    display: "예시 즉시 프라이머"
+    zone: mat
+    # 첫 워킹세트 ** 직전 ** 에만 발사된다. F14 의 "모든 prep 먼저" 규칙의
+    # 의도적 예외이므로 세트표를 막지 않는다.
+    timing: immediate_primer
+    steps: ["자세를 잡고 {n}초 버텨요."]
+    fault: "숨을 참지 마세요."
+    rep_unit: "1회 = {n}초 한 번 버티기"
+
+  EX5:
+    name: "예시 쿨다운 스트레칭"
+    display: "예시 쿨다운 스트레칭"
+    zone: mat
+    timing: cooldown
+
+
+# ---------------------------------------------------------------------------
+# days -- 날마다 달라지는 것만
+# ---------------------------------------------------------------------------
+#   code          REQUIRED. 카탈로그 키. ** 카탈로그에 없는 코드는 스키마
+#                 위반 ** 이고 schema_violation 을 달고 나간다(조용히 안 죽는다).
+#   display       보통 ABSENT. 카탈로그가 이름의 SoT 다.
+#   target_reps   OPTIONAL. 없으면 없는 것 -- 기본값을 채우지 않는다.
+#                 처방은 사용자가 정하는 것이지 아티팩트가 정하는 것이 아니다.
+#   target_unit   target_reps 가 있으면 같이 온다. reps | per_side | hold_sets.
+#                 정수 한 칸이 서로 호환되지 않는 단위를 나르므로 단위가 같이
+#                 다니지 않으면 값이 잘못 해석된다.
+#                 per_side = 양쪽 ** 각각 ** n (741: 번갈아 해도 반으로 줄지
+#                 않는다). 세는 말이 드릴 고유인 경우는 prep_cues.json 의 `dose`
+#                 가 정한다 -- 베어 크롤은 1걸음이 1회이고 per_side 로 적어
+#                 "베어 크롤 · 좌우 8걸음씩" (= 16걸음), 헤일로/암 서클은
+#                 방향별이라 "방향별 6회" 로 나간다.
+#   sets          OPTIONAL, 기본 1. N 이면 ** N 번 안내, N 번 탭, N 행. **
+#                 워킹세트와 같은 대우다. (「라운드」는 은퇴한 어휘다.)
+#   hold_sec      OPTIONAL. 홀드 초.
+#   side          OPTIONAL. right | left -- 그 날만 한쪽인 경우.
+#   focus         OPTIONAL. 동작은 같고 강조만 그 날 다른 경우.
+#   optional      OPTIONAL. true 면 그 날 조건부.
+#   card_slot     생략 -> 아침 카드의 세션 블록(0 매트 프렙 / E 장비 프렙 /
+#                 C 쿨다운)에 렌더. <n> -> 슬롯 n 의 W 행에 접힌다.
+#   live_slot     생략 -> 라이브 세션 계획에 안 나온다(세션 레벨).
+#                 <n> -> 슬롯 n 진입 때 나온다.
+#
+# 순서 = 렌더 순서. 재정렬하지 말 것.
+days:
+
+  # ------------------------------------------------------------------ 예시일A
+  예시A:
+    prep:
+      - code: EX1
+        target_reps: 20
+        target_unit: reps
+      - code: EX2
+        target_reps: 15
+        target_unit: reps
+        sets: 3
+      # zone 이 mat -> equipment 로 바뀌는 지점. 코드가 PREP_ZONE_MOVE 로
+      # ** 이 드릴 앞에서 ** 이동을 알린다 -- 사용자가 일어서서 알게 되지 않는다.
+      - code: EX3
+        target_reps: 12
+        target_unit: reps
+        card_slot: 1
+        live_slot: 1
+      - code: EX4
+        target_reps: 2
+        target_unit: hold_sets
+        hold_sec: 15
+        card_slot: 1
+        live_slot: 1
+    cooldown:
+      - code: EX5

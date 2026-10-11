@@ -1,0 +1,172 @@
+id: diet-status
+type: module
+visibility: public
+status: official
+version: 0.1.1
+owns:
+  - "payload/skills-bundle/diet-status/**"
+requires:
+  framework: ">=1.16.0"
+publish_target: dogany-agentpack-health-trainer
+lanes:
+  contract: 1
+  steps:
+    - id: kit-mode
+      lane: rule
+      kind: gate
+      carrier: kitmode.py
+    - id: calorie-gate
+      lane: rule
+      kind: gate
+      carrier: calorie_gate.py
+    - id: kcal-carryover
+      lane: rule
+      kind: value
+      carrier: carryover.py
+    - id: carryover-wording
+      lane: llm
+      after: kcal-carryover
+    - id: status-card
+      lane: rule
+      kind: value
+      carrier: card.py
+      after: kcal-carryover
+mimics_kit:
+  kit: kit_life
+  # 74, re-measured 2026-10-09 before the number moved (73 -> 74). Built a
+  # fresh DB from the kit's schema.sql at 73 (pack/kit_life/v2.46.0-dev.7
+  # ad52d38) and at 74 (pack/kit_life/v2.46.0-dev.8 a2eb01e,
+  # 074_consult_anchor) and dumped the declared surface the same way (DDL,
+  # pragma table_info and every row of the 4 tables + 6 vocab tables, every
+  # view/trigger/index naming them, ledger_constraint DDL and rows): 989 vs
+  # 992 lines. The 4 tables + 6 vocab tables, their rows, views, triggers and
+  # indexes: identical. ONE change on the surface: ledger_constraint gains
+  # `care TEXT` (NULLable, CHECK safety-class JSON array, no default). The
+  # module reads ledger_constraint by named columns only (calorie_gate.py:
+  # SELECT key, value) and never writes it, so the column is invisible to it.
+  # 074 otherwise adds ledger_resource.place_id, ledger_preference.topic /
+  # .detail, availability_window and consult_answer -- none read by this
+  # module.
+  #
+  # 73, re-measured 2026-10-08 before the number moved (72 -> 73). Built a
+  # fresh DB from the kit's schema.sql at 72 (main caefa26, kit 2.46.0) and
+  # at 73 (wip/246-dev3 dca797f, kit 2.46.0-dev.3) and dumped the declared
+  # surface the same way (DDL, pragma table_info and every row of the 4
+  # tables + 6 vocab tables, every view/trigger/index naming
+  # block/block_attr/measure/metric_def, ledger_constraint DDL and rows): 756
+  # vs 823 lines. NO DDL, column or row change on any declared table or on
+  # ledger_constraint; the extra lines are all 073 triggers. Three name the
+  # surface: trg_block_attr_sub_place_ins / _upd (BEFORE INSERT/UPDATE ON
+  # block_attr, WHEN attr_token = 'sub_place_id') and
+  # trg_block_place_room_consistency (BEFORE UPDATE OF place_id ON block).
+  # The pour re-keys meal attrs and never writes a sub_place_id token or
+  # updates block.place_id, so none of them fires on it. The other three
+  # fire on sub_place writes only (trg_sub_place_in_use_del reads
+  # block_attr). 073 otherwise adds event_group
+  # (FK block ON DELETE CASCADE; the pour only INSERTs), noun_ask,
+  # field_kind_gate, v_proper_noun, person_group.aliases/status and widens
+  # the near_match_refusal.domain CHECK -- none read by this module.
+  #
+  # 72, re-measured 2026-10-08 before the number moved (71 -> 72). Built a
+  # fresh DB from the kit's schema.sql at 71 (8b6a4d4, parent of e0a0845) and
+  # at 72 (main caefa26, kit 2.46.0) and dumped the declared surface the same
+  # way (DDL, pragma table_info and every row of the 4 tables + 6 vocab
+  # tables, every view/trigger/index naming block/measure/metric_def,
+  # ledger_constraint DDL and rows): 190 vs 199 lines. NO DDL, column,
+  # trigger, view or index change; the 9 extra lines are all 072 seed rows
+  # (OR IGNORE): metric_def chest_cm waist_cm hip_cm shoulder_width_cm
+  # inseam_cm arm_length_cm foot_length_mm (entity/observed, domain health)
+  # and unit cm|length, mm|length. Same class as 064's `bpm` row: the pour
+  # copies meal measures (kcal/g), so it never names a body-measurement
+  # metric or a length unit. ledger_constraint: identical. 072 otherwise adds
+  # taste_mark / owned_item / owned_item_measure and
+  # shop_category.spend_category_id -- none read by this module.
+  #
+  # 71, re-measured 2026-10-07 before the number moved (70 -> 71). Built a
+  # fresh DB from the kit's schema.sql at 70 (b1524e3) and at 71 (main
+  # 141e69e) and dumped the declared surface the same way (DDL, pragma
+  # table_info and every row of the 4 tables + 6 vocab tables, every
+  # view/trigger/index naming block/measure/metric_def, ledger_constraint DDL
+  # and rows): 697 lines each, identical but for the user_version line. 071
+  # (module_shopping P1) adds the shop_* tables and widens the
+  # near_match_refusal.domain CHECK -- none read by this module.
+  #
+  # 70, re-measured 2026-10-07 before the number moved (65 -> 70). Built a
+  # fresh DB from the kit's schema.sql at 65 (5782030) and at 70 (main
+  # b1524e3) and dumped the declared surface the same way (DDL, pragma
+  # table_info and every row of the 4 tables + 6 vocab tables, every
+  # view/trigger naming block/measure/metric_def): 755 lines each, identical
+  # but for the user_version line. ledger_constraint (calorie_gate.py):
+  # DDL and 15 rows identical. 066-070 touch place_coord, place_hours,
+  # profile_keep (+ two config triggers), map_region/place_region and
+  # routine_def -- none read by this module.
+  #
+  # 65, re-measured 2026-10-02 before the number moved (64 -> 65). Built a
+  # fresh DB from the kit's schema.sql at 64 (7303243) and at 65 (main
+  # 5782030) and dumped the declared surface the same way (sqlite_master DDL
+  # of the 4 tables + 6 vocab tables, every row of each, every view/trigger
+  # naming block/measure/metric_def): 753 lines each, byte-IDENTICAL. 065 is
+  # data-only -- six goal_metric_source seed rows (INSERT OR IGNORE), no
+  # table/column/trigger change -- and goal_metric_source is not read here.
+  #
+  # 64, re-measured 2026-09-30 before the number moved (56 -> 64). Built a
+  # fresh DB from the kit's schema.sql at 56 (cd1e441) and at 64 (main
+  # 7303243) and diffed the same declared surface (DDL of every object on the
+  # 4 tables + 6 vocab tables, every seeded row). TWO differences, both from
+  # 059 (shared intake layer): (a) two triggers on `block` --
+  # intake_block_delete (BEFORE DELETE) and intake_block_edited (AFTER UPDATE
+  # OF date, title). The pour below only INSERTs named columns, so neither
+  # fires on it. (b) one new `unit` vocab row `bpm|frequency|seed`; the pour
+  # copies meal measures (kcal/g), so it never names it. block, block_attr,
+  # measure, metric_def and the other 5 vocab tables: byte-identical.
+  # 060-064 touch food names, workout_sets, workouts, the muscle maps and
+  # workout_types -- none read by this module.
+  #
+  # 56, re-measured 2026-09-26 before the number moved (47 -> 56). Built a
+  # fresh DB from the kit's schema.sql at 47 (ef7d55b) and at 56 (main
+  # cd1e441) and diffed the declared surface -- DDL, pragma table_info and
+  # every seeded row of the 4 tables + 6 vocab tables, plus every view /
+  # trigger that names them. ONE difference: 052_daily_retro_state added
+  # `block.retro_line TEXT` (nullable, no default, no FK, no index; NULL means
+  # "no retro line was ever taken on this event"). This module has no SQL on
+  # `block` and the pour below inserts named columns, so a poured meal block
+  # takes NULL -- the kit's own meaning for every pre-052 row. The 6 vocab
+  # tables, block_attr, measure and metric_def: byte-identical. Excluded
+  # `place` gained 050's address/sub-place triggers; excluded, not poured.
+  # 048-056 otherwise touch meal_lookup_receipt, text/time tables, ui_label,
+  # routine_def, carry_item, life_why, metric_axis, pain_event,
+  # workout_types -- none read by this module (calorie_gate.py reads
+  # ledger_constraint only; its DDL and keys are identical at 47 and 56).
+  #
+  # 47 was likewise a VERIFIED claim, not a silenced verdict. The kit landed 47
+  # (047_pain_event) on 2026-09-12 and this module's shape was re-measured
+  # against it before the number moved: the declared surface below -- 4 tables
+  # + 6 vocab tables, DDL and seeded rows -- diffs BYTE-IDENTICAL between
+  # schema.sql at 46 and at 47, and identical again against the installed kit
+  # at user_version 47. 047 adds one table (pain_event), three indexes and two
+  # views and touches nothing here.
+  #   Do NOT edit this number to make a `mismatch` verdict go away. The suite
+  # claim M2 in service/health/tests/test-diet-coaching.py re-runs both halves
+  # of that check on every run, so a future kit bump turns a suite RED with the
+  # re-verification instruction instead of printing a verdict into a void.
+  schema_version: 74
+  verified_against: "kit_life pack/kit_life/v2.46.0-dev.8 a2eb01e (EXPECTED_USER_VERSION=74, kit 2.46.0-dev.8, 074_consult_anchor), 2026-10-09"
+  mode: linked
+  tables:
+    - block
+    - block_attr
+    - measure
+    - metric_def
+  vocab:
+    - block_kind
+    - block_outcome
+    - provenance
+    - settle_verdict
+    - unit
+    - generator
+  excluded:
+    - place
+    - place_link
+    - entity
+  identity_column: block.ulid
+  migration_point: kitmode.py

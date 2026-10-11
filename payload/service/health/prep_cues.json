@@ -1,0 +1,809 @@
+{
+ "_doc": "Per-drill coaching data for prep/cooldown drills, keyed by the prep.yaml drill code (= movement_catalog key). rep_unit says what ONE counted rep (or one side) is -- one fixed definition, never 'either'. steps are performed in order (1. 2. 3.); a single-action drill has exactly one step. fault is the one common mistake. '{n}' in rep_unit is filled with the prescribed count/seconds at render time. A prep.yaml drill may override any field with its own steps/fault/rep_unit. A drill may carry its own `dose` ({unit: format}) when its count word is not the generic one (bear crawl counts steps per side, halo / arm circles count per direction -- kimwog exercise 741); it overrides `format` for that drill. Read by prep_cues.py; linted by tests/test-mat-prep-replay.py. `format` holds the dose header per language; per_side always states both sides (owner 2026-10-08).",
+ "format": {
+  "ko": {
+   "reps": "%d회",
+   "per_side": "좌우 각 %d회",
+   "sec": "%d초",
+   "sec_sets": "%d초 x %d",
+   "implement": "도구: %s",
+   "item": "{n}번째는 **{item}**예요."
+  },
+  "en": {
+   "reps": "%d reps",
+   "per_side": "%d each side",
+   "sec": "%ds",
+   "sec_sets": "%ds x %d",
+   "implement": "Equipment: %s",
+   "item": "Item {n}: **{item}**."
+  }
+ },
+ "drills": {
+  "roll_down": {
+   "ko": {
+    "rep_unit": "1회 = 앉은 자세에서 뒤로 말아 내려갔다가 다시 앉은 자세로 돌아오기까지",
+    "steps": [
+     "매트에 앉아 무릎을 세우고 팔을 앞으로 뻗어요 (서서 하는 동작이 아니에요).",
+     "숨을 내쉬며 꼬리뼈부터 척추를 하나씩 말아 등 가운데까지 천천히 뒤로 내려가요.",
+     "배에 힘을 주고 척추를 하나씩 말아 다시 앉은 자세로 올라와요."
+    ],
+    "fault": "반동으로 튕겨 올라오거나 등을 일자로 편 채 넘어가지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = from seated, roll back down and return to seated",
+    "steps": [
+     "Sit on the mat, knees bent, arms reaching forward (this is NOT a standing drill).",
+     "Exhale and roll back one vertebra at a time, tailbone first, to mid-back.",
+     "Brace the abs and roll back up one vertebra at a time to sitting."
+    ],
+    "fault": "Do not bounce up with momentum or fall back with a flat, stiff back."
+   }
+  },
+  "bear_crawl": {
+   "ko": {
+    "rep_unit": "1회 = 1걸음: 반대쪽 손과 발(예: 오른손+왼발)을 함께 한 번 옮기기. 좌우 각 {n}걸음",
+    "steps": [
+     "네발기기에서 손은 어깨 아래, 무릎은 골반 아래에 두고 무릎을 바닥에서 2~3cm 띄워요.",
+     "오른손과 왼발을 같이 한 뼘 앞으로 옮겨요. 이게 1걸음이에요.",
+     "왼손과 오른발을 같이 옮겨요(반대쪽 1걸음). 좌우 번갈아 각 {n}걸음씩 채워요."
+    ],
+    "fault": "엉덩이가 높이 들리거나 무릎이 바닥에 닿지 않게, 등은 평평하게 유지하세요.",
+    "dose": {
+     "reps": "좌우 %d걸음씩",
+     "per_side": "좌우 %d걸음씩"
+    }
+   },
+   "en": {
+    "rep_unit": "1 rep = 1 step: an opposite hand and foot (e.g. right hand + left foot) moving together. {n} steps each side",
+    "steps": [
+     "On all fours, hands under shoulders, knees under hips; lift the knees 2-3 cm off the floor.",
+     "Move the right hand and left foot forward together, one hand-length. That is 1 step.",
+     "Move the left hand and right foot together (1 step on the other side). Alternate until each side has {n} steps."
+    ],
+    "fault": "Keep the back flat: no hips high in the air, no knees touching the floor.",
+    "dose": {
+     "reps": "%d steps each side",
+     "per_side": "%d steps each side"
+    }
+   }
+  },
+  "cat_cow": {
+   "ko": {
+    "rep_unit": "1회 = 등 말기(캣) + 등 펴기(카우) 한 쌍",
+    "steps": [
+     "손은 어깨 아래, 무릎은 골반 아래에 두고 네발기기 자세를 잡아요.",
+     "숨을 내쉬며 등을 천장 쪽으로 둥글게 말고 턱을 당겨요.",
+     "숨을 들이쉬며 가슴을 앞으로 내밀고 등을 펴요."
+    ],
+    "fault": "목만 꺾지 말고 꼬리뼈부터 척추 전체를 움직이세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one round back (cat) + one arched back (cow)",
+    "steps": [
+     "On all fours, hands under shoulders, knees under hips.",
+     "Exhale: round the back up toward the ceiling and tuck the chin.",
+     "Inhale: open the chest forward and let the back arch."
+    ],
+    "fault": "Do not move only the neck; move the whole spine from the tailbone."
+   }
+  },
+  "thoracic_rotation": {
+   "ko": {
+    "rep_unit": "1회 = 팔꿈치를 아래로 넣었다가 천장 쪽으로 열기까지 (한쪽). 좌우 각 {n}회",
+    "steps": [
+     "네발기기에서 한 손을 머리 뒤에 대요.",
+     "그 팔꿈치를 반대쪽 팔 아래로 넣었다가 가슴을 열며 천장 쪽으로 돌려요.",
+     "정한 횟수를 채운 뒤 손을 바꿔요."
+    ],
+    "fault": "엉덩이가 옆으로 빠지지 않게 골반은 고정하고 등만 돌리세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = elbow tucked under, then opened to the ceiling (one side). {n} each side",
+    "steps": [
+     "On all fours, place one hand behind the head.",
+     "Tuck that elbow under the other arm, then rotate it open toward the ceiling.",
+     "Finish the reps, then switch hands."
+    ],
+    "fault": "Keep the hips still; only the upper back rotates."
+   }
+  },
+  "shoulder_circles": {
+   "ko": {
+    "rep_unit": "1회 = 양팔을 함께 원 하나. 방향별 {n}회: 앞으로 {n}회 그린 뒤 뒤로 {n}회",
+    "steps": [
+     "양팔을 어깨 높이로 옆으로 쭉 펴요.",
+     "작은 원으로 시작해 점점 크게 앞으로 원을 그려요.",
+     "같은 횟수만큼 뒤로 그려요."
+    ],
+    "fault": "어깨를 귀 쪽으로 으쓱 올리지 마세요.",
+    "dose": {
+     "reps": "방향별 %d회",
+     "per_side": "방향별 %d회"
+    }
+   },
+   "en": {
+    "rep_unit": "1 rep = one circle, both arms together. {n} each direction: {n} forward, then {n} backward",
+    "steps": [
+     "Reach both arms out to the sides at shoulder height.",
+     "Draw forward circles, starting small and growing bigger.",
+     "Draw the same number backward."
+    ],
+    "fault": "Do not shrug the shoulders up toward the ears.",
+    "dose": {
+     "reps": "%d each direction",
+     "per_side": "%d each direction"
+    }
+   }
+  },
+  "wrist_circles": {
+   "ko": {
+    "rep_unit": "1회 = 손목으로 원 하나. 좌우 각 {n}회 = 한 방향 {n}회 + 반대 방향 {n}회",
+    "steps": [
+     "양손 깍지를 끼고 손목으로 천천히 원을 그려요. 한 방향 횟수를 채우면 반대 방향으로 돌려요."
+    ],
+    "fault": "아픈 범위까지 억지로 돌리지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one wrist circle. {n} each way = {n} one direction + {n} the other",
+    "steps": [
+     "Interlace the fingers and slowly circle the wrists; finish one direction, then reverse."
+    ],
+    "fault": "Do not force the circle into a painful range."
+   }
+  },
+  "hip_knee_mobility": {
+   "ko": {
+    "rep_unit": "1회 = 두 무릎을 한쪽으로 넘기기 한 번. 좌우 각 {n}회",
+    "steps": [
+     "바닥에 앉아 손을 뒤에 짚고 발을 골반보다 넓게 둬요.",
+     "두 무릎을 같은 쪽으로 넘겨 앞다리와 뒷다리가 모두 90도가 되게 해요.",
+     "반대쪽으로 천천히 넘겨요."
+    ],
+    "fault": "반동으로 넘기지 말고, 무릎이 아프면 범위를 줄이세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = both knees dropped to one side once. {n} each side",
+    "steps": [
+     "Sit with hands behind you and feet wider than the hips.",
+     "Drop both knees to one side so front and back legs are both at 90 degrees.",
+     "Slowly switch to the other side."
+    ],
+    "fault": "Do not throw the knees over with momentum; shorten the range if a knee hurts."
+   }
+  },
+  "ankle_mobility": {
+   "ko": {
+    "rep_unit": "1회 = 무릎이 벽에 닿았다가 다시 펴지기까지 (한쪽 다리). 좌우 각 {n}회",
+    "steps": [
+     "벽을 마주 보고 한 발을 벽에서 한 뼘 앞에 둬요.",
+     "발뒤꿈치를 바닥에 붙인 채 무릎을 둘째 발가락 방향으로 밀어 벽에 닿게 해요.",
+     "다시 무릎을 펴고, 횟수를 채운 뒤 다리를 바꿔요."
+    ],
+    "fault": "발뒤꿈치가 뜨거나 무릎이 안쪽으로 무너지지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = knee touches the wall and straightens again (one leg). {n} each side",
+    "steps": [
+     "Face a wall with one foot a hand-length away from it.",
+     "Keeping the heel down, drive the knee over the second toe to touch the wall.",
+     "Straighten back up; finish the reps, then switch legs."
+    ],
+    "fault": "Do not let the heel lift or the knee cave inward."
+   }
+  },
+  "leg_swing": {
+   "ko": {
+    "rep_unit": "1회 = 다리가 앞으로 갔다가 뒤로 돌아오는 왕복 한 번 (한쪽 다리). 좌우 각 {n}회",
+    "steps": [
+     "벽이나 기둥을 옆에 두고 한 손으로 잡아요.",
+     "바깥쪽 다리를 앞뒤로 편하게 흔들며 점점 범위를 넓혀요.",
+     "횟수를 채우면 돌아서서 반대 다리를 해요."
+    ],
+    "fault": "상체가 같이 흔들리거나 허리를 젖히지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one swing forward and back (one leg). {n} each side",
+    "steps": [
+     "Stand side-on to a wall or post and hold it with one hand.",
+     "Swing the outside leg forward and back, widening the range gradually.",
+     "Finish the reps, turn around and swing the other leg."
+    ],
+    "fault": "Do not let the torso swing along or the lower back arch."
+   }
+  },
+  "worlds_greatest_stretch": {
+   "ko": {
+    "rep_unit": "1회 = 런지, 팔꿈치 내리기, 팔 천장으로 돌리기 한 사이클 (한쪽). 좌우 각 {n}회",
+    "steps": [
+     "오른발을 앞으로 크게 내딛어 런지 자세를 잡고 왼손을 바닥에 짚어요.",
+     "오른 팔꿈치를 오른발 안쪽 바닥 쪽으로 내려요.",
+     "오른손을 천장으로 뻗으며 가슴을 열고, 돌아와 반대쪽(왼발 런지)으로 바꿔요. 좌우 번갈아 각 {n}회."
+    ],
+    "fault": "앞무릎이 안으로 무너지거나 뒷무릎이 바닥에 털썩 닿지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = lunge, elbow down, arm rotated to the ceiling: one cycle (one side). {n} each side",
+    "steps": [
+     "Step the right foot far forward into a lunge and plant the left hand.",
+     "Lower the right elbow toward the floor inside the right foot.",
+     "Reach the right hand to the ceiling, opening the chest; come back and switch to the other side. Alternate, {n} each side."
+    ],
+    "fault": "Do not let the front knee cave in or the back knee drop onto the floor."
+   }
+  },
+  "hamstring_sweep": {
+   "ko": {
+    "rep_unit": "1회 = 숙이며 쓸어내렸다가 다시 일어나기 한 번 (한쪽 발 앞). 좌우 각 {n}회",
+    "steps": [
+     "한 발을 반 걸음 앞에 두고 발끝을 들어요.",
+     "등을 편 채 엉덩이를 뒤로 빼며 양손을 발끝 쪽으로 쓸어내려요.",
+     "일어나며 양팔을 위로 올리고, 횟수를 채우면 발을 바꿔요."
+    ],
+    "fault": "등을 둥글게 말지 말고 엉덩이를 접어서 숙이세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one sweep down and back up (one foot forward). {n} each side",
+    "steps": [
+     "Put one foot half a step forward and lift its toes.",
+     "With a flat back, push the hips back and sweep both hands toward the toes.",
+     "Stand up raising both arms; finish the reps, switch feet."
+    ],
+    "fault": "Do not round the back; fold at the hips."
+   }
+  },
+  "hip_flexor_stretch": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "한쪽 무릎을 매트에 대고 반대 발은 앞에 둬요.",
+     "골반을 살짝 말아 넣고 엉덩이를 조여요.",
+     "몸을 앞으로 조금 옮겨 뒷다리 고관절 앞이 당기게 유지하고 다리를 바꿔요."
+    ],
+    "fault": "허리를 젖혀서 늘리지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Kneel on one knee with the other foot in front.",
+     "Tuck the pelvis slightly and squeeze the glute.",
+     "Shift forward a little until the front of the back hip stretches; hold, then switch."
+    ],
+    "fault": "Do not arch the lower back to get the stretch."
+   }
+  },
+  "stretch_hip_flexors": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "한쪽 무릎을 매트에 대고 반대 발은 앞에 둬요.",
+     "골반을 살짝 말아 넣고 엉덩이를 조여요.",
+     "몸을 앞으로 조금 옮겨 뒷다리 고관절 앞이 당기게 유지하고 다리를 바꿔요."
+    ],
+    "fault": "허리를 젖혀서 늘리지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Kneel on one knee with the other foot in front.",
+     "Tuck the pelvis slightly and squeeze the glute.",
+     "Shift forward a little until the front of the back hip stretches; hold, then switch."
+    ],
+    "fault": "Do not arch the lower back to get the stretch."
+   }
+  },
+  "sleeper_stretch": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "옆으로 누워 아래쪽 팔을 어깨 높이로 앞으로 두고 팔꿈치를 90도로 굽혀요.",
+     "위 손으로 아래 손목을 잡고 손바닥을 바닥 쪽으로 천천히 눌러 유지해요.",
+     "몸을 돌려 반대쪽도 해요."
+    ],
+    "fault": "어깨 앞이 찌릿하면 즉시 멈추고 범위를 줄이세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Lie on your side, bottom arm forward at shoulder height, elbow bent to 90 degrees.",
+     "With the top hand, slowly press the bottom palm toward the floor and hold.",
+     "Roll over and do the other side."
+    ],
+    "fault": "Stop at once and reduce the range if the front of the shoulder pinches."
+   }
+  },
+  "stretch_quads": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "벽이나 기둥을 한 손으로 잡고 서요.",
+     "반대 손으로 같은 쪽 발목을 잡아 뒤꿈치를 엉덩이 쪽으로 당겨요.",
+     "무릎이 바닥을 향하게 두고 유지한 뒤 다리를 바꿔요."
+    ],
+    "fault": "허리를 젖히지 말고 골반을 살짝 말아 넣으세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Stand holding a wall or post with one hand.",
+     "With the other hand, take the same-side ankle and pull the heel toward the glute.",
+     "Keep the knee pointing down, hold, then switch legs."
+    ],
+    "fault": "Do not arch the lower back; tuck the pelvis slightly."
+   }
+  },
+  "stretch_hamstrings": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "한 발을 앞에 놓고 발끝을 들어요.",
+     "등을 편 채 엉덩이를 뒤로 빼며 상체를 숙여 허벅지 뒤가 당기게 해요.",
+     "유지한 뒤 다리를 바꿔요."
+    ],
+    "fault": "손을 발에 닿게 하려고 등을 둥글게 말지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Put one foot forward and lift its toes.",
+     "With a flat back, push the hips back and lean until the back of the thigh stretches.",
+     "Hold, then switch legs."
+    ],
+    "fault": "Do not round the back trying to touch the foot."
+   }
+  },
+  "stretch_glutes": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "누워 무릎을 세워요.",
+     "한쪽 발목을 반대쪽 무릎 위에 올려요.",
+     "아래 다리 허벅지를 잡고 가슴 쪽으로 당겨 유지한 뒤 바꿔요."
+    ],
+    "fault": "머리와 어깨를 들지 말고 바닥에 둔 채 당기세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Lie on your back with knees bent.",
+     "Cross one ankle over the opposite knee.",
+     "Hold the bottom thigh and pull it toward the chest; hold, then switch."
+    ],
+    "fault": "Keep the head and shoulders on the floor while pulling."
+   }
+  },
+  "stretch_calves": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "벽을 두 손으로 짚고 한 발을 뒤로 크게 빼요.",
+     "뒷발 뒤꿈치를 바닥에 누르고 무릎을 편 채 몸을 벽 쪽으로 기울여요.",
+     "유지한 뒤 다리를 바꿔요."
+    ],
+    "fault": "뒷발 뒤꿈치가 뜨거나 발끝이 바깥을 향하지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Put both hands on a wall and step one foot far back.",
+     "Press the back heel down and, knee straight, lean toward the wall.",
+     "Hold, then switch legs."
+    ],
+    "fault": "Do not let the back heel lift or the toes turn out."
+   }
+  },
+  "stretch_shoulders": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "한 팔을 가슴 앞으로 가로질러 반대 손으로 팔꿈치 위를 잡고 당겨 유지한 뒤 팔을 바꿔요."
+    ],
+    "fault": "어깨를 들어 올리지 말고 내린 채 당기세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Bring one arm across the chest, hold it above the elbow with the other hand and pull; hold, then switch."
+    ],
+    "fault": "Keep the shoulder down; do not hike it up while pulling."
+   }
+  },
+  "stretch_triceps": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "한 팔을 머리 위로 올려 팔꿈치를 굽히고, 반대 손으로 팔꿈치를 잡아 뒤로 당겨 유지한 뒤 팔을 바꿔요."
+    ],
+    "fault": "허리를 젖히거나 고개를 숙이지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Raise one arm overhead, bend the elbow, and pull the elbow back with the other hand; hold, then switch."
+    ],
+    "fault": "Do not arch the lower back or drop the head."
+   }
+  },
+  "stretch_forearms": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽 {n}초 유지. 좌우 각 1회",
+    "steps": [
+     "팔을 앞으로 펴고 손바닥을 앞으로 향하게 한 뒤, 반대 손으로 손가락을 몸 쪽으로 당겨 유지하고 팔을 바꿔요."
+    ],
+    "fault": "팔꿈치를 굽히지 말고, 저릴 만큼 세게 당기지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Straighten the arm forward, palm facing out, and pull the fingers back with the other hand; hold, then switch."
+    ],
+    "fault": "Keep the elbow straight and do not pull hard enough to cause tingling."
+   }
+  },
+  "doorway_pec_stretch": {
+   "ko": {
+    "rep_unit": "1회 = {n}초 한 번 유지",
+    "steps": [
+     "문틀에 양 팔꿈치를 어깨 높이로 대요.",
+     "한 발을 앞으로 내딛어 가슴 앞이 당길 때까지 몸을 보내요.",
+     "그 자리에서 유지해요."
+    ],
+    "fault": "어깨가 앞으로 말리거나 허리를 젖히지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold",
+    "steps": [
+     "Place both forearms on a door frame at shoulder height.",
+     "Step one foot through until the front of the chest stretches.",
+     "Hold there."
+    ],
+    "fault": "Do not let the shoulders roll forward or the lower back arch."
+   }
+  },
+  "stretch_chest": {
+   "ko": {
+    "rep_unit": "1회 = {n}초 한 번 유지",
+    "steps": [
+     "문틀에 양 팔꿈치를 어깨 높이로 대요.",
+     "한 발을 앞으로 내딛어 가슴 앞이 당길 때까지 몸을 보내요.",
+     "그 자리에서 유지해요."
+    ],
+    "fault": "어깨가 앞으로 말리거나 허리를 젖히지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold",
+    "steps": [
+     "Place both forearms on a door frame at shoulder height.",
+     "Step one foot through until the front of the chest stretches.",
+     "Hold there."
+    ],
+    "fault": "Do not let the shoulders roll forward or the lower back arch."
+   }
+  },
+  "stretch_lats": {
+   "ko": {
+    "rep_unit": "1회 = {n}초 한 번 유지",
+    "steps": [
+     "무릎을 꿇고 엉덩이를 뒤꿈치 쪽으로 보내며 팔을 앞으로 길게 뻗어 유지해요."
+    ],
+    "fault": "어깨를 귀 쪽으로 으쓱하지 말고, 무릎이 아프면 엉덩이를 덜 내리세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold",
+    "steps": [
+     "Kneel, sit the hips back toward the heels and reach the arms long in front; hold."
+    ],
+    "fault": "Do not shrug the shoulders; if the knees hurt, sit back less."
+   }
+  },
+  "adductor_squeeze": {
+   "ko": {
+    "rep_unit": "1회 = {n}초 동안 조인 채 한 번 버티기",
+    "steps": [
+     "바닥에 누워 무릎을 세우고 무릎 사이에 공(또는 접은 폼롤러)을 끼워요.",
+     "숨을 내쉬며 무릎으로 공을 가볍게(60% 힘) 조여요.",
+     "조인 채 숨을 고르게 쉬다가 천천히 풀어요."
+    ],
+    "fault": "숨을 참거나 허리를 바닥에서 띄우지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second squeeze, held without letting go",
+    "steps": [
+     "Lie on your back, knees bent, a ball (or folded foam roller) between the knees.",
+     "Exhale and squeeze the ball gently with the knees (about 60% effort).",
+     "Keep squeezing while breathing evenly, then release slowly."
+    ],
+    "fault": "Do not hold your breath or lift the lower back off the floor."
+   }
+  },
+  "glute_bridge": {
+   "ko": {
+    "rep_unit": "1회 = 엉덩이를 들었다가 바닥에 내려놓기까지",
+    "steps": [
+     "누워 무릎을 세우고 발을 골반 너비로 둬요.",
+     "발뒤꿈치로 바닥을 밀며 엉덩이를 들어 어깨-골반-무릎을 일직선으로 만들어요.",
+     "위에서 1초 조였다가 천천히 내려요."
+    ],
+    "fault": "허리를 꺾어 높이 들지 말고 엉덩이 힘으로만 올리세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = hips lifted and lowered back to the floor",
+    "steps": [
+     "Lie on your back, knees bent, feet hip-width apart.",
+     "Drive through the heels and lift the hips until shoulders, hips and knees line up.",
+     "Squeeze for 1 second at the top, then lower slowly."
+    ],
+    "fault": "Do not arch the lower back to get higher; lift with the glutes only."
+   }
+  },
+  "band_external_rotation": {
+   "ko": {
+    "rep_unit": "1회 = 손이 바깥으로 갔다가 배 앞으로 돌아오기까지 (한쪽 팔). 좌우 각 {n}회",
+    "steps": [
+     "밴드를 팔꿈치 높이에 걸고 옆으로 서서 먼 쪽 손으로 잡아요.",
+     "팔꿈치를 옆구리에 붙이고 90도로 굽혀요.",
+     "팔꿈치는 그대로 두고 손만 바깥으로 돌렸다가 천천히 돌아와요."
+    ],
+    "fault": "팔꿈치가 옆구리에서 떨어지거나 몸통이 같이 돌지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = hand rotated out and back to the belly (one arm). {n} each side",
+    "steps": [
+     "Anchor the band at elbow height, stand side-on and hold it in the far hand.",
+     "Pin the elbow to your side, bent at 90 degrees.",
+     "Keeping the elbow still, rotate the hand outward, then return slowly."
+    ],
+    "fault": "Do not let the elbow leave your side or the torso turn with it."
+   }
+  },
+  "cable_external_rotation": {
+   "ko": {
+    "rep_unit": "1회 = 손이 바깥으로 갔다가 배 앞으로 돌아오기까지 (한쪽 팔). 좌우 각 {n}회",
+    "steps": [
+     "케이블 손잡이를 팔꿈치 높이에 맞추고 옆으로 서서 먼 쪽 손으로 잡아요.",
+     "팔꿈치를 옆구리에 붙이고 90도로 굽혀요.",
+     "팔꿈치는 그대로 두고 손만 바깥으로 돌렸다가 천천히 돌아와요."
+    ],
+    "fault": "팔꿈치가 옆구리에서 떨어지거나 몸통이 같이 돌지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = hand rotated out and back to the belly (one arm). {n} each side",
+    "steps": [
+     "Set the cable handle at elbow height, stand side-on and hold it in the far hand.",
+     "Pin the elbow to your side, bent at 90 degrees.",
+     "Keeping the elbow still, rotate the hand outward, then return slowly."
+    ],
+    "fault": "Do not let the elbow leave your side or the torso turn with it."
+   }
+  },
+  "dead_bug": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽(오른팔+왼다리) 뻗었다 돌아오기. 좌우 각 {n}회",
+    "steps": [
+     "누워 팔을 천장으로 들고 무릎을 90도로 들어 올려요.",
+     "허리를 바닥에 붙인 채 숨을 내쉬며 오른팔과 왼다리를 바닥 가까이 뻗어요.",
+     "제자리로 돌아와 반대쪽(왼팔+오른다리)을 해요."
+    ],
+    "fault": "허리가 바닥에서 뜨면 범위를 줄이세요. 허리 아치가 가장 흔한 실수예요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one side (right arm + left leg) extended and back. {n} each side",
+    "steps": [
+     "Lie on your back, arms to the ceiling, knees lifted to 90 degrees.",
+     "Keeping the lower back down, exhale and extend the right arm and left leg toward the floor.",
+     "Return, then do the other side (left arm + right leg)."
+    ],
+    "fault": "If the lower back lifts, shorten the reach; an arched back is the most common mistake."
+   }
+  },
+  "bird_dog": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽(오른팔+왼다리) 뻗어 5초 버텼다 돌아오기. 좌우 각 {n}회",
+    "steps": [
+     "네발기기에서 등을 평평하게 해요.",
+     "오른팔과 왼다리를 바닥과 평행하게 뻗어 5초 버텨요.",
+     "돌아와 반대쪽(왼팔+오른다리)을 해요."
+    ],
+    "fault": "다리를 높이 차올려 허리가 꺾이지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one side (right arm + left leg) extended, held 5 seconds and back. {n} each side",
+    "steps": [
+     "On all fours, make the back flat.",
+     "Reach the right arm and left leg out parallel to the floor and hold 5 seconds.",
+     "Return, then do the other side (left arm + right leg)."
+    ],
+    "fault": "Do not kick the leg high and arch the lower back."
+   }
+  },
+  "pallof_press": {
+   "ko": {
+    "rep_unit": "1회 = 가슴 앞에서 밀었다가 가슴으로 당겨오기까지 (한 방향). 좌우 각 {n}회",
+    "steps": [
+     "밴드를 가슴 높이에 걸고 옆으로 서서 두 손으로 손잡이를 가슴에 대요.",
+     "몸통이 돌아가지 않게 버티며 팔을 앞으로 곧게 밀어 2초 멈춰요.",
+     "천천히 가슴으로 가져오고, 횟수를 채우면 방향을 바꿔요."
+    ],
+    "fault": "밴드 쪽으로 몸통이 돌아가거나 어깨가 들리지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = press out from the chest and back in (one direction). {n} each side",
+    "steps": [
+     "Anchor the band at chest height, stand side-on, both hands on the handle at the chest.",
+     "Resisting rotation, press the arms straight out and pause 2 seconds.",
+     "Bring it back slowly; finish the reps, then face the other way."
+    ],
+    "fault": "Do not let the torso twist toward the band or the shoulders hike up."
+   }
+  },
+  "side_plank": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽으로 {n}초 버티기. 좌우 각 1회",
+    "steps": [
+     "옆으로 누워 팔꿈치를 어깨 바로 아래에 둬요.",
+     "골반을 들어 머리-골반-발목을 일직선으로 만들어요.",
+     "정한 시간을 버틴 뒤 반대쪽도 해요."
+    ],
+    "fault": "골반이 아래로 처지거나 뒤로 빠지지 않게 하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Lie on your side with the elbow directly under the shoulder.",
+     "Lift the hips so head, hips and ankles form a straight line.",
+     "Hold for the time, then do the other side."
+    ],
+    "fault": "Do not let the hips sag or drift backward."
+   }
+  },
+  "copenhagen_plank": {
+   "ko": {
+    "rep_unit": "1회 = 한쪽으로 {n}초 버티기. 좌우 각 1회",
+    "steps": [
+     "벤치 옆에 옆으로 누워 위쪽 다리의 무릎 안쪽(익숙하면 발목)을 벤치에 올려요.",
+     "팔꿈치로 바닥을 밀며 골반을 들어 몸을 일직선으로 만들어요.",
+     "정한 시간을 버틴 뒤 반대쪽도 해요."
+    ],
+    "fault": "골반이 아래로 처지지 않게 하고, 사타구니가 아프면 바로 내려오세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = one {n}-second hold on one side. 1 each side",
+    "steps": [
+     "Lie on your side next to a bench and rest the top leg's inner knee (or ankle, once used to it) on the bench.",
+     "Push through the elbow and lift the hips so the body is a straight line.",
+     "Hold for the time, then do the other side."
+    ],
+    "fault": "Do not let the hips sag; come down at once if the groin hurts."
+   }
+  },
+  "band_pull_apart": {
+   "ko": {
+    "rep_unit": "1회 = 밴드를 벌렸다가 가슴 앞으로 돌아오기까지",
+    "steps": [
+     "밴드를 어깨너비로 잡고 팔을 가슴 높이로 앞으로 뻗어요.",
+     "팔꿈치를 편 채 밴드가 가슴에 닿을 때까지 양손을 옆으로 벌려요.",
+     "천천히 돌아와요."
+    ],
+    "fault": "어깨를 으쓱 올리거나 허리를 젖혀서 당기지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = band pulled apart and returned in front of the chest",
+    "steps": [
+     "Hold the band shoulder-width apart, arms straight out at chest height.",
+     "With straight elbows, pull the hands apart until the band touches the chest.",
+     "Return slowly."
+    ],
+    "fault": "Do not shrug or lean back to pull the band."
+   }
+  },
+  "bodyweight_good_morning": {
+   "ko": {
+    "rep_unit": "1회 = 상체를 숙였다가 다시 서기까지",
+    "steps": [
+     "발을 골반 너비로 서서 손을 가슴에 모아요.",
+     "무릎을 살짝 굽히고 등을 편 채 엉덩이를 뒤로 빼며 상체를 숙여요.",
+     "허벅지 뒤가 당기면 엉덩이를 앞으로 밀어 일어나요."
+    ],
+    "fault": "등을 둥글게 말지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = lean forward and stand back up",
+    "steps": [
+     "Stand feet hip-width apart, hands on the chest.",
+     "Soft knees and a flat back: push the hips back and lean the torso forward.",
+     "When the back of the thighs pulls, drive the hips forward to stand."
+    ],
+    "fault": "Do not round the back."
+   }
+  },
+  "band_good_morning": {
+   "ko": {
+    "rep_unit": "1회 = 상체를 숙였다가 다시 서기까지",
+    "steps": [
+     "밴드를 두 발로 밟고 반대쪽 고리를 목 뒤 어깨 위에 걸어요.",
+     "무릎을 살짝 굽히고 등을 편 채 엉덩이를 뒤로 빼며 상체를 숙여요.",
+     "엉덩이를 앞으로 밀며 일어나요."
+    ],
+    "fault": "등을 둥글게 말지 마세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = lean forward and stand back up",
+    "steps": [
+     "Stand on the band and loop the other end behind the neck, over the shoulders.",
+     "Soft knees and a flat back: push the hips back and lean the torso forward.",
+     "Drive the hips forward to stand."
+    ],
+    "fault": "Do not round the back."
+   }
+  },
+  "hip_hinge_drill": {
+   "ko": {
+    "rep_unit": "1회 = 엉덩이로 벽을 터치하고 다시 서기까지",
+    "steps": [
+     "벽을 등지고 발 한 개 길이만큼 앞에 서요.",
+     "등을 편 채 엉덩이를 뒤로 빼서 벽을 가볍게 터치해요.",
+     "엉덩이를 앞으로 밀며 일어나요."
+    ],
+    "fault": "무릎을 많이 굽혀 스쿼트처럼 앉지 말고 엉덩이를 뒤로 보내세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = touch the wall with the hips and stand back up",
+    "steps": [
+     "Stand with your back to a wall, one foot-length in front of it.",
+     "With a flat back, push the hips back to lightly touch the wall.",
+     "Drive the hips forward to stand."
+    ],
+    "fault": "Do not bend the knees into a squat; send the hips back."
+   }
+  },
+  "hip_adduction_machine": {
+   "ko": {
+    "rep_unit": "1회 = 패드를 모았다가 벌린 자리로 돌아오기까지",
+    "steps": [
+     "가벼운 무게를 꽂고 머신에 등을 붙여 앉아요.",
+     "무릎 안쪽 패드를 천천히 모아요.",
+     "2초에 걸쳐 천천히 벌려 돌아와요."
+    ],
+    "fault": "무게를 놓아 패드가 쾅 벌어지지 않게 끝까지 통제하세요."
+   },
+   "en": {
+    "rep_unit": "1 rep = pads squeezed together and returned to the open position",
+    "steps": [
+     "Set a light weight and sit with your back against the pad.",
+     "Slowly bring the inner knee pads together.",
+     "Open back out over 2 seconds."
+    ],
+    "fault": "Do not let the weight slam the pads open; control it all the way."
+   }
+  },
+  "dumbbell_halo": {
+   "ko": {
+    "rep_unit": "1회 = 머리 둘레 한 바퀴. 방향별 {n}회 = 한 방향 {n}바퀴 + 반대 방향 {n}바퀴",
+    "steps": [
+     "{tool}을 두 손으로 가슴 앞에 잡아요.",
+     "머리 둘레로 천천히 한 바퀴 돌려 다시 가슴 앞으로 와요.",
+     "한 방향 횟수를 채우면 반대 방향으로 돌려요."
+    ],
+    "fault": "허리를 젖히거나 고개를 피하지 말고 몸통은 고정하세요.",
+    "tool_default": "가벼운 덤벨(또는 케틀벨)",
+    "dose": {
+     "reps": "방향별 %d회",
+     "per_side": "방향별 %d회"
+    }
+   },
+   "en": {
+    "rep_unit": "1 rep = one lap around the head. {n} each direction = {n} one way + {n} the other",
+    "steps": [
+     "Hold {tool} in both hands in front of the chest.",
+     "Circle it slowly around the head and back to the chest.",
+     "Finish one direction, then reverse."
+    ],
+    "fault": "Do not arch the back or dodge the head; keep the torso still.",
+    "tool_default": "a light dumbbell (or kettlebell)",
+    "dose": {
+     "reps": "%d each direction",
+     "per_side": "%d each direction"
+    }
+   }
+  }
+ }
+}

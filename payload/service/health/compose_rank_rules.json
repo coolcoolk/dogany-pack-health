@@ -1,0 +1,3033 @@
+{
+  "version": 2,
+  "shortlist_k": 5,
+  "session_regions": {
+    "전신": [
+      "chest",
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "상체": [
+      "chest",
+      "back",
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "하체": [
+      "legs",
+      "calves",
+      "core"
+    ],
+    "앞": [
+      "chest",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "뒤": [
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "뒷": [
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "밀기": [
+      "chest",
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "당기기": [
+      "back",
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "가슴": [
+      "chest",
+      "core"
+    ],
+    "등": [
+      "back",
+      "core"
+    ],
+    "어깨·팔": [
+      "shoulders",
+      "arms",
+      "core"
+    ],
+    "어깨": [
+      "shoulders",
+      "core"
+    ],
+    "팔": [
+      "arms",
+      "core"
+    ],
+    "보충": [
+      "chest",
+      "back",
+      "shoulders",
+      "legs",
+      "calves",
+      "arms",
+      "core"
+    ]
+  },
+  "session_excluded_muscles": {
+    "앞": [
+      "hamstrings",
+      "triceps",
+      "glutes",
+      "adductors",
+      "calves"
+    ],
+    "뒤": [
+      "quads",
+      "biceps",
+      "adductors",
+      "abs"
+    ],
+    "뒷": [
+      "quads",
+      "biceps",
+      "adductors",
+      "abs"
+    ],
+    "밀기": [
+      "biceps",
+      "forearms"
+    ],
+    "당기기": [
+      "triceps"
+    ]
+  },
+  "rules": [
+    {
+      "id": "equipment",
+      "condition": {
+        "unavailable": true
+      },
+      "effect": {
+        "exclude": true
+      },
+      "reason": "장비 없음"
+    },
+    {
+      "id": "function",
+      "condition": {
+        "functional": true,
+        "tags_any": [
+          "unilateral",
+          "carry",
+          "anti_rotation"
+        ],
+        "slot": "unilateral_practice"
+      },
+      "effect": {
+        "score": 24
+      },
+      "reason": "기능성 연습"
+    },
+    {
+      "id": "size",
+      "condition": {
+        "size": true,
+        "tags_any": [
+          "compound",
+          "isolation"
+        ],
+        "builds_size": true
+      },
+      "effect": {
+        "score": 16
+      },
+      "reason": "근육 볼륨"
+    },
+    {
+      "id": "performance",
+      "condition": {
+        "performance": true,
+        "tags_any": [
+          "barbell_main"
+        ]
+      },
+      "effect": {
+        "score": 18
+      },
+      "reason": "수행 능력"
+    },
+    {
+      "id": "body_composition",
+      "condition": {
+        "body_composition": true,
+        "builds_size": true
+      },
+      "effect": {
+        "score": 6
+      },
+      "reason": "체성분 목표"
+    },
+    {
+      "id": "health",
+      "condition": {
+        "health": true,
+        "tags_any": [
+          "guided",
+          "simple",
+          "carry",
+          "anti_rotation"
+        ]
+      },
+      "effect": {
+        "score": 5
+      },
+      "reason": "건강 기반"
+    },
+    {
+      "id": "novice_guided",
+      "condition": {
+        "novice": true,
+        "tags_any": [
+          "guided",
+          "simple"
+        ]
+      },
+      "effect": {
+        "score": 20
+      },
+      "reason": "안정적인 동작"
+    },
+    {
+      "id": "novice_complex",
+      "condition": {
+        "novice": true,
+        "tags_any": [
+          "complex"
+        ]
+      },
+      "effect": {
+        "score": -24
+      },
+      "reason": "난도 조절"
+    },
+    {
+      "id": "advanced",
+      "condition": {
+        "advanced": true,
+        "tags_any": [
+          "free_compound"
+        ]
+      },
+      "effect": {
+        "score": 12
+      },
+      "reason": "숙련도 활용"
+    },
+    {
+      "id": "focus",
+      "condition": {
+        "focused": true
+      },
+      "effect": {
+        "score": 8
+      },
+      "reason": "집중 부위"
+    },
+    {
+      "id": "equipment_variety",
+      "condition": {
+        "equipment_repeated": true
+      },
+      "effect": {
+        "score": -4
+      },
+      "reason": "주간 장비 반복"
+    },
+    {
+      "id": "unilateral_required",
+      "condition": {
+        "unilateral_required": true
+      },
+      "effect": {
+        "constraint": "unilateral_per_session",
+        "minimum": 1
+      },
+      "reason": "편측 연습 포함"
+    },
+    {
+      "id": "ab_variety",
+      "condition": {},
+      "effect": {
+        "constraint": "different_ab_main"
+      },
+      "reason": "A·B 주동작 다양화"
+    },
+    {
+      "id": "complexity_cap",
+      "condition": {
+        "novice": true
+      },
+      "effect": {
+        "constraint": "complexity_cap",
+        "maximum": 1
+      },
+      "reason": "고난도 동작 제한"
+    },
+    {
+      "id": "grip_variety",
+      "condition": {
+        "grip_alternative": true
+      },
+      "effect": {
+        "score": 12
+      },
+      "reason": "A·B 그립 다양화"
+    },
+    {
+      "id": "ab_grip",
+      "condition": {},
+      "effect": {
+        "constraint": "different_ab_grip"
+      },
+      "reason": "같은 주동작은 가능한 다른 그립"
+    },
+    {
+      "id": "bilateral_default",
+      "condition": {
+        "tags_any": [
+          "unilateral"
+        ],
+        "practice_slot": false,
+        "unilateral_required": true
+      },
+      "effect": {
+        "score": -30
+      },
+      "reason": "편측 연습은 한 종목"
+    }
+  ],
+  "session_slot_patterns": {
+    "doc": "Which movement patterns may fill a muscle's slot in a session family (owner 2026-10-06, front/back arms follow-up). Arms follow the body side: the direct arm work of a front/back day is elbow flexion/extension only, so the day's other side is not loaded through it -- the back day's triceps slot never draws a press or dip (chest + front delts on the back day), the front day's biceps slot never a row or chin. A lift whose PRIMARY muscle is listed here leaves the session's pool unless its pattern is listed.",
+    "앞": {
+      "biceps": [
+        "isolation"
+      ]
+    },
+    "뒤": {
+      "triceps": [
+        "isolation"
+      ]
+    },
+    "뒷": {
+      "triceps": [
+        "isolation"
+      ]
+    }
+  },
+  "session_slot_name_tokens": {
+    "뒤": {
+      "shoulders": [
+        "face_pull",
+        "reverse",
+        "rear_delt"
+      ]
+    },
+    "뒷": {
+      "shoulders": [
+        "face_pull",
+        "reverse",
+        "rear_delt"
+      ]
+    },
+    "당기기": {
+      "shoulders": [
+        "face_pull",
+        "reverse",
+        "rear_delt"
+      ]
+    }
+  },
+  "site_muscles": {
+    "knee": [
+      "quads"
+    ],
+    "shoulder": [
+      "chest",
+      "shoulders"
+    ],
+    "hip": [
+      "glutes"
+    ],
+    "elbow": [
+      "biceps",
+      "triceps"
+    ],
+    "wrist": [
+      "forearms"
+    ],
+    "ankle": [
+      "calves"
+    ],
+    "foot": [
+      "calves"
+    ],
+    "back": [
+      "back_erectors"
+    ],
+    "lower_back": [
+      "back_erectors"
+    ],
+    "plantar": [
+      "calves"
+    ],
+    "calf": [
+      "calves"
+    ],
+    "hamstring": [
+      "hamstrings"
+    ]
+  },
+  "safety_load_rules": [
+    {
+      "condition": {
+        "site": "shoulder",
+        "movement_in": [
+          "rear_delt_isolation",
+          "lateral_raise"
+        ]
+      },
+      "grade": "low"
+    },
+    {
+      "condition": {
+        "site": "shoulder",
+        "pattern": "vertical_push"
+      },
+      "grade": "high"
+    },
+    {
+      "condition": {
+        "site": "knee",
+        "pattern": "squat",
+        "fatigue_in": [
+          "high",
+          "med"
+        ]
+      },
+      "grade": "high"
+    },
+    {
+      "condition": {
+        "site": "knee",
+        "movement": "leg_extension"
+      },
+      "grade": "low"
+    },
+    {
+      "condition": {
+        "fatigue": "high"
+      },
+      "grade": "high"
+    },
+    {
+      "condition": {},
+      "grade": "medium"
+    }
+  ],
+  "session_excluded_patterns": {
+    "앞": [
+      "hinge"
+    ],
+    "뒤": [
+      "squat"
+    ],
+    "뒷": [
+      "squat"
+    ],
+    "상체": [
+      "hinge",
+      "squat"
+    ],
+    "하체A": [
+      "hinge"
+    ]
+  },
+  "region_rule": "All slots including unilateral practice obey session regions and primary-muscle exclusions. Secondary stabilizers do not change the session region.",
+  "main_patterns": {
+    "앞": [
+      "squat"
+    ],
+    "하체": [
+      "squat"
+    ],
+    "뒤": [
+      "hinge"
+    ],
+    "뒷": [
+      "hinge"
+    ],
+    "상체": [
+      "horizontal_push",
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "밀기": [
+      "horizontal_push",
+      "vertical_push"
+    ],
+    "당기기": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "전신": [
+      "squat"
+    ],
+    "하체A": [
+      "squat"
+    ],
+    "하체B": [
+      "hinge"
+    ],
+    "가슴": [
+      "horizontal_push"
+    ],
+    "등": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "어깨·팔": [],
+    "어깨": [],
+    "팔": [],
+    "보충": [
+      "horizontal_pull"
+    ]
+  },
+  "order": {
+    "regions": [
+      "legs",
+      "back",
+      "chest",
+      "shoulders",
+      "calves",
+      "arms",
+      "core"
+    ],
+    "precedence": "main first; compounds large to small; isolations same region order; core last; reject any composition that revisits a region"
+  },
+  "unilateral_cap": {
+    "default": 1,
+    "practice": 1,
+    "caution_main": 1
+  },
+  "availability": {
+    "default": "common",
+    "requirements": {
+      "medicine_ball": [
+        "medicine_ball",
+        "throwing_space"
+      ],
+      "med_ball": [
+        "medicine_ball",
+        "throwing_space"
+      ],
+      "overhead_carry": [
+        "open_floor"
+      ],
+      "turkish": [
+        "open_floor"
+      ],
+      "sled": [
+        "sled",
+        "sled_lane"
+      ],
+      "battle_rope": [
+        "battle_rope",
+        "open_floor"
+      ],
+      "sandbag": [
+        "sandbag",
+        "open_floor"
+      ],
+      "tire_flip": [
+        "tire",
+        "open_floor"
+      ]
+    }
+  },
+  "caution_policy": {
+    "doc": "Owner ruling 2026-09-27, restated 2026-10-04 11:44: a caution site PREPARES, it does not SWAP. A recorded site never lowers a lift's rank and never takes a main or compound lift off the shortlist (the safety_load grade stays a fact for the split screen, not a ranking penalty). It adds the site's prep drills to every session holding a lift that uses the site (split_model.uses_site), caution drills first, inside the prep budget -- the prep runs before the first lift. The ONLY swaps are `substitutions` (site -> {from: to}, owner-approved rows only): `from` leaves the pool, `to` takes its rank, the plan records replaces/for_site and says it in one summary line; nothing is asked. A lift not in the table keeps its place. `notes` are range/load notes on a kept lift (copy: health.plan.caution_note.<lift>), never swaps; their dose caps stay in knee_precedents. r8: intensity_substitutions extends the base rows for recent history/current pain. A destination must also pass the blocked-grade filter; if no safe same-slot candidate exists composition is refused, never relaxed.",
+    "site_prep": {
+      "knee": [
+        "hip_adduction_machine",
+        "ankle_mobility"
+      ],
+      "shoulder": [
+        "cable_external_rotation"
+      ],
+      "elbow": [
+        "cable_external_rotation"
+      ],
+      "wrist": [
+        "wrist_circles"
+      ],
+      "hip": [
+        "hip_knee_mobility"
+      ],
+      "ankle": [
+        "ankle_mobility"
+      ],
+      "foot": [
+        "ankle_mobility"
+      ],
+      "back": [
+        "cat_cow"
+      ],
+      "lower_back": [
+        "cat_cow"
+      ],
+      "plantar": [
+        "ankle_mobility"
+      ],
+      "calf": [
+        "ankle_mobility"
+      ],
+      "hamstring": [
+        "hamstring_sweep"
+      ]
+    },
+    "site_strength_doc": "Targeted strengthening a site adds on every ladder rung that weighs it and keeps prep (caution_care.intensity strengthen: history-old, history-recent, history-unknown, current-load-pain; never mild, never a triaged rung) -- 056 'add, don't only subtract'. It runs in the prep block of the sessions that load the site, after the site's prep drill. plantar / foot: the heavy slow single-leg heel raise of kimwog 055 (Rathleff 2015: 3 s up, 2 s hold, 3 s down). Sites without a graded strengthening row have none yet.",
+    "site_strength": {
+      "plantar": [
+        "single_leg_calf_raise"
+      ],
+      "foot": [
+        "single_leg_calf_raise"
+      ]
+    },
+    "drill_equipment_doc": "Owner 2026-10-06 16:11/16:21: prep and cooldown drills are machine-first. Every prep/cooldown drill names its equipment need: `none` (bodyweight / a wall), a GYM-STANDARD class (machine, cable, dumbbell, barbell, rack, bench, kettlebell_or_dumbbell -- present at any gym place, never asked), or a SMALL TOOL (band, ball, foam_roller, mini_band -- a gym may not have one and the user may or may not carry one). Per site the drill is chosen in this order: the drill the user named in their own safety words (named_drills, any earlier interview counts) > gym standard > bodyweight > a small tool only when the place's tool record or the user's carried tools say it is there. A small tool is never prescribed while unknown. site_prep holds each site's slot heads; prep_variants the same-role alternatives of a head; better_with a small-tool variant that is better than the head, offered in session as ONE swap line while its availability is unknown and taken outright when the tool is known to be there.",
+    "gym_standard": [
+      "machine",
+      "cable",
+      "dumbbell",
+      "barbell",
+      "rack",
+      "bench",
+      "kettlebell_or_dumbbell"
+    ],
+    "small_tools": [
+      "band",
+      "ball",
+      "foam_roller",
+      "mini_band"
+    ],
+    "drill_equipment": {
+      "hip_knee_mobility": "none",
+      "ankle_mobility": "none",
+      "cat_cow": "none",
+      "thoracic_rotation": "none",
+      "shoulder_circles": "none",
+      "wrist_circles": "none",
+      "leg_swing": "none",
+      "worlds_greatest_stretch": "none",
+      "hamstring_sweep": "none",
+      "hip_flexor_stretch": "none",
+      "doorway_pec_stretch": "none",
+      "sleeper_stretch": "none",
+      "adductor_squeeze": "ball",
+      "glute_bridge": "none",
+      "band_external_rotation": "band",
+      "dead_bug": "none",
+      "pallof_press": "cable",
+      "bird_dog": "none",
+      "side_plank": "none",
+      "band_pull_apart": "band",
+      "copenhagen_plank": "bench",
+      "bodyweight_good_morning": "none",
+      "band_good_morning": "band",
+      "hip_hinge_drill": "none",
+      "stretch_quads": "none",
+      "stretch_hamstrings": "none",
+      "stretch_hip_flexors": "none",
+      "stretch_glutes": "none",
+      "stretch_calves": "none",
+      "stretch_chest": "none",
+      "stretch_lats": "none",
+      "stretch_shoulders": "none",
+      "stretch_triceps": "none",
+      "stretch_forearms": "none",
+      "roll_down": "none",
+      "bear_crawl": "none",
+      "hip_adduction_machine": "machine",
+      "cable_external_rotation": "cable",
+      "dumbbell_halo": "kettlebell_or_dumbbell",
+      "single_leg_calf_raise": "none"
+    },
+    "prep_variants": {
+      "hip_adduction_machine": [
+        "adductor_squeeze"
+      ],
+      "cable_external_rotation": [
+        "band_external_rotation"
+      ],
+      "dumbbell_halo": []
+    },
+    "better_with": {
+      "cable_external_rotation": "band_external_rotation"
+    },
+    "named_drills_doc": "A drill the user named for a site in their own safety words (kit ledger_constraint, read per site with caution_care.segments) leads that site's prep. Cues are ko/en patterns; 해일로 is the user's own spelling of 헤일로.",
+    "named_drills": [
+      {
+        "cue": "어덕션|adduct",
+        "drill": "hip_adduction_machine",
+        "sites": [
+          "knee",
+          "hip"
+        ]
+      },
+      {
+        "cue": "헤일로|해일로|\\bhalos?\\b",
+        "drill": "dumbbell_halo",
+        "sites": [
+          "shoulder",
+          "elbow"
+        ]
+      }
+    ],
+    "tool_words_doc": "Small-tool words in a free answer (place step); a clause with a carry word is what the user brings, else what the gym has.",
+    "tool_words": {
+      "mini_band": "미니\\s*밴드|mini.?band|루프\\s*밴드",
+      "band": "(?<!미니)(?<!미니 )밴드|\\bbands?\\b|튜빙",
+      "ball": "볼|\\bballs?\\b",
+      "foam_roller": "폼\\s*롤러|폼롤|foam"
+    },
+    "tool_carry_words": "들고|가지고|챙겨|갖고|가방|carry|bring|my own",
+    "tool_none_words": "없어|없고|없음|none|no tools|nothing",
+    "substitutions": {
+      "knee": {
+        "walking_lunge": "reverse_lunge"
+      }
+    },
+    "notes": {
+      "knee": [
+        "leg_press",
+        "leg_extension",
+        "single_leg_extension",
+        "single_leg_leg_extension"
+      ]
+    },
+    "intensity_substitutions": {
+      "recent": {
+        "knee": {
+          "back_squat": "box_squat",
+          "front_squat": "box_squat",
+          "walking_lunge": "reverse_lunge"
+        },
+        "shoulder": {
+          "bench_press": "dumbbell_bench_press",
+          "overhead_press": "dumbbell_lateral_raise",
+          "overhead_press_smith_seated": "dumbbell_lateral_raise"
+        }
+      },
+      "current": {
+        "knee": {
+          "back_squat": "rdl",
+          "front_squat": "rdl",
+          "walking_lunge": "rdl"
+        }
+      }
+    },
+    "lift_triggers_doc": "Owner 2026-10-06/07/09 (memory): the hip adduction MACHINE is the knee prep BEFORE A SQUAT. A drill listed here is served only in a session holding a lift whose exercise_pattern is one of `patterns`, and it is hosted on the FIRST such lift (live_slot) -- lift-adjacent equipment prep runs right before its lift, after the mat drills. A hinge (deadlift, clean) does not trigger it: the owner's words name the squat. Read by the free-session prep (free_session.prep_day); the composed program's prep.yaml is owner data and is not rewritten.",
+    "lift_triggers": {
+      "hip_adduction_machine": {"patterns": ["squat"]}
+    },
+    "site_cooldown_doc": "The cooldown stretch a caution site adds to every session holding a lift that uses the site (split_model.uses_site), first in the session's cooldown list, ahead of the muscle-matched stretches (kit shared-body delta 2026-10-06: the foot sites another agent records reach the program with prep AND cooldown).",
+    "site_cooldown": {
+      "plantar": [
+        "stretch_calves"
+      ],
+      "calf": [
+        "stretch_calves"
+      ],
+      "hamstring": [
+        "stretch_hamstrings"
+      ]
+    },
+    "pattern_sites_doc": "Sites a lift uses by its movement PATTERN as well as by its muscles: a standing squat or hinge loads the sole and calf of the planted foot whatever muscles it is graded for. Prep / cooldown only (split_model.uses_site); the load grade (safety_load) still reads site_muscles.",
+    "pattern_sites": {
+      "plantar": [
+        "squat",
+        "hinge"
+      ],
+      "calf": [
+        "squat",
+        "hinge"
+      ],
+      "hamstring": [
+        "hinge"
+      ]
+    }
+  },
+  "caution_care": {
+    "doc": "Each site reads care modes, severity and history recency from its own words using ko/en cues. No per-site default: a knee can be mild, historic or currently painful. Missing severity opens one merged level/care question at the split; history missing time gets one timing follow-up. Explicit modes are retained; suggested_modes supplies the disclosed product care policy for severity-only words. The intensity table determines prep, load-score factors, substitution families and excluded load grades. Answers are written back to the same kit constraint key as accumulated words; unknown answers carry localized markers so the question does not reopen after state loss. Current pain hands off to the pain-triage skill.",
+    "modes": [
+      "prep",
+      "fatigue",
+      "frequency",
+      "avoid"
+    ],
+    "cues": {
+      "prep": [
+        "준비\\s*운동",
+        "워밍업",
+        "웜업",
+        "몸\\s*풀",
+        "풀어\\s*(주|줘|준|주고|주면|야)",
+        "풀고",
+        "스트레칭",
+        "전에[^.!?/]{0,20}?(해\\s*주|해\\s*줘|해야|하면|해서|풀|한다|하고)",
+        "warm",
+        "before (lifting|training|squat|press|the lift|workout|exercise)",
+        "prep (it|the|first)",
+        "mobility"
+      ],
+      "fatigue": [
+        "연달아",
+        "연속",
+        "이틀\\s*(연속|내리|붙여)",
+        "피로",
+        "회복",
+        "다음\\s*날",
+        "쉬어\\s*(야|줘|주)",
+        "쉬는\\s*날",
+        "in a row",
+        "back.to.back",
+        "fatigue",
+        "tired",
+        "recover",
+        "next day",
+        "rest day"
+      ],
+      "frequency": [
+        "횟수",
+        "자주",
+        "(주|일주일)에\\s*(한|두|1|2)\\s*(번|회|일)",
+        "너무\\s*많이",
+        "많이\\s*(쓰면|하면)",
+        "how often",
+        "too often",
+        "(once|twice|\\d) (a|per) week",
+        "days a week",
+        "frequency"
+      ],
+      "avoid": [
+        "무거운",
+        "무겁게",
+        "고중량",
+        "피해",
+        "피하",
+        "무리하면",
+        "하면\\s*안",
+        "heavy",
+        "avoid",
+        "can.t (do|lift|load)",
+        "no (heavy|loaded)"
+      ]
+    },
+    "list_glue": "[\\s,./&·]*((우측|좌측|오른쪽|왼쪽|양쪽|right|left|both|이랑|랑|하고|과|와|및|and|or|이나|나)[\\s,./&·]*)*",
+    "site_words": {
+      "knee": [
+        "무릎",
+        "knee"
+      ],
+      "shoulder": [
+        "어깨",
+        "shoulder"
+      ],
+      "hip": [
+        "고관절",
+        "골반",
+        "hip"
+      ],
+      "back": [
+        "허리",
+        "back"
+      ],
+      "lower_back": [
+        "허리",
+        "lower back"
+      ],
+      "neck": [
+        "목덜미",
+        "neck"
+      ],
+      "elbow": [
+        "팔꿈치",
+        "elbow"
+      ],
+      "wrist": [
+        "손목",
+        "wrist"
+      ],
+      "ankle": [
+        "발목",
+        "ankle"
+      ],
+      "foot": [
+        "발바닥",
+        "족저",
+        "foot"
+      ],
+      "plantar": [
+        "족저",
+        "plantar"
+      ],
+      "calf": [
+        "종아리",
+        "calf"
+      ],
+      "hamstring": [
+        "햄스트링",
+        "허벅지 뒤",
+        "hamstring"
+      ]
+    },
+    "side_words_doc": "The side word the user used for a site (우측 vs 오른쪽) is the one the screens say; the display layer's word only when the user's words have none.",
+    "side_words": {
+      "r": [
+        "우측",
+        "오른쪽",
+        "right"
+      ],
+      "l": [
+        "좌측",
+        "왼쪽",
+        "left"
+      ]
+    },
+    "severity_cues": {
+      "current": [
+        "(지금|요즘|현재|최근|아직)[^.!?/]{0,18}(아파|아프|통증|다쳤|부상)",
+        "(?<!안 )아파요",
+        "(pain|hurts?|injur\\w*) (now|currently|lately|today)",
+        "(current|ongoing) (pain|injury)",
+        "(now|currently|lately)[^.!?/]{0,20}(pain|hurts?|injur)",
+        "지금 아파요",
+        "\\b(pain|hurts?|injur\\w*)\\b[^.!?/]{0,30}\\b(now|currently|lately|today|these days)\\b"
+      ],
+      "history": [
+        "수술",
+        "탈구",
+        "십자인대",
+        "파열",
+        "골절",
+        "다쳤",
+        "부상",
+        "\\b(surgery|operation|acl|dislocat\\w*|fracture|torn|injur\\w*)\\b"
+      ],
+      "mild": [
+        "뻑뻑",
+        "뻐근",
+        "가끔[^.!?/]{0,12}(시큰|불편|안좋|땡겨|당겨)",
+        "(풀|준비|워밍|해주면)[^.!?/]{0,30}괜찮",
+        "\\bstiff\\w*",
+        "occasional (discomfort|soreness)",
+        "fine (after|if)[^.!?/]{0,25}warm"
+      ]
+    },
+    "tissue_cues_doc": "Tissue only from the user's words (056 rule 4), never from the site. The plantar site's own word names the fascia (족저근막 / plantar fascia), so a plantar site is fascia by the user's word. load_pain_tissues are the tissue_modifiers rows of 056 whose present familiar ache moves current-other to current-load-pain (tendon; fascia = same as tendon); test-caution-severity checks the list against the item.",
+    "tissue_cues": {
+      "fascia": [
+        "족저",
+        "근막",
+        "plantar",
+        "fascia"
+      ],
+      "tendon": [
+        "힘줄",
+        "건염",
+        "건병증",
+        "아킬레스",
+        "슬개건",
+        "회전근개",
+        "tendon\\w*",
+        "achilles",
+        "patellar tendon",
+        "rotator.cuff"
+      ],
+      "ligament": [
+        "인대",
+        "ligament",
+        "\\bacl\\b",
+        "\\bmcl\\b"
+      ],
+      "muscle": [
+        "근육",
+        "담\\s*(이|왔|걸)",
+        "파열된 근",
+        "muscle",
+        "strain",
+        "pulled"
+      ],
+      "joint-cartilage": [
+        "연골",
+        "관절\\s*(이|안|속)",
+        "cartilage",
+        "meniscus",
+        "반월"
+      ]
+    },
+    "load_pain_tissues": [
+      "tendon",
+      "fascia"
+    ],
+    "load_pain_site_tissues_doc": "056 joint-cartilage row (v37, kimwog exercise/knee-pain-symptom-guided-loading-057): present joint pain stays current-other EXCEPT the knee when the user's words fit the patellofemoral picture or name knee osteoarthritis -> the knee variant of current-load-pain (057 ceiling 2/10 during, after and next day). The cues name that picture; a cartilage word alone (meniscus, 연골) does not, and other joints have no loading row.",
+    "load_pain_site_tissues": {
+      "joint-cartilage": {
+        "sites": [
+          "knee"
+        ],
+        "cues": [
+          "슬개\\s*대퇴",
+          "무릎\\s*앞쪽",
+          "슬개골\\s*(주변|아래|통증)",
+          "(퇴행성)?\\s*(무릎\\s*)?관절염",
+          "patellofemoral",
+          "runner'?s knee",
+          "knee (osteo)?arthritis",
+          "knee \\boa\\b"
+        ]
+      }
+    },
+    "red_flag_doc": "056 red-flag rung words (new trauma, swelling, locking, giving way, night pain, numbness or weakness, sharp or rising pain) as ko/en cues. They win over current-load-pain; a site with one goes to pain-triage. Negations strip 'no swelling' first.",
+    "red_flag_cues": [
+      "붓",
+      "부었",
+      "부어",
+      "잠기",
+      "잠겨",
+      "걸려서 안",
+      "빠지는 느낌",
+      "빠질 것",
+      "꺾이",
+      "풀리는 느낌",
+      "밤에[^.!?/]{0,12}(아파|아프|통증|깨)",
+      "자다가[^.!?/]{0,12}(아파|아프|깨)",
+      "저리",
+      "저림",
+      "감각이",
+      "힘이\\s*(빠|안\\s*들)",
+      "찌르",
+      "찌릿",
+      "날카",
+      "점점[^.!?/]{0,8}(심|더|아파)",
+      "갈수록",
+      "새로\\s*다쳤",
+      "방금\\s*다쳤",
+      "삐끗",
+      "\\bswell\\w*",
+      "\\block\\w*",
+      "giv\\w* way",
+      "unstable",
+      "instability",
+      "night pain",
+      "at night",
+      "wakes? me",
+      "numb\\w*",
+      "tingl\\w*",
+      "\\bweak\\w*",
+      "\\bsharp\\b",
+      "getting worse",
+      "worse and worse",
+      "rolled it",
+      "just (hurt|injured)"
+    ],
+    "red_flag_negations": [
+      "(붓기|부기|저림|통증)[은는도이가]?\\s*(없|안\\s*나)[가-힣]*",
+      "안\\s*(붓|부어|저리|잠기|빠지)[가-힣]*",
+      "\\bno (swelling|numbness|locking|night pain|tingling|weakness)\\b",
+      "\\b(not|never) (swollen|numb|locking|weak)\\b"
+    ],
+    "pain_negations": [
+      "(지금|현재|이제)[^,.!?/]{0,8}괜찮[가-힣]*",
+      "(통증이?\\s*없|안\\s*아[파프])[가-힣]*",
+      "(?:(?:now|currently|today)\\s+)?(?:no pain|pain.free|does not hurt|not in pain)(?:\\s+(?:now|currently|today))?",
+      "(now|currently) (fine|okay|ok|recovered)"
+    ],
+    "recency_cues": {
+      "recent": [
+        "작년",
+        "올해",
+        "지난\\s*달",
+        "최근",
+        "1년\\s*(안쪽|미만|이내)",
+        "한\\s*달",
+        "last (year|month|week)",
+        "(under|less than) (a|one|1) year",
+        "\\b(one|two|three|four|five|six|seven|eight|nine|ten|eleven) months? ago"
+      ],
+      "old": [
+        "학창\\s*시절",
+        "운동선수\\s*시절",
+        "재작년",
+        "1년\\s*(넘|이상)",
+        "한\\s*해\\s*전",
+        "school days",
+        "athlete days",
+        "(over|more than|at least) (a|one|1) year",
+        "\\b(a|one|two|three|several|many) years? ago",
+        "(한|일|두|이|삼|세)\\s*년\\s*전"
+      ]
+    },
+    "elapsed_cues": [
+      {
+        "pattern": "(\\d+(?:\\.\\d+)?)\\s*년\\s*전",
+        "months": 12
+      },
+      {
+        "pattern": "(\\d+(?:\\.\\d+)?)\\s*(?:개월|달)\\s*전",
+        "months": 1
+      },
+      {
+        "pattern": "(\\d+(?:\\.\\d+)?)\\s*years? ago",
+        "months": 12
+      },
+      {
+        "pattern": "(\\d+(?:\\.\\d+)?)\\s*months? ago",
+        "months": 1
+      }
+    ],
+    "recency_boundary_months": 12,
+    "severity_order": [
+      "current",
+      "history",
+      "mild"
+    ],
+    "suggested_modes": {
+      "mild": [
+        "prep"
+      ],
+      "history": [
+        "fatigue"
+      ],
+      "current": [
+        "avoid"
+      ],
+      "unknown": [
+        "unknown"
+      ],
+      "current-load-pain": [
+        "fatigue"
+      ]
+    },
+    "unknown_cues": {
+      "severity": [
+        "정도는 잘 모르겠어요",
+        "severity is unclear"
+      ],
+      "recency": [
+        "시기는 잘 모르겠어요",
+        "timing is unclear"
+      ]
+    },
+    "ladder_item": "exercise-caution-severity-ladder-056",
+    "ladder_doc": "The rung order and each rung's site weight, prep, spread, excluded grades, exposure rule and route are READ from the installed kimwog item (caution_care.ladder: <knowledge>/kimwog/items/<ladder_item>.md, decision_ladder), never copied here. This table keeps only the product rows the item does not carry: the substitution family per rung, the care override that closes a triaged site, and the `unknown` row (severity not said; not a ladder rung). The 12-month recency_boundary_months and the 0/1/2 weights are the plan's rule (056 note 1): copy says so, never a measured threshold.",
+    "intensity": {
+      "mild": {
+        "substitutions": "base"
+      },
+      "history-old": {
+        "substitutions": "base"
+      },
+      "history-recent": {
+        "substitutions": "recent"
+      },
+      "history-unknown": {
+        "substitutions": "recent"
+      },
+      "current-load-pain": {
+        "substitutions": "recent"
+      },
+      "current-other": {
+        "substitutions": "current",
+        "care_override": [
+          "avoid"
+        ]
+      },
+      "red-flag": {
+        "substitutions": "current",
+        "care_override": [
+          "avoid"
+        ]
+      },
+      "unknown": {
+        "factor": 1,
+        "prep": true,
+        "blocked_grades": [],
+        "substitutions": "base",
+        "triage": false
+      }
+    },
+    "intensity_doc": "Product judgments, not clinical cutoffs: the 12-month bucket (the plan's rule), last-year -> recent (conservative ambiguous calendar phrase), substitutions, and suggested care modes when severity alone is known. The rung values themselves come from kimwog 056 (ladder_doc). Time alone is not clearance. Known modes are preserved; mild scores no load facts; a spread rung (history-recent/unknown, current-load-pain) adds the fatigue mode (no back-to-back loaded days at the site) and never cuts exposure days; current-other and red-flag override to avoid and hand off to pain-triage. An unknown timing answer uses recent precautions without claiming a date. Mild retains the pre-existing walking-lunge substitution so the r7 live plan is unchanged.",
+    "sources": [
+      {
+        "url": "https://www.aspetar.com/en/professionals/aspetar-clinical-guidelines/recommendations-on-rehabilitation-after-aclr",
+        "supports": "Individual criteria-based progression, monitor pain and adjust loading; elapsed time alone is not clearance. Does not establish this product score or one-year cutoff."
+      },
+      {
+        "url": "https://www.nhs.uk/conditions/dislocated-shoulder/",
+        "supports": "Recovery varies and return to sport may take longer; physiotherapy guides recovery. Does not establish these substitutions or scores."
+      }
+    ]
+  },
+  "knee_precedents": {
+    "leg_press": {
+      "grade": "low",
+      "cue": "무릎 90도까지만 내려요."
+    },
+    "box_squat": {
+      "grade": "low",
+      "cue": "박스 높이로 깊이를 제한해요."
+    },
+    "v_squat": {
+      "grade": "low",
+      "cue": "통증 없는 깊이로 내려요."
+    },
+    "hack_squat": {
+      "grade": "low",
+      "cue": "통증 없는 깊이로 내려요."
+    },
+    "goblet_squat": {
+      "grade": "medium",
+      "cue": "가벼운 중량으로 깊이를 제한해요."
+    },
+    "reverse_lunge": {
+      "grade": "low",
+      "cue": "워킹 런지 대신 뒤로 디뎌요.",
+      "allow_standing_unilateral": true
+    },
+    "leg_extension": {
+      "grade": "low",
+      "cue": "가볍게 15회 반복해요.",
+      "max_sets": 3,
+      "reps": 15
+    },
+    "single_leg_leg_extension": {
+      "grade": "low",
+      "cue": "가볍게 15회 반복해요.",
+      "max_sets": 3,
+      "reps": 15
+    },
+    "single_leg_extension": {
+      "grade": "low",
+      "cue": "가볍게 15회 반복해요.",
+      "max_sets": 3,
+      "reps": 15
+    },
+    "single_leg_press": {
+      "grade": "low",
+      "cue": "무릎 90도까지만 내려요."
+    }
+  },
+  "prep_by_pattern": {
+    "squat": [
+      "hip_knee_mobility",
+      "glute_bridge"
+    ],
+    "hinge": [
+      "cat_cow",
+      "glute_bridge"
+    ],
+    "horizontal_push": [
+      "shoulder_circles",
+      "bird_dog"
+    ],
+    "vertical_push": [
+      "shoulder_circles",
+      "bird_dog"
+    ],
+    "horizontal_pull": [
+      "thoracic_rotation",
+      "bird_dog"
+    ],
+    "vertical_pull": [
+      "thoracic_rotation",
+      "bird_dog"
+    ]
+  },
+  "main_excluded_name_tokens": [
+    "good_morning",
+    "clean",
+    "swing",
+    "slam",
+    "hip_thrust",
+    "glute_bridge"
+  ],
+  "performance_hinge": {
+    "A": [
+      "deadlift",
+      "sumo_deadlift"
+    ],
+    "B": [
+      "rdl",
+      "trap_bar_deadlift"
+    ],
+    "fallback": [
+      "dumbbell_rdl",
+      "kettlebell_deadlift"
+    ],
+    "sessions": [
+      "뒤",
+      "뒷"
+    ],
+    "condition": {
+      "advanced": true,
+      "performance": true
+    },
+    "except_sites": [
+      "back",
+      "lower_back"
+    ]
+  },
+  "budget": {
+    "default_minutes": 120,
+    "prep_minutes": 5,
+    "cooldown_minutes": 5,
+    "default_cardio_minutes": 20,
+    "compound_minutes": 12,
+    "isolation_minutes": 8,
+    "transition_minutes": 2,
+    "max_lifts": 7,
+    "max_prep": 4,
+    "prep_block_max": 6,
+    "prep_block_doc": "Trainer fit: the mat prep and the chosen flow are ONE warm-up of at most prep_block_max drills in about prep_minutes (owner 2026-10-06 21:04: nine drills / 7 min was too long). Site drills and the flow's own drills stay; the prep's general fill goes first. prep_overlap_minutes equals the flow minutes, so the combined block costs prep_minutes.",
+    "assumption": "Working sets including rest: compound 12 min, isolation/core 8 min, plus 2 min setup each. Reserve prep 5, cooldown 5 and chosen cardio (20 until chosen). Conservative count cap floor(available/12), max 7; also check summed cost. Use shortest recurring window because rotations can visit every weekday.",
+    "max_prep_per_category": 2,
+    "base_sets": 3,
+    "set_levels": [
+      3,
+      2
+    ],
+    "set_levels_doc": "The session length is the user's (owner 2026-10-01): sessions are composed TO it. compound/isolation minutes are at base_sets working sets; a lift at s sets costs minutes * s / base_sets plus the transition. When the minutes are short the trim order is: drop an overlapping isolation (its muscle still trained elsewhere) -> drop a second lift of the same muscle / pattern -> (a cut) narrow the non-priority muscles to maintenance (trainer_fit cut_keep) -> only then fewer sets per lift (3 -> 2) -- fewer lifts BEFORE fewer sets, and never below the experience_set_floor while any level at it builds. A set style with its own set_levels (set_style intensity: 2) composes at those alone and meets the weekly floors with lifts, never past its slot caps. Composition tries each set level in order (3, then 2) and keeps the first that fits the lift budget AND still trains every major region its sessions offer, else the first that fits; the level is stored (st.session_sets) and is the prescription's set floor. Nothing is ever composed past the budget."
+  },
+  "fillers": {
+    "forearms_focus_only": true,
+    "calves_sessions": 2,
+    "forearms_goal_tokens": [
+      "전완",
+      "악력",
+      "grip",
+      "forearm"
+    ]
+  },
+  "session_excluded_name_tokens": {
+    "앞": [
+      "reverse_fly",
+      "reverse_pec",
+      "rear_delt",
+      "face_pull"
+    ],
+    "밀기": [
+      "reverse_fly",
+      "reverse_pec",
+      "rear_delt",
+      "face_pull"
+    ]
+  },
+  "slot_priority": [
+    "main",
+    "unilateral_practice",
+    "abs"
+  ],
+  "required_regions": {
+    "앞": [
+      "legs",
+      "chest"
+    ],
+    "뒤": [
+      "legs",
+      "back"
+    ],
+    "뒷": [
+      "legs",
+      "back"
+    ],
+    "상체": [
+      "chest",
+      "back"
+    ],
+    "하체": [
+      "legs"
+    ],
+    "밀기": [
+      "chest"
+    ],
+    "당기기": [
+      "back"
+    ],
+    "전신": [
+      "legs",
+      "chest",
+      "back"
+    ],
+    "가슴": [
+      "chest"
+    ],
+    "등": [
+      "back"
+    ],
+    "어깨·팔": [
+      "shoulders",
+      "arms"
+    ],
+    "어깨": [
+      "shoulders"
+    ],
+    "팔": [
+      "arms"
+    ],
+    "보충": [
+      "chest"
+    ]
+  },
+  "spinal_load": {
+    "deadlift": 3,
+    "sumo_deadlift": 3,
+    "trap_bar_deadlift": 2,
+    "rdl": 2,
+    "barbell_good_morning": 2,
+    "barbell_row": 1,
+    "underhand_barbell_row": 1,
+    "dumbbell_rdl": 1,
+    "kettlebell_deadlift": 1
+  },
+  "technical": {
+    "name_tokens": [
+      "clean",
+      "snatch",
+      "swing",
+      "turkish",
+      "get_up",
+      "jerk",
+      "slam",
+      "throw"
+    ],
+    "classification": "Olympic lifts, kettlebell ballistics and loaded get-ups; throws/slams also require technical opt-in.",
+    "profile_opt_in": "technical"
+  },
+  "practice_patterns": {
+    "앞": [
+      "squat"
+    ],
+    "하체": [
+      "squat",
+      "hinge"
+    ],
+    "뒤": [
+      "hinge",
+      "horizontal_pull"
+    ],
+    "뒷": [
+      "hinge",
+      "horizontal_pull"
+    ],
+    "상체": [
+      "horizontal_push",
+      "vertical_push",
+      "horizontal_pull"
+    ],
+    "밀기": [
+      "horizontal_push",
+      "vertical_push"
+    ],
+    "당기기": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "전신": [
+      "squat",
+      "hinge",
+      "horizontal_push",
+      "horizontal_pull"
+    ],
+    "하체A": [
+      "squat"
+    ],
+    "하체B": [
+      "hinge",
+      "squat"
+    ],
+    "가슴": [
+      "horizontal_push"
+    ],
+    "등": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "어깨·팔": [
+      "isolation"
+    ],
+    "어깨": [
+      "isolation"
+    ],
+    "팔": [
+      "isolation"
+    ],
+    "보충": [
+      "squat",
+      "hinge",
+      "horizontal_push",
+      "horizontal_pull"
+    ]
+  },
+  "set_caps": {
+    "compound": 4,
+    "isolation": 4
+  },
+  "balance_max_difference": 1,
+  "session_pattern_muscle_exceptions": {
+    "앞": {
+      "squat": [
+        "glutes",
+        "adductors"
+      ]
+    }
+  },
+  "practice_equipment_by_pattern": {
+    "horizontal_pull": [
+      "dumbbell",
+      "cable"
+    ],
+    "horizontal_push": [
+      "dumbbell"
+    ],
+    "vertical_push": [
+      "dumbbell"
+    ]
+  },
+  "practice_required_tags": {
+    "어깨·팔": [
+      "unilateral"
+    ],
+    "어깨": [
+      "unilateral"
+    ],
+    "팔": [
+      "unilateral"
+    ]
+  },
+  "practice_effects": {
+    "doc": "Chosen practices use timed preparation or finishing blocks. Their minutes are reserved before lifting. Only unilateral/core picks request lifting slots; at most one core lift per session. Preparation picks share one flow: use the longest chosen flow duration once, with each pick represented by its drills.",
+    "breath_trunk": {
+      "kind": "block",
+      "doc": "Controlled, unloaded practice in the preparation flow, never an additional lifting slot.",
+      "names": [
+        "roll_down"
+      ],
+      "withheld_names": [
+        "hollow_hold"
+      ],
+      "error": "E-BREATH-TRUNK",
+      "message": "include the chosen controlled practice in the preparation flow",
+      "block": "flow",
+      "when": "start",
+      "minutes": 2,
+      "count": 1,
+      "drills": [
+        "roll_down"
+      ]
+    },
+    "whole_body": {
+      "kind": "block",
+      "names": [
+        "bear_crawl",
+        "turkish_get_up"
+      ],
+      "load": "light",
+      "error": "E-WHOLE-BODY",
+      "message": "include the chosen controlled practice in the preparation flow",
+      "block": "flow",
+      "when": "start",
+      "minutes": 2,
+      "count": 1,
+      "drills": [
+        "bear_crawl"
+      ],
+      "doc": "Controlled, unloaded practice in the preparation flow, never an additional lifting slot."
+    },
+    "mobility_flow": {
+      "kind": "block",
+      "block": "flow",
+      "when": "start",
+      "minutes": 5,
+      "count": 3,
+      "drills": [
+        "worlds_greatest_stretch",
+        "cat_cow",
+        "thoracic_rotation",
+        "hip_knee_mobility",
+        "leg_swing",
+        "shoulder_circles",
+        "ankle_mobility",
+        "wrist_circles"
+      ],
+      "error": "E-MOBILITY-FLOW",
+      "message": "open with a 5-minute mobility flow of three drills, caution sites first"
+    },
+    "conditioning": {
+      "kind": "block",
+      "block": "finisher",
+      "when": "end",
+      "minutes": 7,
+      "minutes_range": [
+        6,
+        8
+      ],
+      "work_sec": 30,
+      "rest_sec": 30,
+      "rounds": 7,
+      "options": [
+        {
+          "key": "bike",
+          "equipment": "machine",
+          "caution": []
+        },
+        {
+          "key": "row",
+          "equipment": "machine",
+          "caution": [
+            "back",
+            "lower_back"
+          ]
+        },
+        {
+          "key": "mountain_climber",
+          "equipment": "bodyweight",
+          "caution": [
+            "wrist",
+            "shoulder"
+          ]
+        },
+        {
+          "key": "jumping_jack",
+          "equipment": "bodyweight",
+          "caution": [
+            "knee",
+            "ankle",
+            "foot"
+          ]
+        },
+        {
+          "key": "high_knee_march",
+          "equipment": "bodyweight",
+          "caution": [
+            "hip"
+          ]
+        }
+      ],
+      "error": "E-CONDITIONING",
+      "message": "end with a 6-8 minute interval finisher that loads no caution site"
+    },
+    "power": {
+      "kind": "block",
+      "block": "power",
+      "when": "after_prep",
+      "minutes": 5,
+      "doc": "One explosive move per session, after the prep and before the main lifts (fresh, low dose, full rest). The pick is the swing/slam's technical opt-in for this block only; the lift pool is unchanged. First option that the place, the named facilities and the caution sites allow: landing moves avoid knee/ankle/foot, hinge moves avoid back/lower_back/hip. Last resort (of: first_lift): speed sets of the session's first lift at a light load -- that lift already passed the caution screen, so a caution never leaves the pick without an effect.",
+      "options": [
+        {
+          "key": "box_jump",
+          "equipment": "box",
+          "caution": [
+            "knee",
+            "ankle",
+            "foot"
+          ],
+          "sets": 3,
+          "rep_range": [
+            3,
+            5
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "kettlebell_swing",
+          "equipment": "kettlebell",
+          "caution": [
+            "back",
+            "lower_back",
+            "hip",
+            "shoulder"
+          ],
+          "sets": 3,
+          "rep_range": [
+            5,
+            8
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "medicine_ball_slam",
+          "equipment": "medicine_ball",
+          "caution": [
+            "back",
+            "lower_back",
+            "shoulder"
+          ],
+          "requires": [
+            "medicine_ball",
+            "throwing_space"
+          ],
+          "sets": 3,
+          "rep_range": [
+            5,
+            6
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "squat_jump",
+          "equipment": "bodyweight",
+          "caution": [
+            "knee",
+            "ankle",
+            "foot",
+            "hip"
+          ],
+          "sets": 3,
+          "rep_range": [
+            3,
+            5
+          ],
+          "rest_sec": 90
+        },
+        {
+          "key": "speed_sets",
+          "equipment": null,
+          "caution": [],
+          "of": "first_lift",
+          "sets": 3,
+          "rep_range": [
+            3,
+            3
+          ],
+          "rest_sec": 60
+        }
+      ],
+      "error": "E-POWER",
+      "message": "open the lifts with one low-dose explosive move (box jump / kettlebell swing / med-ball slam) that loads no caution site"
+    },
+    "mixed_circuit": {
+      "kind": "block",
+      "block": "circuit",
+      "when": "end",
+      "minutes": 10,
+      "per_week": [
+        1,
+        2
+      ],
+      "doc": "A 10-minute no-rest circuit after the last lift on 1-2 sessions a week (circuit_sessions: rotation codes spread evenly, count floor(2 x rotation / weekly days), at least 1). Stations in order, one move each, distinct, none a lift of that session, none loading a caution site; a station with no allowed move is dropped (min_stations). Light load: the circuit is breath, not a lift.",
+      "work_sec": 40,
+      "rest_sec": 0,
+      "min_stations": 2,
+      "stations": [
+        {
+          "role": "erg",
+          "options": [
+            {
+              "key": "row",
+              "equipment": "machine",
+              "caution": [
+                "back",
+                "lower_back"
+              ]
+            },
+            {
+              "key": "bike",
+              "equipment": "machine",
+              "caution": []
+            },
+            {
+              "key": "jumping_jack",
+              "equipment": "bodyweight",
+              "caution": [
+                "knee",
+                "ankle",
+                "foot"
+              ]
+            },
+            {
+              "key": "high_knee_march",
+              "equipment": "bodyweight",
+              "caution": [
+                "hip"
+              ]
+            }
+          ]
+        },
+        {
+          "role": "load",
+          "options": [
+            {
+              "key": "kettlebell_deadlift",
+              "equipment": "kettlebell",
+              "caution": [
+                "back",
+                "lower_back",
+                "hip",
+                "knee"
+              ]
+            },
+            {
+              "key": "kettlebell_goblet_squat",
+              "equipment": "kettlebell",
+              "caution": [
+                "knee",
+                "hip",
+                "back",
+                "lower_back"
+              ]
+            },
+            {
+              "key": "step_up",
+              "equipment": "bodyweight",
+              "caution": [
+                "knee",
+                "hip"
+              ]
+            },
+            {
+              "key": "incline_push_up",
+              "equipment": "bodyweight",
+              "caution": [
+                "shoulder",
+                "wrist",
+                "elbow"
+              ]
+            }
+          ]
+        },
+        {
+          "role": "bodyweight",
+          "options": [
+            {
+              "key": "mountain_climber",
+              "equipment": "bodyweight",
+              "caution": [
+                "wrist",
+                "shoulder"
+              ]
+            },
+            {
+              "key": "high_knee_march",
+              "equipment": "bodyweight",
+              "caution": [
+                "hip"
+              ]
+            },
+            {
+              "key": "jumping_jack",
+              "equipment": "bodyweight",
+              "caution": [
+                "knee",
+                "ankle",
+                "foot"
+              ]
+            }
+          ]
+        }
+      ],
+      "error": "E-MIXED-CIRCUIT",
+      "message": "end 1-2 sessions a week with a 10-minute no-rest circuit of at least two stations that load no caution site"
+    },
+    "end_blocks": {
+      "doc": "Both conditioning (finisher) and mixed_circuit (circuit) end a session. They never stack: on a circuit session the circuit replaces the conditioning finisher, every other session keeps the finisher. The lift budget reserves the longest end block once, not their sum. E-END-STACK when a session carries two.",
+      "precedence": [
+        "circuit",
+        "finisher"
+      ],
+      "error": "E-END-STACK",
+      "message": "one end block per session: the circuit replaces the conditioning finisher"
+    }
+  },
+  "practice_dose": {
+    "doc": "Starting dose for practice-only rows (light by design); overrides the pattern rule in program-plan dose().",
+    "roll_down": {
+      "sets": 3,
+      "rep_range": [
+        6,
+        8
+      ]
+    },
+    "bear_crawl": {
+      "sets": 3,
+      "rep_range": [
+        8,
+        12
+      ]
+    },
+    "turkish_get_up": {
+      "sets": 2,
+      "rep_range": [
+        2,
+        3
+      ]
+    }
+  },
+  "muscle_credit": {
+    "doc": "Muscle-set credit of the functional / practice rows (owner ruling 2026-10-04 11:21). A set's purpose decides its ledger: bodyweight control / connection work counts 0 toward the weekly muscle-set band, a functional move carrying real load counts this factor x sets toward its mapped muscles (primary and secondary alike, on top of the role weight), and every row listed here is still said on its own line. loaded = the factor when the slot carries load (weight_kg > 0, or a load that is not bodyweight; a logged set: weight_kg > 0); bodyweight = the factor without it. A row whose implement IS the load (a swing, a slam) carries the same factor in both. Unlisted rows count 1.0; a practice-only row (practice_effects names / withheld_names) left unlisted counts 0. Conditioning blocks (bike / row intervals) are cardio and never reach the work list, so they are never sets.",
+    "exercises": {
+      "roll_down": {
+        "loaded": 0.0,
+        "bodyweight": 0.0
+      },
+      "hollow_hold": {
+        "loaded": 0.0,
+        "bodyweight": 0.0
+      },
+      "bear_crawl": {
+        "loaded": 0.5,
+        "bodyweight": 0.0
+      },
+      "turkish_get_up": {
+        "loaded": 0.5,
+        "bodyweight": 0.0
+      },
+      "kettlebell_swing": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      },
+      "kettlebell_clean": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      },
+      "medicine_ball_slam": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      },
+      "rotational_medicine_ball_throw": {
+        "loaded": 0.5,
+        "bodyweight": 0.5
+      }
+    }
+  },
+  "split_model": {
+    "major_regions": [
+      "chest",
+      "back",
+      "shoulders",
+      "legs"
+    ],
+    "frequency_floor": {
+      "cut": 2,
+      "grow": 2,
+      "maintain": 1
+    },
+    "phase_aliases": {
+      "cut": "cut",
+      "bulk": "grow",
+      "lean_bulk": "grow",
+      "grow": "grow",
+      "recomp": "grow",
+      "maintain": "maintain"
+    },
+    "weights": {
+      "frequency": 12,
+      "back_to_back": 4,
+      "rest_gap": 2,
+      "prep_minutes": 1,
+      "stacking": 2,
+      "big_regions": 0,
+      "supp_misfit": 1.5,
+      "caution": 5,
+      "adjacency": 8,
+      "skill": 0
+    },
+    "weights_doc": "Split features come from the split STRUCTURE (owner 2026-10-06 06:22/06:25): no composed draft enters the comparison. Units: frequency = the least-trained major region's days a week (capped at the goal floor); back_to_back = calendar-day pairs whose sessions load a same major muscle as a PRIMARY mover (structure.pattern_roles, owner 2026-10-06 09:06: a muscle a session's patterns load only as a secondary mover -- the glutes under a front-day squat, the shoulders under a back-day row -- does not count); rest_gap = the shortest rest (days) between two sessions loading a same major muscle as a primary mover, capped at rest_gap_cap; prep_minutes = the prep drill minutes a session's structure asks for, averaged over the rotation; stacking = the big lifts one session stacks on one body half (structure.stack_groups), averaged over the rotation (fatigue inside one session: an upper day carrying four upper patterns); big_regions = major regions loaded per session, averaged -- descriptive only (weight 0, owner 2026-10-06 09:06: fewer is not better; the comparison shows it without a direction when it differs); supp_misfit = declared supplementary days a slipped session cannot move to without a new back-to-back. The week-varying facts are weighted means over week_set. One back-to-back pair (4) outweighs a minute of daily prep (1) four times: recovery is the structural risk, prep the daily cost the owner named; one more big lift stacked on one half per session (2) weighs two minutes of daily prep -- it lengthens and tires the session without touching recovery between sessions. skill (main lifts to learn) scores only for novices / returners (experience_weights); an experienced owner already knows them.",
+    "phase_weights": {
+      "cut": {
+        "frequency": 18
+      },
+      "grow": {
+        "frequency": 20
+      },
+      "maintain": {
+        "frequency": 3
+      }
+    },
+    "experience_weights": {
+      "novice": {
+        "skill": 12,
+        "frequency": 22
+      },
+      "returner": {
+        "skill": 10,
+        "frequency": 20
+      },
+      "continuous": {}
+    },
+    "care_facts": {
+      "doc": "Which split facts a caution site's care mode scores (caution_care): caution = the site's loaded days a week, adjacency = its back-to-back loaded days (an adjacency counted here is also a violation). prep scores nothing (the prep drills carry it); an unknown mode keeps both, as before the modes.",
+      "prep": {},
+      "fatigue": {
+        "adjacency": 1
+      },
+      "frequency": {
+        "caution": 1
+      },
+      "avoid": {
+        "caution": 1,
+        "adjacency": 1
+      },
+      "unknown": {
+        "caution": 1,
+        "adjacency": 1
+      }
+    },
+    "compare": {
+      "doc": "The split screen (owner 2026-10-06 17:02, approved by sample): each option is ONE blockquote -- '**N. name**' (+ the rec mark), the '[day] session' line, then bullets carrying ONLY the items that differ across the options (the caution-site groups first, then the other measured items), then the bundle sentence (what a day bundles, what rests). An item equal on every option is dropped; an item where one option alone differs goes only in that option's block. The caution sites compare over every built option; the other items only over the options meeting the goal floor as the first does, and an option short of the floor says that in its own block instead. A `bundle` item is what the bundle sentence already says (never a bullet); a `neutral` item is descriptive only, never scored nor named by the footer. A week-varying item (`spread`) shows the declared week's value and, only when a slip week is worse, the bad case naming the supplementary day it slips to. `scored_only` items appear only when their weight is non-zero. The footer (outside the blocks) names the items that separated the pick from the next option, by their weighted share of the score, until their sum outweighs what it loses; when every candidate trains each region equally often and only `minor` items separate them, it says there is no big difference first.",
+      "items": [
+        {
+          "fact": "frequency",
+          "better": "high",
+          "always": true
+        },
+        {
+          "fact": "site_days",
+          "better": "low",
+          "per_site": "caution",
+          "spread": true
+        },
+        {
+          "fact": "site_adjacency",
+          "better": "low",
+          "per_site": "adjacency",
+          "spread": true
+        },
+        {
+          "fact": "rest_gap",
+          "better": "high",
+          "spread": true
+        },
+        {
+          "fact": "back_to_back",
+          "better": "low",
+          "spread": true
+        },
+        {
+          "fact": "prep_minutes",
+          "better": "low"
+        },
+        {
+          "fact": "stacking",
+          "better": "low",
+          "bundle": true
+        },
+        {
+          "fact": "big_regions",
+          "better": "low",
+          "neutral": true,
+          "bundle": true
+        },
+        {
+          "fact": "supp_misfit",
+          "better": "low"
+        },
+        {
+          "fact": "skill",
+          "better": "low",
+          "scored_only": true
+        }
+      ],
+      "hidden": [],
+      "reason_max": 2,
+      "minor": [
+        "prep_minutes",
+        "supp_misfit",
+        "skill"
+      ]
+    },
+    "menu_size": 3,
+    "loaded_grades": [
+      "medium",
+      "high"
+    ],
+    "catalog": [
+      {
+        "family": "fb",
+        "rotations": [
+          [
+            "전신"
+          ],
+          [
+            "전신A",
+            "전신B"
+          ]
+        ]
+      },
+      {
+        "family": "ul",
+        "rotations": [
+          [
+            "상체",
+            "하체"
+          ],
+          [
+            "상체A",
+            "하체A",
+            "상체B",
+            "하체B"
+          ]
+        ]
+      },
+      {
+        "family": "ab",
+        "rotations": [
+          [
+            "앞",
+            "뒤"
+          ],
+          [
+            "앞A",
+            "뒤A",
+            "앞B",
+            "뒤B"
+          ]
+        ]
+      },
+      {
+        "family": "ppl",
+        "rotations": [
+          [
+            "밀기",
+            "당기기",
+            "하체"
+          ],
+          [
+            "밀기A",
+            "당기기A",
+            "하체A",
+            "밀기B",
+            "당기기B",
+            "하체B"
+          ]
+        ]
+      },
+      {
+        "family": "bp",
+        "rotations": [
+          [
+            "가슴",
+            "등",
+            "하체",
+            "어깨·팔"
+          ]
+        ]
+      },
+      {
+        "family": "hybrid",
+        "rotations": [
+          [
+            "상체",
+            "하체A",
+            "밀기",
+            "당기기",
+            "하체B"
+          ]
+        ]
+      },
+      {
+        "family": "body",
+        "rotations": [
+          [
+            "가슴",
+            "등",
+            "하체",
+            "어깨",
+            "팔"
+          ]
+        ]
+      },
+      {
+        "family": "supp",
+        "rotations": [
+          [
+            "앞A",
+            "뒤A",
+            "앞B",
+            "뒤B",
+            "보충"
+          ]
+        ]
+      }
+    ],
+    "frequency_reward_cap_multiplier": 1,
+    "full_body_experience": [
+      "novice",
+      "returner"
+    ],
+    "rest_gap_cap": 2,
+    "week_set": {
+      "doc": "Plausible weeks the split is scored over (owner 2026-10-06 06:25: 'I train flexibly'). The declared main days, plus every week where one main day slips to one declared supplementary day (daytime.extra). Sessions rotate: the i-th training day of a week takes the rotation's i-th session, whatever weekday it falls on. The declared week weighs declared_weight; the slip weeks share the rest equally. Later, with enough history, the observed day patterns replace these weights (the archive is too thin today).",
+      "declared_weight": 0.5
+    },
+    "structure": {
+      "doc": "What a session code carries, from rules data only (no exercise draft). Muscles: the code's session_regions minus session_excluded_muscles, plus the session_pattern_muscle_exceptions of its patterns (a front-day squat loads the glutes). pattern_roles then splits those muscles into the ones a pattern moves as primary (they make the session's recovery overlap) and as secondary only (they do not). patterns: the big-lift movement patterns the session carries, lead first per half (lower: squat/hinge; upper: the rest) -- the lead pattern's prep_by_pattern drills open the session, as prep_for_lifts does. A caution site whose care includes prep adds its caution_policy.site_prep drills to every session carrying one of its site_patterns; the same patterns make the site's loaded days. A prep drill costs budget.prep_minutes / budget.max_prep minutes. The minimum a session needs is one compound lift per required_regions entry at the lowest set level; a session that cannot hold it inside the lift minutes is a failed shape.",
+      "session_patterns": {
+        "전신": [
+          "squat",
+          "horizontal_push",
+          "horizontal_pull"
+        ],
+        "상체": [
+          "horizontal_push",
+          "horizontal_pull",
+          "vertical_push",
+          "vertical_pull"
+        ],
+        "하체": [
+          "squat",
+          "hinge"
+        ],
+        "하체A": [
+          "squat"
+        ],
+        "하체B": [
+          "hinge",
+          "squat"
+        ],
+        "앞": [
+          "squat",
+          "horizontal_push",
+          "vertical_push"
+        ],
+        "뒤": [
+          "hinge",
+          "horizontal_pull",
+          "vertical_pull"
+        ],
+        "뒷": [
+          "hinge",
+          "horizontal_pull",
+          "vertical_pull"
+        ],
+        "밀기": [
+          "horizontal_push",
+          "vertical_push"
+        ],
+        "당기기": [
+          "horizontal_pull",
+          "vertical_pull"
+        ],
+        "가슴": [
+          "horizontal_push"
+        ],
+        "등": [
+          "horizontal_pull",
+          "vertical_pull"
+        ],
+        "어깨·팔": [
+          "vertical_push"
+        ],
+        "어깨": [
+          "vertical_push"
+        ],
+        "팔": [],
+        "보충": [
+          "horizontal_pull"
+        ]
+      },
+      "lower_patterns": [
+        "squat",
+        "hinge"
+      ],
+      "pattern_roles": {
+        "doc": "Which major muscles a big-lift pattern loads as the PRIMARY mover and which only as a SECONDARY one (owner 2026-10-06 09:06). Only a primary load counts toward back_to_back / rest_gap / supp_misfit; a muscle in a session's muscles that none of its patterns names (direct isolation work) counts as primary. Reference split: Awesome Bliss front/back (awesomebliss.kr/product/splitx) -- front = quads, chest, shoulders, arms; back = hamstrings/glutes, back, traps, core/calves; the glutes are a back-day muscle. Arms follow the body side (owner 2026-10-06 10:16): the front day trains the biceps directly and the triceps under its presses, the back day the triceps directly and the biceps under its pulls -- each arm muscle works every training day, as primary one day and secondary the next.",
+        "squat": {
+          "primary": [
+            "quads"
+          ],
+          "secondary": [
+            "glutes",
+            "adductors"
+          ]
+        },
+        "hinge": {
+          "primary": [
+            "hamstrings",
+            "glutes"
+          ],
+          "secondary": [
+            "back",
+            "adductors"
+          ]
+        },
+        "horizontal_push": {
+          "primary": [
+            "chest"
+          ],
+          "secondary": [
+            "shoulders",
+            "triceps"
+          ]
+        },
+        "vertical_push": {
+          "primary": [
+            "shoulders"
+          ],
+          "secondary": [
+            "triceps"
+          ]
+        },
+        "horizontal_pull": {
+          "primary": [
+            "back"
+          ],
+          "secondary": [
+            "shoulders",
+            "biceps"
+          ]
+        },
+        "vertical_pull": {
+          "primary": [
+            "back"
+          ],
+          "secondary": [
+            "biceps"
+          ]
+        }
+      },
+      "stack_groups": {
+        "doc": "The body half each big-lift pattern works, for stacking (big lifts one session puts on one half).",
+        "squat": "lower",
+        "hinge": "lower",
+        "horizontal_push": "upper",
+        "vertical_push": "upper",
+        "horizontal_pull": "upper",
+        "vertical_pull": "upper"
+      },
+      "site_patterns": {
+        "knee": [
+          "squat"
+        ],
+        "hip": [
+          "squat",
+          "hinge"
+        ],
+        "back": [
+          "squat",
+          "hinge"
+        ],
+        "lower_back": [
+          "squat",
+          "hinge"
+        ],
+        "shoulder": [
+          "horizontal_push",
+          "vertical_push"
+        ],
+        "elbow": [
+          "horizontal_push",
+          "vertical_push",
+          "horizontal_pull",
+          "vertical_pull"
+        ],
+        "wrist": [
+          "horizontal_push",
+          "vertical_push"
+        ],
+        "ankle": [
+          "squat"
+        ],
+        "foot": [
+          "squat"
+        ],
+        "plantar": [
+          "squat",
+          "hinge"
+        ],
+        "calf": [
+          "squat",
+          "hinge"
+        ],
+        "hamstring": [
+          "hinge"
+        ]
+      },
+      "site_work": {
+        "doc": "What a split asks of each caution site, from the structure (owner 2026-10-06 16:05): the big-lift patterns that WORK the joint in any role (a hinge works the knee and the planted foot; a pull works the shoulder), and how the split's load on it is told and judged. measure=days: tissue that recovers on whole rest days (knee, foot, hip, back): the loaded days a week. measure=stack: a joint loaded by many lifts in one session (shoulder, elbow, wrist): how many of its patterns one day stacks, and over how many days a week. site_patterns stays the narrower LOADED set the care-mode scoring reads.",
+        "knee": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "hip": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "back": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "lower_back": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "ankle": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "foot": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "plantar": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "calf": {
+          "patterns": [
+            "squat",
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "hamstring": {
+          "patterns": [
+            "hinge"
+          ],
+          "measure": "days"
+        },
+        "shoulder": {
+          "patterns": [
+            "horizontal_push",
+            "vertical_push",
+            "horizontal_pull",
+            "vertical_pull"
+          ],
+          "measure": "stack"
+        },
+        "elbow": {
+          "patterns": [
+            "horizontal_push",
+            "vertical_push",
+            "horizontal_pull",
+            "vertical_pull"
+          ],
+          "measure": "stack"
+        },
+        "wrist": {
+          "patterns": [
+            "horizontal_push",
+            "vertical_push"
+          ],
+          "measure": "stack"
+        }
+      },
+      "pattern_words": {
+        "doc": "The bundle line's word per big-lift pattern group (copy key sm_pat_<group>); patterns sharing a group are said once.",
+        "squat": "squat",
+        "hinge": "hinge",
+        "horizontal_push": "push",
+        "vertical_push": "push",
+        "horizontal_pull": "pull",
+        "vertical_pull": "pull"
+      }
+    },
+    "preview_search_visits": 300,
+    "body": {
+      "doc": "The recommendation by body state (owner 2026-10-06 16:05; corrected 17:04): a caution site is ACTIVE only from the user's own word -- their care answer says it hurts now (active_levels) -- or a pain signal they logged (an open pain_event for the site, sensation pain, observed within pain_days). A safety row's write date is when an agent wrote it down, never when the condition began, so it never makes a site active. An active site decides between the options by its site_work measure (fewer loaded days, or less stacked on one day), ahead of the sites prep manages. Only options without a violation that meet the goal floor as the menu's first does are candidates. When active sites disagree or none separates the options, the measured footer stays. Scores never reach the reason line. Ladder (kimwog 056, 2026-10-06): the active levels are the present-pain rungs. A spread rung (the ladder's spread_load: current-load-pain) votes for the option that keeps the site's loaded days apart (fewest back-to-back loaded days in the declared week, then the least of its work stacked on one day) and never for fewer exposure days; only a rung that goes to triage, or a logged pain on a site whose rung does not spread, votes for fewer loaded days.",
+      "pain_days": 14,
+      "active_levels": [
+        "current-load-pain",
+        "current-other",
+        "red-flag"
+      ]
+    }
+  },
+  "core_cap": 1,
+  "floor_repair_preferences": {
+    "knee": [
+      "leg_extension",
+      "leg_press"
+    ]
+  },
+  "optional_accessory_muscles": [
+    "abs",
+    "biceps",
+    "triceps",
+    "calves"
+  ],
+  "optional_accessory_doc": "When a floor is short, unfocused isolation work for these muscles can give its slots to the main weekly work. Remove the optional group across the week, preserve explicit focus and core practice, and re-audit every retained muscle before accepting.",
+  "trainer_fit": {
+    "minute_step": 5,
+    "min_lifts": 4,
+    "primary_min_sets": 3,
+    "primary_doc": "The session's first (primary) lift keeps a working dose of at least primary_min_sets for a trained lifter. Its extra sets are reserved in the lift minutes before accessories are chosen, so weekly floors are reached with fewer, fuller accessories rather than many two-set slots; the volume fitter never trims the primary below this floor.",
+    "count_balance": false,
+    "count_balance_doc": "Lift-count balance (balance_max_difference) does not pad a shorter trainer-fit session with a filler lift: dose goes to the lifts already there, and each session is held to min_lifts and its own minutes.",
+    "weekly_muscles": [
+      "quads",
+      "hamstrings",
+      "glutes",
+      "chest",
+      "back",
+      "shoulders",
+      "biceps",
+      "triceps",
+      "calves",
+      "abs"
+    ],
+    "prep_overlap_minutes": 5,
+    "cut_keep": [
+      "quads",
+      "glutes",
+      "back",
+      "hamstrings",
+      "chest"
+    ],
+    "doc": "For a cut with known time resources, complete weekly muscle coverage and one core lift per session precede day sizing. Search only inside the shortest recurring window. Try every supported set level; if the complete scope still cannot fit, narrow the lower-priority hypertrophy scope while keeping chosen cardio and caution preparation. The 3-minute prep overlap shares mobility setup and transitions; retain every caution drill in the combined block.",
+    "caution_fit": {
+      "doc": "Trainer-judgment caution fit (reviewer 2026-10-05). Applies only to the trainer-fit planner (trainer_fit set); owner-supplied and legacy composes keep caution_policy (prepare, do not swap). A recorded site's `avoid` names leave that planner's pool (no replacement row: the slot takes its next shortlisted option). `weekly_cap` bounds how many of its `names` the week may hold; shortlists list those names after the site's `prefer` options and the other options, so a friendlier lift covers the floor first. Preparation still runs before the first lift.",
+      "shoulder": {
+        "avoid": [
+          "dip",
+          "bench_dip",
+          "assisted_dip",
+          "weighted_dip"
+        ],
+        "why": "high shoulder-extension stress under load"
+      },
+      "knee": {
+        "weekly_cap": {
+          "names": [
+            "barbell_reverse_lunge",
+            "barbell_split_squat",
+            "bulgarian_split_squat",
+            "reverse_lunge",
+            "walking_lunge",
+            "bodyweight_lunge",
+            "dumbbell_lunge",
+            "split_squat",
+            "dumbbell_split_squat",
+            "step_up"
+          ],
+          "maximum": 1
+        },
+        "prefer": {
+          "quads": [
+            "leg_press",
+            "leg_extension",
+            "goblet_squat",
+            "kettlebell_goblet_squat"
+          ]
+        },
+        "why": "knee-dominant unilateral patterns stacked in one week load a mild knee more than a guided quad option"
+      }
+    }
+  },
+  "coverage": {
+    "doc": "Weekly coverage a trainer holds (owner 2026-10-06 21:31, upper/lower 4-day replay: no vertical pull anywhere, delts front-only, no direct triceps, both calf days straight-knee). Each requirement whose session families are in the rotation, and whose matching lift the family's pool offers past the caution filter (a caution-blocked class is simply not offered), is OWED by one session: requirements are dealt in list order to the feasible session holding the fewest so far, ranking order breaking ties, so an A/B pair splits the planes (A the horizontal pull, B the vertical pull) instead of repeating one. An owed session gets a cover slot (cover:<id>) shortlisting only matching lifts, right after its main. The draft search enforces it in tiers: every owed session holds its requirement; else the week holds each one somewhere; else (the minutes cannot hold them) the old composition. A keep-narrowed scope (time_plan keep) owes only the kept muscles. session_unique_patterns: one lift per such pattern in a session (no barbell row + seal row on one day). pairs: when a muscle is trained in two or more sessions and its slot offers both kinds, the week holds one of each (calves: one straight-knee day, one bent-knee seated day). A four-session draft also never leaves a region to a single session (the self-check's every-region-twice-a-week, program-plan lone_regions). Enforced only inside the engine's draft (compose_draft.build); an edited or recorded compose is not refused on it.",
+    "requirements": [
+      {
+        "id": "horizontal_pull",
+        "muscle": "back",
+        "region": "back",
+        "families": [
+          "상체",
+          "당기기",
+          "등",
+          "전신",
+          "뒤",
+          "뒷",
+          "보충"
+        ],
+        "match": {
+          "pattern": "horizontal_pull"
+        }
+      },
+      {
+        "id": "vertical_pull",
+        "muscle": "back",
+        "region": "back",
+        "families": [
+          "상체",
+          "당기기",
+          "등",
+          "전신",
+          "뒤",
+          "뒷",
+          "보충"
+        ],
+        "match": {
+          "pattern": "vertical_pull"
+        }
+      },
+      {
+        "id": "horizontal_push",
+        "muscle": "chest",
+        "region": "chest",
+        "families": [
+          "상체",
+          "밀기",
+          "가슴",
+          "전신",
+          "앞",
+          "보충"
+        ],
+        "match": {
+          "pattern": "horizontal_push",
+          "region": "chest"
+        }
+      },
+      {
+        "id": "vertical_push",
+        "muscle": "shoulders",
+        "region": "shoulders",
+        "families": [
+          "상체",
+          "밀기",
+          "어깨",
+          "어깨·팔",
+          "전신",
+          "앞"
+        ],
+        "match": {
+          "any_of": [
+            {
+              "pattern": "vertical_push"
+            },
+            {
+              "name_in": [
+                "landmine_press"
+              ]
+            }
+          ]
+        },
+        "doc": "the overhead class; the landmine press counts as its shoulder-safe member"
+      },
+      {
+        "id": "lateral_delt",
+        "muscle": "shoulders",
+        "region": "shoulders",
+        "families": [
+          "상체",
+          "밀기",
+          "어깨",
+          "어깨·팔"
+        ],
+        "match": {
+          "movement_in": [
+            "lateral_raise"
+          ]
+        }
+      },
+      {
+        "id": "rear_delt",
+        "muscle": "shoulders",
+        "region": "shoulders",
+        "families": [
+          "상체",
+          "당기기",
+          "어깨",
+          "어깨·팔"
+        ],
+        "match": {
+          "movement_in": [
+            "rear_delt_isolation"
+          ]
+        }
+      },
+      {
+        "id": "biceps_direct",
+        "muscle": "biceps",
+        "region": "arms",
+        "families": [
+          "상체",
+          "당기기",
+          "팔",
+          "어깨·팔"
+        ],
+        "match": {
+          "pattern": "isolation",
+          "primary_any": [
+            "biceps"
+          ]
+        }
+      },
+      {
+        "id": "triceps_direct",
+        "muscle": "triceps",
+        "region": "arms",
+        "families": [
+          "상체",
+          "밀기",
+          "팔",
+          "어깨·팔"
+        ],
+        "match": {
+          "pattern": "isolation",
+          "primary_any": [
+            "triceps"
+          ]
+        }
+      }
+    ],
+    "session_unique_patterns": [
+      "horizontal_pull",
+      "vertical_pull"
+    ],
+    "slot_plane_variety": 2,
+    "slot_plane_variety_doc": "A muscle slot (not the main, not a cover slot) whose shortlist holds lifts of one session_unique_patterns plane only also offers the best-ranked lifts (this many) of each other such plane, so the repair can take one the week does not hold yet (a lat pulldown on the row day, not the B day's chin-up twice) (owner 2026-10-07: the upper-A back slot listed five rows, so with a row already on the day the weekly back floor had no second lift to take and was reported short with 13 minutes of the window left). The weekly per-muscle floor is a hard rule: with the minutes there, a second pull of the other plane goes in before any volume_shortfall.",
+    "session_unique_isolation": {
+      "doc": "One lift per isolation movement in a session (owner 2026-10-07: bicep curl + cable curl on one upper day while back and chest sat under their weekly floors). An isolation lift's identity is its movement (exercise_movement_grip: curl, lateral_raise, tricep_isolation, calf_raise, ...) plus its coverage pair kind when a pair names its slot (calves: a straight-knee and a seated raise are different lifts, so a capped set style still reaches the calf floor on the two calf days). The time a second same-movement lift would take goes to the muscles still short of their weekly floor first. A repeat is allowed only when every lift of the repeat trains a muscle the user's focus asks for (compose_focus) -- and the weekly floors stay hard over it (the floor repair may still take the repeat out). The floor is hard over this rule too: when no other lift brings a muscle to its weekly floor (a once-a-week arm day whose biceps lifts are all curls), the floor repair takes ONE repeat of that movement on that day (compose_draft, tier plan isolation_floor; 0.34.0 candidate: the body-part split refused at E-VOLUME-FLOOR biceps 6/8 otherwise). Every engine draft tier (compose_draft.build, the plain one too: E-ISOLATION-REPEAT); an edited or recorded compose is not refused on it.",
+      "pattern": "isolation",
+      "key": "movement",
+      "error": "E-ISOLATION-REPEAT"
+    },
+    "pairs": [
+      {
+        "id": "calf_knee_angle",
+        "slot": "calves",
+        "kinds": [
+          {
+            "id": "straight_knee",
+            "match": {
+              "name_tokens_none": [
+                "seated"
+              ]
+            }
+          },
+          {
+            "id": "bent_knee",
+            "match": {
+              "name_tokens_any": [
+                "seated"
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "press_angle",
+        "doc": "Chest pressing at two angles (owner live consult 2026-10-07 15:52, '상부 대흉근은 안챙겨?': an even-focus upper/lower week pressed flat barbell + flat dumbbell and never inclined). When the week's chest presses (scope, any slot: the main or a chest slot) sit in two or more sessions and the shortlists offer both kinds, the week holds one flat (or decline) press and one LOW-incline press (bench 15-30 degrees; the card says the angle, program-plan press_angle_note). A press slot whose shortlist holds one kind only also offers the best-ranked lift of the other kind (compose_rank.pair_variety), the session after a flat press takes the incline first (compose_draft pair_order). With a caution at a prefer_equipment site the incline is taken in that equipment first (a shoulder: the dumbbell, free path and a grip the lifter sets, ahead of a second barbell press -- kimwog exercise/shoulder-pressing-selection-cuff-work-064 keep-pressing-loaded / drop-highest-load-variants; the angle item exercise/press-angle-rules is being researched, wire it here by id when it lands). Draft-only like every pair (E-COVERAGE-PAIR): weekly floors and the time budget hold over it, a week that cannot hold both kinds falls to the next coverage tier.",
+        "scope": {
+          "pattern": "horizontal_push",
+          "primary_any": [
+            "chest"
+          ],
+          "name_tokens_none": [
+            "push_up",
+            "dip"
+          ]
+        },
+        "kinds": [
+          {
+            "id": "flat",
+            "match": {
+              "name_tokens_none": [
+                "incline"
+              ]
+            }
+          },
+          {
+            "id": "low_incline",
+            "match": {
+              "name_tokens_any": [
+                "incline"
+              ]
+            }
+          }
+        ],
+        "prefer_equipment": {
+          "kind": "low_incline",
+          "sites": [
+            "shoulder"
+          ],
+          "equipment": [
+            "dumbbell"
+          ]
+        },
+        "knowledge": [
+          "exercise/shoulder-pressing-selection-cuff-work-064"
+        ]
+      }
+    ]
+  },
+  "experience_set_floor": {
+    "doc": "Set floor of a trained lifter (owner 2026-10-06 21:31: why is everything 2 sets) -- the `volume` set style's floor (set_style; the default, so absent = this). A profile matching `condition` (training now, 1+ years) keeps every main lift at main_min_sets..main_max_sets and every accessory at accessory_min_sets or more: the composition tries only set levels at or above accessory_min_sets, so when the minutes are short it grows the day inside the window or drops / merges slots -- it never cuts a slot below its floor. A level below the floor is the last resort when no level at the floor builds at any day length or scope (a window too short for even the required lifts, e.g. 60 minutes with 20 of cardio); there the earlier rules apply unchanged.",
+    "condition": {
+      "training_experience_in": [
+        "continuous"
+      ],
+      "training_years_band_in": [
+        "1to3",
+        "3plus"
+      ]
+    },
+    "main_min_sets": 3,
+    "main_max_sets": 4,
+    "accessory_min_sets": 3
+  },
+  "set_style": {
+    "doc": "Per-user set style (owner 2026-10-07; evidence kimwog exercise/set-floor-rule-072 set_style, resting on 070 / 071: 2-3 hard sets per exercise grow about as well as 4-6, what matters is the weekly sets per muscle and how close each set ends to failure). The per-slot set floor is the user's choice; the weekly per-muscle floor (rx-calc bands), the push:pull floor, the plane coverage and the region balance stay hard rules for every style. Stored on the plan state (`set_style`, kept across a program restart like cardio_preference) and on the card (program.yaml `set_style`); absent = `default`. Changed only by the user's request (program-plan `answer --stage set_style`), never asked in the consult. A style's `floor` names the rules block that is its per-slot floor; a style with no `floor` carries its own fields: set_levels (the composition's set levels, none below them), main_min_sets (a session's main lift -- the first compound of a region -- never below it), compound_max_sets (the most a loaded compound slot, main or assisting, may reach when the weekly floor needs it: the plane rule allows one row and one vertical pull a session, so a back floor of 10 on two upper days needs the second pull at 3), accessory_min_sets / accessory_max_sets (isolation and core slots; a knee-precedent dose is held to the cap too), primary_min_sets (replaces trainer_fit.primary_min_sets for the main-lift reserve and the 'enough sets' line), rir_target (working sets of every slot outside the G19 compound-freeweight class; a G19 lift keeps its own band and floor, rir-floor.md), ramp (warm-up sets before the working sets: rungs per lift class, rep taper from ax_engine RAMP_REPS_NO_TARGET, shown on their own line and never counted as weekly sets -- the session stores them at set_seq <= 0, which every volume query excludes). A weekly floor the capped sets cannot reach is met by keeping / adding slots (compose_draft E-VOLUME-FLOOR repair), never by raising a slot past its cap; a window that cannot hold the slots takes the existing shortfall path (volume_shortfall, the sessions step's time decision).",
+    "default": "volume",
+    "styles": {
+      "volume": {
+        "floor": "experience_set_floor",
+        "doc": "The 0.33.0 behaviour unchanged: a trained lifter (experience_set_floor condition) composes at 3+ sets per slot, mains 3~4."
+      },
+      "intensity": {
+        "doc": "Ramp-up, then 2 hard working sets per slot at RIR 0~1. Compound lifts (mains and assisting compounds) may take a 3rd working set when the weekly floor needs it; accessories (isolation, core) stay at 2. Applies to any experience: the user chose it.",
+        "set_levels": [
+          2
+        ],
+        "main_min_sets": 2,
+        "compound_max_sets": 3,
+        "accessory_min_sets": 2,
+        "accessory_max_sets": 2,
+        "primary_min_sets": 2,
+        "rir_target": [
+          0,
+          1
+        ],
+        "ramp": {
+          "rungs": {
+            "compound": 3,
+            "isolation": 1
+          },
+          "counts_in_volume": false
+        }
+      }
+    }
+  },
+  "fatigue_overlap": {
+    "doc": "Adjacent-session fatigue overlap (owner 2026-10-06 21:50; evidence kimwog exercise/adjacent-session-overlap-cost-067). The rotation is a queue over flexible days, so neighbouring sessions (the last wraps to the first) may fall on back-to-back days: gap_days_tightest. Two neighbours overlap on a stressor when both hold a lift of its carrier class (per-lift fatigue grade: exercise_fatigue_cost, else rx-calc's heuristic). Every overlap is a SOFT preference, never a refusal: at equal weekly volume back-to-back days cost no strength or size (B), the next-day cost scales with effort (sets to failure cost the next session, sets well short of it recover within hours, C), and no lifter study links an overlap to injury. An anchor carries the stressor by the session's purpose (the lower day's squat / hinge): the draft lightens the OTHER lift of a stressor whose swap is not false to the lowest-fatigue lift of the same pattern its session's shortlists hold (a supported or machine row), only when the whole draft still validates; two anchors are the heavy-lift spacing's (program-plan apply_spacing) and are only reported. grip is report-only (swap false): it limits pulling sets within a session and has no next-day data (D; the lever is straps, not a swapped lift or a moved day). lower_adjacency: a squat day next to a hinge day is a light lower-body back-to-back fact, reported, never a swap. stacking: a session holding a heavy-class lift holds no other also-class lift (no RDL after the deadlift; the hamstrings take a curl). rx-calc volume_audit reports all of it as session_overlap with the evidence block; any copy explaining an overlap speaks in effort and scheduling terms, never lost gains or injury.",
+    "gap_days_tightest": 1,
+    "stressors": [
+      {
+        "id": "spinal",
+        "doc": "axial / lower-back load",
+        "carriers": [
+          {
+            "pattern_in": [
+              "squat",
+              "hinge"
+            ],
+            "fatigue_in": [
+              "high"
+            ]
+          },
+          {
+            "pattern_in": [
+              "horizontal_pull",
+              "vertical_push"
+            ],
+            "fatigue_in": [
+              "high"
+            ]
+          }
+        ],
+        "anchors": {
+          "pattern_in": [
+            "squat",
+            "hinge"
+          ]
+        },
+        "grade": "D",
+        "swap": true,
+        "evidence": "soft preference: no trunk-extensor or spine recovery clock was found; a practitioner rule"
+      },
+      {
+        "id": "hinge",
+        "doc": "hip hinge / hamstrings under load",
+        "carriers": [
+          {
+            "pattern": "hinge",
+            "fatigue_in": [
+              "high",
+              "med"
+            ]
+          }
+        ],
+        "anchors": {
+          "pattern": "hinge"
+        },
+        "grade": "C",
+        "swap": true,
+        "evidence": "the same primary pattern on consecutive days: the next-day cost scales with effort"
+      },
+      {
+        "id": "grip",
+        "doc": "heavy holding: deadlifts, barbell rows, pull-ups",
+        "carriers": [
+          {
+            "pattern": "hinge",
+            "fatigue_in": [
+              "high"
+            ]
+          },
+          {
+            "pattern": "horizontal_pull",
+            "fatigue_in": [
+              "high"
+            ]
+          },
+          {
+            "pattern": "vertical_pull",
+            "fatigue_in": [
+              "high",
+              "med"
+            ]
+          }
+        ],
+        "anchors": {
+          "pattern": "hinge"
+        },
+        "grade": "D",
+        "swap": false,
+        "evidence": "within-session limiter only; no next-day data; straps are the lever"
+      },
+      {
+        "id": "muscle",
+        "doc": "the same primary muscle under a high-fatigue compound",
+        "per_primary": true,
+        "carriers": [
+          {
+            "pattern_in": [
+              "squat",
+              "hinge",
+              "horizontal_push",
+              "horizontal_pull",
+              "vertical_push",
+              "vertical_pull",
+              "lunge"
+            ],
+            "fatigue_in": [
+              "high"
+            ]
+          }
+        ],
+        "anchors": {
+          "pattern_in": [
+            "squat",
+            "hinge"
+          ]
+        },
+        "grade": "C",
+        "swap": true,
+        "evidence": "the same primary mover on consecutive days: the next-day cost scales with effort"
+      }
+    ],
+    "stacking": [
+      {
+        "id": "hinge_after_heavy_hinge",
+        "heavy": {
+          "pattern": "hinge",
+          "fatigue_in": [
+            "high"
+          ]
+        },
+        "also": {
+          "pattern": "hinge",
+          "fatigue_in": [
+            "high",
+            "med"
+          ]
+        }
+      }
+    ],
+    "lower_adjacency": {
+      "id": "lower_back_to_back",
+      "level": "light",
+      "patterns": [
+        "squat",
+        "hinge"
+      ],
+      "fatigue_in": [
+        "high",
+        "med"
+      ],
+      "grade": "D",
+      "doc": "A squat day next to a hinge day (either order) on back-to-back days: both load the hip extensors and the trunk, so it is reported as a light lower-body back-to-back fact (not zero), never a swap and no extra deadlift penalty (kimwog 070 squat-hinge, D; Belcher 2019: the deadlift does not need longer than the squat)."
+    },
+    "lighter_option": true,
+    "lighter_option_doc": "A muscle slot whose shortlist holds only med/high-fatigue lifts also lists its best low-fatigue lift (appended last, so it is drawn only when a heavier pick is refused: the hamstrings after the deadlift take the curl).",
+    "evidence": {
+      "source": "kimwog exercise/adjacent-session-overlap-cost-067",
+      "adaptation": "none measured at equal weekly volume (B: 6 vs 3 sessions a week, same lifts on consecutive days, same strength and size)",
+      "performance": "scales with effort (C): sets to failure lower the next session, sets well short of failure recover within hours",
+      "injury": "not measured in any lifter study; never said",
+      "spinal": "soft preference (D): no spine recovery clock was found",
+      "grip": "reported only (D): a within-session limiter, no next-day data; straps are the lever",
+      "copy": "explain an overlap in effort and scheduling terms; never say back-to-back days hurt gains or cause injury"
+    }
+  },
+  "region_margin": {
+    "doc": "Lower-body balance of a trained lifter (owner 2026-10-06 21:31: the lower days have too few sets). With the experience_set_floor matched and every weekly band met, the volume fitter raises the sets of these muscles' primary slots toward floor + sets (inside the set caps and band ceilings) while the session still fits the minutes -- the trainer-fit window, not only the day it first completed at. A muscle still short when no slot can take a set is the draft's to give one more lift; the trainer-fit search keeps growing the day while the margin is short, then keeps the first complete program if the window cannot hold it.",
+    "muscles": [
+      "quads",
+      "hamstrings",
+      "glutes"
+    ],
+    "sets": 2
+  },
+  "shoulder_caution": {
+    "doc": "A recorded shoulder caution (kimwog exercise/pull-push-plane-balance-066). keep_patterns: the engine's composed week keeps a horizontal pull whenever a session of the rotation can hold one -- the row may change variant, it never disappears to protect the shoulder (hard rule, C; compose_rank.validate E-SHOULDER-PULL). cuff_drills: one external-rotation or lower-trapezius movement a week -- when no session's prep holds one, the first session loading the shoulder takes the first usable drill in its prep (a free slot, else in place of the last general fill drill; never a site drill), skipped when the prep has neither (C, soft). excluded_name_tokens: behind-the-neck variants of excluded_patterns leave the pool (the high-five position, C; none is in the catalog today, the rule guards future entries and user-named lifts, compose_rank.validate E-SHOULDER-HIGH-FIVE).",
+    "sites": [
+      "shoulder"
+    ],
+    "keep_patterns": [
+      "horizontal_pull"
+    ],
+    "cuff_drills": [
+      "cable_external_rotation",
+      "band_external_rotation"
+    ],
+    "cuff_per_week": 1,
+    "excluded_patterns": [
+      "vertical_push",
+      "vertical_pull"
+    ],
+    "excluded_name_tokens": [
+      "behind_neck",
+      "behind_the_neck"
+    ]
+  }
+}

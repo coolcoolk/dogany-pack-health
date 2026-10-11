@@ -1,0 +1,497 @@
+# Lane reference -- the 12 active lanes from knowledge-domain-map.v3.md (v3 section 3).
+#
+# A lane is the atom of a verification culture (VC). It is NEVER part of a stable
+# ID (v3 FATAL-B / DGN-118 M5). It appears only as the rubric structure and the
+# non-ID `lane:` field on an item. The `lane:` field is REQUIRED on multi-lane
+# domains (exercise=3, cooking=2) and MAY be omitted on single-lane domains
+# (defaults to the domain's only lane).
+#
+# This file is warehouse-portable data (no absolute paths). The lint tool reads
+# it via --root so a future pak-* pack can carry its own lane set. A pack that
+# adds a new domain appends its lane(s) here.
+#
+# Schema per lane entry:
+#   name  : the @-tagged readable lane label used in the item `lane:` field.
+#   vc    : verification culture (VC-A..VC-F).
+#   domain: the owning domain slug (must exist in registry.yaml).
+#
+# Grammar note: `lane:` field values are written WITH the leading '@'.
+
+lanes:
+  # anchor VC-A -- clinical-biomedical experimentalism
+  - name: "@clinical"
+    vc: VC-A
+    domain: sleep-recovery
+  - name: "@clinical"
+    vc: VC-A
+    domain: mental-health
+
+  # anchor VC-B -- observational-inferential science
+  - name: "@obs-inferential"
+    vc: VC-B
+    domain: nutrition
+
+  # anchor VC-C -- behavioral / social psychology (3 single-lane domains)
+  - name: "@behavioral"
+    vc: VC-C
+    domain: learning-habits
+  - name: "@dyadic"
+    vc: VC-C
+    domain: relationships-communication
+  - name: "@behavioral-career"
+    vc: VC-C
+    domain: work-career
+
+  # anchor VC-D -- market / quantitative
+  - name: "@quant-market"
+    vc: VC-D
+    domain: finance-investing
+
+  # anchor VC-E / VC-F -- cooking (2 lanes, two VCs)
+  - name: "@test-kitchen"
+    vc: VC-E
+    domain: cooking
+  - name: "@food-safety"
+    vc: VC-F
+    domain: cooking
+
+  # exercise -- multi-VC domain, 3 lanes (the archetype case)
+  - name: "@clinical-physio"
+    vc: VC-A
+    domain: exercise
+  - name: "@performance-lit"
+    vc: VC-C
+    domain: exercise
+  - name: "@gym-craft"
+    vc: VC-E
+    domain: exercise
+
+  # 2026-09-02 (spending-saving lane opening). Appended per this file's own
+  # contract: "A pack that adds a new domain appends its lane(s) here."
+  #
+  # anchor VC-C -- behavioral / social psychology. The household-spending
+  # evidence base is behavioural and experimental (randomised field
+  # experiments, laboratory studies, survey-instrument validation), which is
+  # the VC-C culture, NOT the VC-D market/quantitative culture that
+  # finance-investing's @quant-market lane runs on. The two domains sit next
+  # to each other in the owner's taxonomy and are graded by different rules;
+  # spending-saving/curator-checklist-016 states the differences explicitly.
+  - name: "@household-behavioral"
+    vc: VC-C
+    domain: spending-saving
+
+  # home -- 2-lane domain, opened 2026-09-02 (v19). The two lanes map the
+  # owner's OWN two areas under his household domain, because he directed the
+  # warehouse to be filled along his taxonomy so the modules can be designed
+  # from that view. Reorganisation later is expected and accepted; a lane is
+  # never part of a stable ID, so re-laning costs a lane_transitions entry and
+  # nothing else.
+  #
+  # @home-environment (VC-B, the nutrition anchor) -- the dwelling as an
+  # EXPOSURE. Its evidence base is environmental-health epidemiology:
+  # cross-sectional and cohort studies of dampness, ventilation and indoor
+  # pollutants, pooled into meta-analyses and anchored by WHO or national
+  # guideline values, with very few randomised interventions because nobody can
+  # randomise people into a mouldy flat. Observational dominance with
+  # authority-issued anchors on top is the VC-B culture exactly, which is why
+  # this lane inherits it rather than opening a new one.
+  #
+  # @household-labor (VC-F, the food-safety anchor) -- the LABOUR of maintaining
+  # the dwelling, and the products used to do it. Its evidence base is product-
+  # efficacy adjudication by regulators, clinical hazard case series, poison-
+  # centre surveillance and official time-use statistics. The speech posture it
+  # needs is the @food-safety one: assert hard-safety rules with disclosure, and
+  # stay default-conservative where the toxicity base is thin. A behavioural
+  # culture (VC-C) was considered and rejected -- the questions in this lane are
+  # "does this product do what is claimed" and "what does this injure", not
+  # "how do people behave".
+  - name: "@home-environment"
+    vc: VC-B
+    domain: home
+  - name: "@household-labor"
+    vc: VC-F
+    domain: home
+
+  # --------------------------------------------------------------------------
+  # APPENDED 2026-09-02 by the work-career lane opening (CHANGELOG v20).
+  # The header at the top of this file describes the 12 lanes INHERITED FROM
+  # knowledge-domain-map.v3.md. That header line is a statement about the v3
+  # map and is deliberately left unedited: other packs have appended lanes
+  # below it too, so the file's live lane count is whatever is actually in it,
+  # not whatever the header says. The lane below is NOT part of the v3 map --
+  # it is a pack-side addition, which is the mechanism README.md sanctions
+  # ("A pack that adds a new domain appends its lane(s) here").
+  #
+  # Why work-career needs a second lane rather than one. Its two halves have
+  # genuinely different verification cultures, and the lane is the atom of a
+  # verification culture:
+  #   - employment / career development (@behavioral-career, VC-C, already
+  #     present above) rests on industrial-organisational and social
+  #     psychology -- meta-analysed validity coefficients, randomised trials of
+  #     work arrangements, self-report instruments. Its red flags are
+  #     range-restriction correction, criterion reliability, construct overlap.
+  #   - independent / side work (@venture-obs, VC-B, below) rests on
+  #     administrative registers and panel econometrics. No one is randomly
+  #     assigned to found a business, so the ceiling is full-population
+  #     administrative data and the dominant threats are selection and
+  #     survivorship. That is the observational-inferential culture VC-B
+  #     already anchors for nutrition, which is why VC-B rather than VC-D
+  #     (market/quantitative) was chosen: these are population statistics about
+  #     people, not price series.
+  #
+  # Effect on the schema: work-career becomes a MULTI-LANE domain, so `lane:`
+  # is REQUIRED on every work-career item. All 20 items shipped with this
+  # release carry it.
+  - name: "@venture-obs"
+    vc: VC-B
+    domain: work-career
+
+  # 2026-09-02 (nutrition craft-lane opening). Appended per this file's own
+  # contract: a pack that adds a lane appends it here. NO registry change --
+  # nutrition is already an active domain; this adds a SECOND lane to it.
+  #
+  # anchor VC-E -- practitioner craft. nutrition's existing @obs-inferential
+  # lane (VC-B) grades observational-inferential nutrition SCIENCE: what is
+  # true about food and about the instruments that measure it. It has nothing
+  # to say about the practice of logging and adjusting, which is what the
+  # consumer of this warehouse actually does every day. That is the same split
+  # exercise already carries between @performance-lit and @gym-craft, and
+  # cooking between @food-safety and @test-kitchen.
+  #
+  # VC-E HERE IS A DIFFERENT STANDARD, NOT A LOWER ONE. Items in this lane
+  # state their basis (a published professional protocol, a published clinical
+  # tool, a government dataset, or a controlled test of a technique), mark the
+  # transfer to this consumer as untested where it is untested, and are refused
+  # outright where the basis is only that the advice is widely repeated. Where
+  # a craft practice contradicts the @obs-inferential lane, the item says so in
+  # the open rather than quietly picking a side.
+  #
+  # CONSEQUENCE FOR LINT: nutrition becomes a MULTI-LANE domain (2 lanes), so
+  # the `lane:` field is now REQUIRED on every nutrition item. All nutrition
+  # items on disk already carry it; apply.sh re-verifies this at apply time
+  # before writing, because a concurrent lane-less nutrition item landing
+  # between build and apply would break the warehouse.
+  - name: "@meal-craft"
+    vc: VC-E
+    domain: nutrition
+
+  # 2026-09-02 (task-management lane opening). Appended per this file's own
+  # contract: "A pack that adds a new domain appends its lane(s) here."
+  #
+  # anchor VC-C -- behavioral / social psychology. This lane's evidence base is
+  # laboratory experiments on interruption and task switching, randomised field
+  # comparisons of work/break schedules, correlational meta-analyses on
+  # self-report scales, and objective-versus-self-report measurement studies.
+  # That is the VC-C culture, and this lane inherits its discount rules
+  # unchanged from the @behavioral lane (learning-habits): the replication
+  # calibration, the questionable-research-practice red flag, and the
+  # self-report measurement-inflation rule. The one domain-specific addition is
+  # a filter for COMMERCIAL transmission -- famous numbers here are
+  # load-bearing in books that sell, and three of the most repeated ones turned
+  # out to have no primary source at all. That filter is data, in
+  # task-management/curator-checklist-016, not a new verification culture.
+  #
+  # Single lane on purpose: a `lane:` field is therefore optional on this
+  # domain's items, but every item in the opening set carries it explicitly so
+  # a second lane can be added later without a rewrite.
+  - name: "@behavioral-productivity"
+    vc: VC-C
+    domain: task-management
+
+  # learning-habits -- SECOND LANE, appended 2026-09-02 (v23). The domain
+  # was single-lane (@behavioral, VC-C) with 13 items, every one of them
+  # evidence about WHETHER a technique works. None of them says how to RUN one.
+  # This lane carries the execution layer, and it is the same structural move
+  # exercise made when @gym-craft was opened next to @clinical-physio and
+  # @performance-lit.
+  #
+  # @study-craft (VC-E, the test-kitchen anchor) -- practitioner craft. Its
+  # basis is not the trial literature: it is documented tooling behaviour,
+  # published rule sets from long-running practitioners, and the operational
+  # arithmetic of running a schedule (backlog handling, item formulation,
+  # intake-to-load ratios, stop conditions). VC-E is the culture that already
+  # exists in this warehouse for exactly this evidential position -- a real,
+  # usable, iterated body of knowledge that no controlled trial covers -- and
+  # its speech posture is the one @gym-craft uses: state the basis, mark it, and
+  # refuse anything that is merely repeated.
+  #
+  # WHY NOT VC-C, THE DOMAIN'S EXISTING CULTURE. VC-C grades against effect
+  # robustness, replication risk and measurement validity in behavioural
+  # experiments. Almost nothing in this lane HAS an experiment to grade -- no
+  # trial compares backlog strategies, item-reformulation policies, intake
+  # rates, session lengths or stop conditions. Filing this material under VC-C
+  # would force it to be graded by a rubric it cannot answer, and the usual
+  # result of that is either silent exclusion or a fake grade. VC-E asks the
+  # question this material can actually answer: whose practice is this, is it
+  # documented, and what exactly is not known.
+  #
+  # EFFECT ON LINT: learning-habits becomes MULTI-LANE, so lane: is now REQUIRED
+  # on every item in it. All 13 pre-existing items already carry
+  # lane: "@behavioral" (verified before this payload was built) and all 8 new
+  # items carry lane: "@study-craft". No pre-existing item needs editing, and
+  # this payload edits none.
+  - name: "@study-craft"
+    vc: VC-E
+    domain: learning-habits
+
+  # leisure -- 3-lane domain, opened 2026-09-02 (v24). Appended per this
+  # file's own contract: "A pack that adds a new domain appends its lane(s)
+  # here." `lane:` is therefore REQUIRED on every item in this domain.
+  #
+  # The lane set does NOT map one-to-one onto the owner's two areas, and the
+  # departure is deliberate. 문화생활 maps to one lane. 취미 maps to TWO, because a
+  # lane is the atom of a VERIFICATION CULTURE and his 취미 area contains two
+  # evidence bases that are graded by different rules. Splitting by taxonomy
+  # where the cultures differ would have put alcohol epidemiology under a
+  # behavioural grading rule, which would be a lie about how those claims are
+  # checked. Lanes are never part of a stable ID, so re-laning later costs a
+  # lane_transitions entry and nothing else.
+  #
+  # @cultural-life (VC-C, the behavioral/social-psychology anchor) -- 문화생활,
+  # taken in the owner's own sense of cultural INPUT AND OUTPUT together:
+  # consuming culture and making it are one area to him, so listening to music
+  # and playing it are graded by the same rules here. Its evidence base is
+  # laboratory and field psychology -- randomised training studies, replication
+  # attempts, meta-analyses of small experiments, self-report instruments. That
+  # is the VC-C culture exactly, and this lane inherits @behavioral's
+  # replication-crisis discipline verbatim: single unreplicated findings are
+  # discounted by default, per learning-habits/replication-calibration-001.
+  #
+  # @hobby-practice (VC-C) -- 취미 as skill and time: practice, retention, decay,
+  # recovery from work, and the measurement of how people spend their free time.
+  # Same verification culture as @cultural-life, kept as a separate lane because
+  # the owner's taxonomy separates the areas and the rubric structure should
+  # show that. Where the two lanes differ is subject, not grading rule.
+  #
+  # @drinking-epidemiology (VC-B, the nutrition anchor) -- 술, which the owner
+  # files under 취미. A behavioural culture was considered and REJECTED: the
+  # questions here are "what does this do to a body over decades", answered by
+  # prospective cohorts, dose-response meta-analyses and Mendelian
+  # randomisation, with no randomised trials because nobody can randomise people
+  # into drinking for thirty years. Observational dominance with genetic
+  # instruments as the strongest available design is the VC-B culture, not VC-C.
+  # This lane's specific hazard -- an apparent benefit at low intake produced by
+  # a contaminated abstainer reference group -- is documented at
+  # leisure/curator-checklist-012 gate 6.
+  - name: "@cultural-life"
+    vc: VC-C
+    domain: leisure
+  - name: "@hobby-practice"
+    vc: VC-C
+    domain: leisure
+  - name: "@drinking-epidemiology"
+    vc: VC-B
+    domain: leisure
+
+  # skincare-hygiene -- 2-lane domain, opened 2026-09-02 (v25). Appended per
+  # this file's own contract: "A pack that adds a new domain appends its lane(s)
+  # here." The two lanes split the domain by EVIDENCE CULTURE, not by subject:
+  # one asks whether a thing works, the other asks what a regulator has ruled.
+  # Blending them is the characteristic error of this subject matter, which is
+  # why the split is structural rather than editorial.
+  #
+  # @clinical-derm (VC-A, the clinical-biomedical anchor shared with
+  # sleep-recovery and mental-health) -- claims about what happens to a person.
+  # Its evidence base is randomised controlled trials, Cochrane and other
+  # systematic reviews with named methodology, GRADE-style certainty ratings and
+  # blinded outcome assessment. That is the VC-A culture exactly. Note that this
+  # lane also carries HYGIENE-PRACTICE trials (hand-washing promotion), which are
+  # graded by the same culture -- cluster-randomised trials pooled into a Cochrane
+  # review with certainty ratings -- even though the subject is behaviour rather
+  # than skin. The lane is defined by how a claim is adjudicated, not by which
+  # organ it concerns.
+  #
+  # @cosmetic-regulatory (VC-F, the @food-safety anchor) -- claims about what a
+  # regulator has ruled. Its evidence base is the national instrument itself:
+  # 화장품법 and its 시행규칙, the 식약처 고시 governing functional-cosmetic review,
+  # the labelling annexes, and the advertising-substantiation notice. The speech
+  # posture it needs is the @food-safety one: state the rule with its instrument
+  # number and effective date, treat the issuing body as definitive about its own
+  # contents and about nothing else, and check the EDITION before quoting -- every
+  # instrument in this lane was revised within the year. A regulatory culture was
+  # chosen over a behavioural one because the questions here are "what is a seller
+  # permitted to claim" and "what did the applicant have to file", not "how do
+  # people behave".
+  #
+  # The load-bearing consequence of the split: a VC-F item is definitive about
+  # what a rule SAYS and silent about whether the regulated thing WORKS. Reading a
+  # registration mark or a dossier waiver as an efficacy finding is the error the
+  # two-lane structure exists to prevent.
+  - name: "@clinical-derm"
+    vc: VC-A
+    domain: skincare-hygiene
+  - name: "@cosmetic-regulatory"
+    vc: VC-F
+    domain: skincare-hygiene
+
+  # travel -- 2 lanes, two verification cultures (the cooking pattern, not the
+  # single-lane pattern). The split is real rather than decorative: the two
+  # halves of this domain are answerable by different kinds of source and fail
+  # in different ways.
+  #
+  # @travel-clinical (VC-A) -- the clinical-biomedical half: circadian
+  #   adjustment, flight-associated venous thromboembolism, travellers'
+  #   diarrhoea, altitude. Its sources are randomized trials, Cochrane reviews,
+  #   meta-analyses and clinical practice guidelines, and its characteristic
+  #   failure is a real mechanism sold as a consumer-scale effect -- exactly the
+  #   sleep-recovery @clinical failure mode, which is why it shares that VC.
+  #
+  # @travel-advisory (VC-F) -- the jurisdictional half: what the Korean
+  #   authorities instruct and what Korean law requires. Its sources are
+  #   statutes and government portals, its confidence rests on a body being
+  #   definitive about its own instructions, and its characteristic failure is
+  #   staleness plus foreign substitution -- exactly the cooking @food-safety
+  #   failure mode, which is why it shares that VC. Grading a statute on a
+  #   clinical-trial ladder would be a category error, which is the concrete
+  #   reason this domain is not single-lane.
+  - name: "@travel-clinical"
+    vc: VC-A
+    domain: travel
+  - name: "@travel-advisory"
+    vc: VC-F
+    domain: travel
+
+  # cat -- multi-VC domain, 3 lanes (v27, cat-domain opening). Rationale
+  # for the VC assignments lives on the registry row in registry.yaml. Short
+  # form: the veterinary clinical culture borrows the VC-A anchor with a lower
+  # ceiling, companion-animal behaviour carries the VC-C hazards unchanged, and
+  # a jurisdictional legal fact is verified by reading rather than by trial,
+  # which is the VC-F culture cooking's @food-safety lane already runs.
+  - name: "@clinical-vet"
+    vc: VC-A
+    domain: cat
+  - name: "@companion-ethology"
+    vc: VC-C
+    domain: cat
+  - name: "@vet-regulatory"
+    vc: VC-F
+    domain: cat
+
+  # 2026-09-02 (ledger-craft lane opening). Appended per this file's own
+  # contract: "A pack that adds a new domain appends its lane(s) here." Here it
+  # is a SECOND lane on an existing domain, which makes spending-saving a
+  # multi-lane domain and therefore makes `lane:` REQUIRED on every item in it.
+  # All 16 pre-existing @household-behavioral items already carry the field;
+  # the apply script verifies this before writing.
+  #
+  # anchor VC-E -- practitioner craft, the @gym-craft / @test-kitchen culture.
+  # The evidence lane (@household-behavioral, VC-C) carries what is KNOWN about
+  # household spending. It cannot carry how to RUN a ledger: what to do about a
+  # payee string that names a payment gateway, a category that has gone quiet, a
+  # day with no rows, a duplicate that may be real. None of that is in a paper,
+  # and the gap is the same one @gym-craft exists to fill for form, setup and
+  # what a failed rep looks like.
+  #
+  # WHY VC-E AND NOT A NEW CULTURE. The speech posture is the craft one: state
+  # the basis, cap the confidence, and never present a practitioner rule as a
+  # trial result. What differs from the sibling craft lanes is the BASIS
+  # available, and the lane's own ceiling item (spending-saving/
+  # ledger-craft-ceiling-027) states it: the top of this lane is a
+  # deterministic, query-checkable property of the recording instrument, then a
+  # census of one instance ledger, then a procedure proposed on top of a
+  # measured fact. Convergence of practitioners -- which @gym-craft legitimately
+  # accepts as weak evidence, because coaching is adjudicated by a body that
+  # pushes back -- is explicitly NOT a basis here, because a badly kept ledger
+  # pushes back on nobody.
+  #
+  # NOT A LOWER GATE. Personal finance is the warehouse's most folklore-dense
+  # domain and the evidence lane refused the fixed-ratio budgets, the latte
+  # factor and the emergency-fund month counts outright. Ceiling item exclusion
+  # (3) refuses their re-entry restated as operating practice.
+  - name: "@ledger-craft"
+    vc: VC-E
+    domain: spending-saving
+
+  # 2026-09-02 (relational-craft lane opening). Appended per this file's own
+  # contract: "A pack that adds a new domain appends its lane(s) here." Here it
+  # is a SECOND lane on an existing domain, which makes relationships-communication
+  # a multi-lane domain and therefore makes `lane:` REQUIRED on every item in it.
+  # All 17 pre-existing @dyadic items already carry the field; the apply script
+  # verifies this before writing.
+  #
+  # anchor VC-E -- practitioner craft, the @gym-craft / @test-kitchen /
+  # @ledger-craft culture. The evidence lane (@dyadic, VC-C) carries what is
+  # KNOWN about relationships and communication in general populations. It
+  # cannot carry how to RUN a contact roster: what an empty gap in a hand-fed
+  # log means, how to surface a forecast correction without inventing a
+  # cadence, how a declared preference and an absence-of-evidence row must
+  # coexist without either defeating the other, how a no-nag directive is
+  # actually enforced against a model. None of that is in a paper, and the gap
+  # is the same one @gym-craft exists to fill for form, setup and what to do
+  # when the plan does not survive contact with the floor.
+  #
+  # WHY VC-E AND NOT A NEW CULTURE. The speech posture is the craft one: state
+  # the basis, cap the confidence at the practitioner floor, and never present
+  # an operating rule as a trial result. What differs across the sibling craft
+  # lanes is the BASIS available. This lane's basis, in descending order and
+  # named on each item: (1) code currently in force on this surface, (2) a
+  # dated, checked incident on a sibling surface of the same product plus the
+  # owner's own directive that followed it, (3) the owner's own declared
+  # preference, which is not itself an evidence claim and does not compete
+  # with the evidence lane for the same slot. Practitioner-blog convergence --
+  # the basis @gym-craft legitimately accepts -- is NOT used anywhere in this
+  # lane.
+  #
+  # NOT A RE-ENTRY DOOR. The evidence lane refused a contact cadence (item
+  # 014) and recorded that self-reported tie data is biased and that no
+  # source links tie asymmetry to any outcome (item 012). This lane's items
+  # state explicitly, each at the point it would otherwise leak: a declared
+  # preference is not evidence and evidence cannot overrule a preference
+  # (item 020); a reciprocity or fade feature may never be built from item
+  # 012 (item 021); a suggestion surface must never be triggered by the
+  # appreciation-gap finding itself, because that would launder an unsourced
+  # schedule into a sourced one (item 019).
+  - name: "@relational-craft"
+    vc: VC-E
+    domain: relationships-communication
+
+  # --------------------------------------------------------------------------
+  # APPENDED 2026-09-02 by the mental-health CRAFT lane opening (CHANGELOG
+  # v30, marker: mh-craft-lane-021-028). Appended per this file's own
+  # contract ("A pack that adds a new domain appends its lane(s) here"); the
+  # header at the top of this file describes the lanes INHERITED from the v3
+  # map and is deliberately left unedited, as the previous appenders also did.
+  #
+  # WHY mental-health NEEDS A SECOND LANE. Its 20 items are all @clinical
+  # (VC-A) and all of them answer the same kind of question: what is
+  # ESTABLISHED about people. Not one of them answers the question the
+  # consumer actually faces several times a day, which is how an ASSISTANT
+  # should behave in the presence of what is established -- how to name an
+  # observed pattern without asserting a state, what to do with an absence in a
+  # record, what is in scope at all when the person says they feel bad, what may
+  # be kept and for how long. None of that is in a paper, and none of it can be
+  # graded against one. It is the same structural gap the exercise domain has
+  # already solved with @gym-craft: form, setup and what-to-do-when knowledge
+  # that no trial produces and that makes the agent usable.
+  #
+  # VC-E, the craft/practitioner culture, matching @gym-craft and
+  # @test-kitchen. The verification basis is operational practice inside ONE
+  # estate -- unblinded, uncontrolled, n of one, with no counterfactual and no
+  # measured outcome. That is a DIFFERENT standard from VC-A, not a lower
+  # ceiling on the same one, and item 021 states it as the lane's ceiling and
+  # refuses to let it move.
+  #
+  # WHY NOT VC-C (behavioural). Considered and rejected. VC-C grades
+  # meta-analysed effects, replication risk and instrument validation -- the
+  # apparatus of findings about people. Nothing in this lane is a finding about
+  # people; every item is a rule about the assistant's own conduct, falsifiable
+  # by watching the assistant fail rather than by measuring a human outcome.
+  # Filing conduct rules under an evidence culture would imply a study behind
+  # them and there is none.
+  #
+  # THE BOUNDARY, recorded here because a lane definition is where a later
+  # curator looks first. This lane is NOT a re-entry door for material the
+  # @clinical lane refused. Gratitude journalling as evidence-backed,
+  # positive-psychology effects at published values, willpower budgeting, and
+  # mood inference from tracked data all remain refused inside this lane at
+  # full strength (item 021). The clinical boundary is inherited unchanged --
+  # no diagnosis, no screening, no risk assessment, no crisis handling, no
+  # treatment selection -- as is item 011's rule that no score, threshold or
+  # tracked signal may be converted into a claim about a person's state.
+  #
+  # EFFECT ON THE SCHEMA: mental-health becomes a MULTI-LANE domain, so `lane:`
+  # is now REQUIRED on every mental-health item. All 20 pre-existing items
+  # already carry `lane: "@clinical"`; apply.sh verifies that before writing.
+  - name: "@assistant-craft"
+    vc: VC-E
+    domain: mental-health

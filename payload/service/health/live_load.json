@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "_ruling": "owner live 2026-10-08 session 1 (pack 0.35.1, first session after a reset): every point where the owner had to ask back is a defect. A lift with no measured basis gets its load from CODE: a labelled estimate at entry, a first set classified by e1RM (calibration rung vs working set 1), and a concrete next weight after every set. live_load.py is the one reader of this file.",
+  "band": {
+    "single_target_tolerance": 1,
+    "rir_default": 2,
+    "_why": "the target band is the slot rep_range [lo, hi]; a one-number range is widened by the tolerance so a set one rep off is not a calibration. The RIR the band is measured at is the HIGH end of the slot's target-RIR band (rx-calc resolve_target_rir), the same reserve e1rm_rx_rules.json backsolve.rir uses; rir_default only when the slot has no band."
+  },
+  "calibration": {
+    "margin_reps": 2,
+    "rung_rir_assumed": 4,
+    "_rung_why": "owner 2026-10-10 12:47-12:50: a warm-up rung reported without RIR is read at the warm-up reserve (4), never at RIR 0 -- an e1RM with no RIR assumes failure and stepped 60x5 down to 50. A FIRST set short of the band with no RIR on a calibrating lift is a rung too (no step-down on reps alone): it is stored in the ramp lane and the RIR is asked. A coach-armed target is never at or below a WARM-UP rung completed today (no RIR, or 4+; live_load.ramp_target / above_rungs) -- a rung with a stated RIR under 4 is a measurement and its e1RM decides (live batch 2 probe rule). Only an owner-named weight is a ceiling for rungs while the lift calibrates.",
+    "_margin_why": "a first set is a ramp-up only when its implied reps clear the band top by MORE than this: 26kg x10 @RIR3 on 8-10 (implied 11) is a slightly light working set, 50kg x15 @RIR4 on 5-8 (implied 17) was a warm-up.",
+    "_why": "first working set on a lift with no measured basis (no rx weight, no prior-session working set): implied = reps + rir - rir_target. ABOVE hi -> it was a ramp-up: a calibration rung (warm-up), stored in the ramp lane, and the next set is re-prescribed from its e1RM. Inside -> working set 1. BELOW lo stays working set 1: that set was the owner's real effort, and live batch 2 item 1 (set-arm calibration_step_down) steps the next set down from it. With no RIR reported the implied count is a lower bound, so only a set that is ABOVE the band even then is a calibration. And only when the grid offers a better weight: a light stack whose next pin is already past the band (5kg x 15 @RIR2 on 12-15, next pin 7.5) re-prescribes the same number, so that set is working set 1."
+  },
+  "next": {
+    "search_low": 0.4,
+    "search_high": 1.8,
+    "_why": "the next weight is the grid point (the confirmed machine's pins incl. a known add-on block, else the slot lattice, else the default increment) whose implied reps at the target RIR land in the band, closest to the band middle; none in band -> the point closest to the band; ties -> the lighter. Implied reps use the pack's one e1RM formula (e1rm_rx.set_e1rm)."
+  },
+  "estimate": {
+    "conservative": 0.9,
+    "_why": "a lift with no measured basis gets a LABELLED estimate at entry: target e1RM = anchor e1RM (bench-equivalent for upper, squat-equivalent for lower; today's session first, else the newest session that logged the anchor) x ratio x conservative, back-solved at the rep_range bottom with the band-high RIR (the rx backsolve rule) and snapped DOWN on the grid. Ratios are e1RM ratios keyed by exercise_movement_grip movement/equipment; dumbbell ratios are per hand. No anchor -> no estimate (never a minimum-pin fallback; accessory-weight.md).",
+    "anchors": {
+      "upper": [
+        {"exercise": "bench_press", "scale": 1.0},
+        {"exercise": "incline_barbell_press", "scale": 1.15},
+        {"exercise": "dumbbell_bench_press", "scale": 2.4},
+        {"exercise": "incline_dumbbell_press", "scale": 2.6},
+        {"exercise": "overhead_press", "scale": 1.55},
+        {"exercise": "chest_press_machine", "scale": 1.0}
+      ],
+      "lower": [
+        {"exercise": "back_squat", "scale": 1.0},
+        {"exercise": "front_squat", "scale": 1.2},
+        {"exercise": "deadlift", "scale": 0.8},
+        {"exercise": "sumo_deadlift", "scale": 0.8},
+        {"exercise": "trap_bar_deadlift", "scale": 0.75},
+        {"exercise": "rdl", "scale": 1.05},
+        {"exercise": "kettlebell_deadlift", "scale": 0.8},
+        {"exercise": "leg_press", "scale": 0.45}
+      ]
+    },
+    "ratios": {
+      "pull_compound/cable": {"region": "upper", "ratio": 0.8},
+      "pull_compound/machine": {"region": "upper", "ratio": 0.8},
+      "pull_compound/barbell": {"region": "upper", "ratio": 0.8},
+      "pull_compound/t_bar": {"region": "upper", "ratio": 0.6},
+      "pull_compound/dumbbell": {"region": "upper", "ratio": 0.35},
+      "pull_compound/kettlebell": {"region": "upper", "ratio": 0.3},
+      "curl/barbell": {"region": "upper", "ratio": 0.35},
+      "curl/ez_bar": {"region": "upper", "ratio": 0.33},
+      "curl/cable": {"region": "upper", "ratio": 0.33},
+      "curl/machine": {"region": "upper", "ratio": 0.3},
+      "curl/dumbbell": {"region": "upper", "ratio": 0.15},
+      "reverse_curl/ez_bar": {"region": "upper", "ratio": 0.25},
+      "lateral_raise/cable": {"region": "upper", "ratio": 0.09},
+      "lateral_raise/dumbbell": {"region": "upper", "ratio": 0.1},
+      "lateral_raise/machine": {"region": "upper", "ratio": 0.25},
+      "rear_delt_isolation/cable": {"region": "upper", "ratio": 0.15},
+      "rear_delt_isolation/dumbbell": {"region": "upper", "ratio": 0.08},
+      "rear_delt_isolation/machine": {"region": "upper", "ratio": 0.35},
+      "tricep_isolation/cable": {"region": "upper", "ratio": 0.35},
+      "tricep_isolation/ez_bar": {"region": "upper", "ratio": 0.3},
+      "tricep_isolation/dumbbell": {"region": "upper", "ratio": 0.15},
+      "overhead_press/barbell": {"region": "upper", "ratio": 0.62},
+      "overhead_press/machine": {"region": "upper", "ratio": 0.55},
+      "overhead_press/smith_machine": {"region": "upper", "ratio": 0.6},
+      "overhead_press/dumbbell": {"region": "upper", "ratio": 0.25},
+      "incline_press/barbell": {"region": "upper", "ratio": 0.85},
+      "incline_press/dumbbell": {"region": "upper", "ratio": 0.35},
+      "flat_press/barbell": {"region": "upper", "ratio": 1.0},
+      "flat_press/dumbbell": {"region": "upper", "ratio": 0.4},
+      "flat_press/cable": {"region": "upper", "ratio": 0.5},
+      "flat_press_machine/machine": {"region": "upper", "ratio": 0.9},
+      "close_grip_press/barbell": {"region": "upper", "ratio": 0.85},
+      "fly_isolation/cable": {"region": "upper", "ratio": 0.2},
+      "fly_isolation/machine": {"region": "upper", "ratio": 0.5},
+      "shrug/barbell": {"region": "upper", "ratio": 1.2},
+      "crunch/cable": {"region": "upper", "ratio": 0.5},
+      "crunch/machine": {"region": "upper", "ratio": 0.5},
+      "crunch/dumbbell": {"region": "upper", "ratio": 0.2},
+      "squat/barbell": {"region": "lower", "ratio": 1.0},
+      "squat/machine": {"region": "lower", "ratio": 1.8},
+      "squat/v_squat_machine": {"region": "lower", "ratio": 1.2},
+      "squat/dumbbell": {"region": "lower", "ratio": 0.3},
+      "squat/kettlebell": {"region": "lower", "ratio": 0.3},
+      "hip_hinge_deadlift/barbell": {"region": "lower", "ratio": 1.15},
+      "hinge_bilateral/barbell": {"region": "lower", "ratio": 0.6},
+      "hinge_bilateral/dumbbell": {"region": "lower", "ratio": 0.3},
+      "hip_thrust/barbell": {"region": "lower", "ratio": 1.0},
+      "split_squat/barbell": {"region": "lower", "ratio": 0.45},
+      "split_squat/dumbbell": {"region": "lower", "ratio": 0.18},
+      "leg_curl/machine": {"region": "lower", "ratio": 0.35},
+      "leg_extension/machine": {"region": "lower", "ratio": 0.45},
+      "calf_raise/machine": {"region": "lower", "ratio": 0.9},
+      "calf_raise/dumbbell": {"region": "lower", "ratio": 0.2},
+      "glute_extension/cable": {"region": "lower", "ratio": 0.12},
+      "hip_abduction/machine": {"region": "lower", "ratio": 0.5}
+    }
+  }
+}
