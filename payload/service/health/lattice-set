@@ -1,0 +1,389 @@
+#!/usr/bin/env python3
+# lattice-set -- F17 JIT lattice store-back writer.
+#
+# When rx-calc flags a discrete-load machine slot as lattice-unstamped (owner
+# marked it with a 'loading' key but its equipment grid was never measured), the
+# owner supplies the missing base/step ONCE and this writer stamps a
+# `lattice: {type: <t>, base: <b>, step: <s>}` line onto that slot in
+# program.yaml. rx-calc then snaps that slot's prescription forever after -- no
+# re-ask. This is the "작게 시작 -> measure -> auto-snap" forcing loop.
+#
+# Usage:
+#   lattice-set <slot_name> --type <even|stack|standard> --base <float> \
+#               --step <float> [--program PATH] [--dry-run]
+#   lattice-set <slot_name> --type stack --base <float> --step <float> \
+#               (--machine ULID | --session ID) [--db PATH] [--dry-run]
+#
+# 2026-09-30 (program state step A5, kit 062): a machine's grid belongs to the
+# MACHINE, not to the exercise slot -- two cable machines with different
+# stacks serve the same lift. With --machine (or --session, which resolves
+# this session's machine for the lift through machine_capture) the stated
+# base/step go to the kit's own `machine-upd --lattice` on that machine and
+# program.yaml is not touched; rx-calc then snaps to that machine's grid
+# (resolve_lattice). Without either, the card is stamped exactly as before --
+# an explicit slot override, which still wins over every derived grid.
+#
+#   slot_name    program.yaml slot 'name:' field (snake_case, e.g.
+#                chest_press_machine).
+#   --type       lattice profile type: even | stack | standard.
+#   --base       stack/grid base weight (float).
+#   --step       stack/grid step increment (float).
+#   --program    path to program.yaml (default: ./program.yaml next to script).
+#   --dry-run    print the new/changed lattice line + target, write nothing.
+#
+# CRITICAL -- comment & history preservation. program.yaml is hand-maintained
+# and dense with dated progression comments. This writer does a TARGETED
+# LINE-REGION edit: it locates the slot's block and inserts OR replaces ONLY the
+# `lattice:` line at the slot's field indentation. It NEVER parses-and-redumps
+# (rx-calc's YAML parser is read-only and drops comments). Every other byte of
+# the file is preserved verbatim.
+#
+# Idempotent: replacing an existing lattice line updates it in place (no
+# duplicate key). Safe write: takes a pre-write backup, writes, then re-parses
+# with rx-calc's load_yaml to confirm the file still parses and the slot's
+# lattice reads back as expected; on any failure the original is restored and
+# the tool exits nonzero.
+#
+# Exit codes:
+#   0 = lattice stamped (or dry-run printed)
+#   1 = error (slot not found / bad args / parse-back failed & restored)
+#
+# stdlib only: sys, os, argparse, importlib.util.
+
+import sys
+import os
+import argparse
+import importlib.util
+import importlib.machinery
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(SCRIPT_DIR, "..", ".."))
+# 2026-08-25: program.yaml / prep.yaml are OWNER DATA (their slots, loads,
+# rulings), not product. They stay in files/program/ when the engine moves to
+# service/health/, so resolve them off DATA_DIR, never off SCRIPT_DIR --
+# otherwise an install would cp -f a packaged copy over their real program.
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+DEFAULT_DB = os.path.join(SCRIPT_DIR, "..", "..", "database", "kit_life.db")
+RX_CALC = os.path.join(SCRIPT_DIR, "rx-calc")
+
+
+def _set_on_machine(args):
+    """Stamp base/step on the machine through the kit's machine-upd verb
+    (training_axis.cli_machine_upd, run in-process with the kit's own
+    helpers). Exit 0 on success, 1 when no machine resolves or the kit
+    refuses."""
+    import sqlite3
+    sys.path.insert(0, SCRIPT_DIR)
+    import machine_capture as mc
+    db = os.path.abspath(args.db)
+    machine = args.machine
+    if not machine:
+        hit = mc.machine_for(db, args.session, args.slot_name)
+        machine = hit[0] if hit else None
+    if not machine:
+        print("[lattice-set] ERROR: no machine for {} in session {} -- pick "
+              "one first (machine-pick)".format(args.slot_name, args.session),
+              file=sys.stderr)
+        return 1
+    if args.dry_run:
+        print("[lattice-set] machine: {} slot: {}".format(machine,
+                                                         args.slot_name))
+        print("  + machine-upd {} --lattice {} {}".format(
+            machine, _fmt_num(args.base), _fmt_num(args.step)))
+        print("[lattice-set] dry-run: nothing written")
+        return 0
+    ta = mc.kit_axis(db)
+    if ta is None:
+        print("[lattice-set] ERROR: kit 062 verbs are not reachable",
+              file=sys.stderr)
+        return 1
+
+    class _Refused(Exception):
+        pass
+
+    def _err(msg):
+        raise _Refused(msg)
+
+    ctx = ta.Ctx(lambda: sqlite3.connect(db), _err, mc._new_ulid,
+                 mc._owning_agent)
+    try:
+        import io
+        import contextlib
+        buf = io.StringIO()
+        with contextlib.redirect_stdout(buf):
+            ta.cli_machine_upd(ctx, [machine, "--lattice", str(args.base),
+                                     str(args.step)])
+    except _Refused as e:
+        print("[lattice-set] ERROR: {}".format(e), file=sys.stderr)
+        return 1
+    print("LATTICE_SET {} machine={} type=stack base={} step={} (machine)"
+          .format(args.slot_name, machine, _fmt_num(args.base),
+                  _fmt_num(args.step)))
+    return 0
+
+
+def _load_rx_calc():
+    """Import rx-calc (no .py extension) as a module to reuse load_yaml.
+    __main__ guard in rx-calc means import has no side effects."""
+    spec = importlib.util.spec_from_loader(
+        "rx_calc", importlib.machinery.SourceFileLoader("rx_calc", RX_CALC))
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def _fmt_num(x):
+    """Render a float without a needless trailing .0-noise mismatch to the
+    house style: integers stay whole (5 -> 5.0 kept explicit for lattice), so
+    always emit a float literal for base/step."""
+    # Keep it simple + deterministic: float() then strip a redundant trailing
+    # zero only when it is not the sole fractional digit (5.0 stays 5.0).
+    return repr(float(x))
+
+
+def build_lattice_line(indent, ltype, base, step):
+    """Build the exact lattice line at the slot's field indentation."""
+    return "{i}lattice: {{type: {t}, base: {b}, step: {s}}}".format(
+        i=" " * indent, t=ltype, b=_fmt_num(base), s=_fmt_num(step))
+
+
+def find_slot_region(lines, slot_name):
+    """Locate the slot block whose 'name:' field == slot_name.
+
+    Returns (name_idx, field_indent, region_end) where:
+      name_idx     index of the 'name: <slot_name>' line
+      field_indent indentation (spaces) of the slot's fields
+      region_end   index one past the last line belonging to this slot
+                   (exclusive; = next sibling '- ' item or dedent).
+    Returns None if the slot is not found.
+    """
+    name_idx = None
+    field_indent = None
+    for i, line in enumerate(lines):
+        stripped = line.strip()
+        # match 'name: <slot_name>' (optionally with trailing comment/space)
+        if stripped.startswith("name:"):
+            val = stripped[len("name:"):].strip()
+            # cut an inline comment if present
+            if " #" in val:
+                val = val.split(" #", 1)[0].strip()
+            if val == slot_name:
+                name_idx = i
+                field_indent = len(line) - len(line.lstrip())
+                break
+    if name_idx is None:
+        return None
+
+    # The slot's block runs until a line dedents to < field_indent, OR a new
+    # list item ('- ') appears at a shallower/equal-to-dash indent. In this
+    # schema fields sit at field_indent and the owning '- slot:' dash sits at
+    # field_indent - 2. Region ends at the first line with indent < field_indent
+    # that carries content (the next '- ...' sibling or a parent dedent).
+    region_end = len(lines)
+    for j in range(name_idx + 1, len(lines)):
+        line = lines[j]
+        if not line.strip():
+            continue
+        indent = len(line) - len(line.lstrip())
+        if indent < field_indent:
+            region_end = j
+            break
+    return name_idx, field_indent, region_end
+
+
+def find_lattice_line(lines, name_idx, field_indent, region_end):
+    """Within the slot region, find an existing 'lattice:' line at the field
+    indentation. Returns (start, end) -- a HALF-OPEN line range covering the
+    whole existing value -- or None.
+
+    WHY A RANGE AND NOT AN INDEX (2026-09-12). `lattice` has two equally valid
+    YAML spellings and program.yaml is hand-authored, so both occur:
+
+        lattice: {type: even, base: 4.0, step: 2.0}      <- one line
+        lattice:                                         <- FOUR lines
+          type: even
+          base: 4.0
+          step: 2.0
+
+    This function used to return the index of the `lattice:` line alone. On the
+    block form the caller then overwrote that ONE line with the new inline one
+    and left `type:` / `base:` / `step:` stranded underneath it at a deeper
+    indent. The result was a file that PyYAML rejects outright
+    (`ParserError: while parsing a block mapping`) and that rx-calc's own
+    lenient loader silently reads as three BOGUS TOP-LEVEL SLOT KEYS
+    (`type`/`base`/`step` next to `name` and `weight_kg`). The post-write
+    validation below passed -- it only re-read `lattice` -- so the transient
+    backup was deleted and the owner's file was left corrupted with no error.
+
+    The range makes the replacement cover the value the key actually owns, so
+    both spellings collapse to the one canonical inline line."""
+    for j in range(name_idx, region_end):
+        line = lines[j]
+        stripped = line.lstrip()
+        indent = len(line) - len(stripped)
+        if indent != field_indent or not stripped.startswith("lattice:"):
+            continue
+        end = j + 1
+        if stripped[len("lattice:"):].strip():
+            return j, end          # inline form: the key owns its own line only
+        # Block form: the key owns every following deeper-indented line.
+        while end < region_end:
+            nxt = lines[end]
+            if not nxt.strip():
+                break              # a blank line ends the value, not the region
+            if len(nxt) - len(nxt.lstrip()) <= field_indent:
+                break
+            end += 1
+        return j, end
+    return None
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="lattice-set",
+        description="Stamp a discrete-load slot's equipment lattice into "
+                    "program.yaml (F17 JIT lattice forcing-point).")
+    p.add_argument("slot_name", help="program.yaml slot 'name:' (snake_case)")
+    p.add_argument("--type", dest="ltype", required=True,
+                   choices=["even", "stack", "standard"],
+                   help="lattice profile type")
+    p.add_argument("--base", type=float, required=True,
+                   help="stack/grid base weight (kg)")
+    p.add_argument("--step", type=float, required=True,
+                   help="stack/grid step increment (kg)")
+    p.add_argument("--program", default=DEFAULT_PROGRAM,
+                   help="path to program.yaml")
+    p.add_argument("--dry-run", action="store_true",
+                   help="print the new/changed lattice line, write nothing")
+    p.add_argument("--machine", default=None,
+                   help="ax_machine ulid: store the grid on the MACHINE "
+                        "(kit machine-upd), not on the card")
+    p.add_argument("--session", type=int, default=None,
+                   help="resolve the machine this session uses for the lift")
+    p.add_argument("--db", default=DEFAULT_DB, help="path to kit_life.db")
+    args = p.parse_args(argv)
+
+    if args.machine or args.session is not None:
+        return _set_on_machine(args)
+
+    if not os.path.exists(args.program):
+        print("[lattice-set] ERROR: program.yaml not found: {}".format(
+            args.program), file=sys.stderr)
+        return 1
+
+    with open(args.program, "r", encoding="utf-8") as f:
+        original = f.read()
+    lines = original.splitlines(keepends=True)
+
+    region = find_slot_region(lines, args.slot_name)
+    if region is None:
+        print("[lattice-set] ERROR: slot not found: {}".format(args.slot_name),
+              file=sys.stderr)
+        return 1
+    name_idx, field_indent, region_end = region
+
+    new_line_body = build_lattice_line(field_indent, args.ltype,
+                                       args.base, args.step)
+
+    lat_region = find_lattice_line(lines, name_idx, field_indent, region_end)
+
+    # Preserve the line ending used by the file (newline vs CRLF); default \n.
+    eol = "\n"
+    if lines and lines[0].endswith("\r\n"):
+        eol = "\r\n"
+    new_line = new_line_body + eol
+
+    if lat_region is not None:
+        lat_idx, lat_end = lat_region
+        action = "replace"
+        # The dry-run must show every line that will disappear, not just the
+        # first -- a block-form value is 4 lines and the owner has to be able
+        # to see all of them before the write.
+        old_line = "\n".join("  - " + lines[k].rstrip("\r\n")
+                             for k in range(lat_idx, lat_end))[4:]
+    else:
+        lat_idx = lat_end = None
+        action = "insert"
+        old_line = None
+
+    if args.dry_run:
+        print("[lattice-set] slot: {}".format(args.slot_name))
+        print("[lattice-set] action: {} (field indent {})".format(
+            action, field_indent))
+        if old_line is not None:
+            print("  - {}".format(old_line))
+        print("  + {}".format(new_line_body))
+        print("[lattice-set] dry-run: nothing written")
+        return 0
+
+    # Apply the targeted line-region edit.
+    new_lines = list(lines)
+    if lat_idx is not None:
+        new_lines[lat_idx:lat_end] = [new_line]
+    else:
+        # Insert immediately after the 'name:' line (top of the slot's fields),
+        # keeping the slot's other fields + all their comments untouched.
+        new_lines.insert(name_idx + 1, new_line)
+
+    # Pre-write backup for safe rollback.
+    backup_path = args.program + ".lattice-set.bak"
+    with open(backup_path, "w", encoding="utf-8") as f:
+        f.write(original)
+
+    with open(args.program, "w", encoding="utf-8") as f:
+        f.write("".join(new_lines))
+
+    # Validate: re-parse with rx-calc's load_yaml and read the lattice back.
+    try:
+        rx = _load_rx_calc()
+        program = rx.load_yaml(args.program)
+        if not isinstance(program, dict):
+            raise ValueError("program.yaml did not parse as a dict")
+        found = None
+        for day in (program.get("days") or {}).values():
+            if not isinstance(day, dict):
+                continue
+            for ex in (day.get("exercises") or []):
+                if isinstance(ex, dict) and ex.get("name") == args.slot_name:
+                    found = ex
+                    break
+            if found is not None:
+                break
+        if found is None:
+            raise ValueError("slot vanished from re-parsed program")
+        lat = found.get("lattice")
+        if not isinstance(lat, dict):
+            raise ValueError("lattice did not read back as a mapping")
+        if lat.get("type") != args.ltype:
+            raise ValueError("lattice type mismatch on read-back: {!r}".format(
+                lat.get("type")))
+        if float(lat.get("base")) != float(args.base):
+            raise ValueError("lattice base mismatch on read-back: {!r}".format(
+                lat.get("base")))
+        if float(lat.get("step")) != float(args.step):
+            raise ValueError("lattice step mismatch on read-back: {!r}".format(
+                lat.get("step")))
+    except Exception as e:
+        # Restore the original file, keep the backup for inspection.
+        with open(args.program, "w", encoding="utf-8") as f:
+            f.write(original)
+        print("[lattice-set] ERROR: validation failed, restored original: {}"
+              .format(e), file=sys.stderr)
+        return 1
+
+    # Success: drop the transient backup.
+    try:
+        os.remove(backup_path)
+    except OSError:
+        pass
+
+    print("LATTICE_SET {} type={} base={} step={} ({})".format(
+        args.slot_name, args.ltype, _fmt_num(args.base),
+        _fmt_num(args.step), action))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

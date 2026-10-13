@@ -1,0 +1,275 @@
+#!/usr/bin/env python3
+# day-plan -- adaptive daily session, stage S1: SHADOW ONLY.
+#
+# Spec: dynamic daily program design (2026-10-06) (owner D1-D5 confirmed
+# 2026-10-06 13:53; unparked 2026-10-12 11:10). The engine is daily_plan.py
+# (pure); this tool gathers the inputs and writes the shadow log. Nothing here
+# is user-visible: session-open does not call it, no card prints it, and
+# `build` REFUSES to run without --shadow (S2+ own the served path).
+#
+#   build <sid> --shadow [--minutes N] [--avoid R] [--want R] [--energy low]
+#               [--today YYYY-MM-DD] [--json]
+#       Compute what the engine WOULD serve for session <sid> (the queue's
+#       session is what is served) and append one record to the shadow log
+#       (files/program/.day-plan/shadow-<db>.jsonl). Idempotent per sid: a
+#       second build for the same sid replaces its record.
+#   preview [--after SID] [--today YYYY-MM-DD] [--json]
+#       "next time, likely ..." (ko copy) -- the engine's pick for the next expected training day
+#       given everything logged so far. A forecast, worded as one by callers.
+#
+# INPUTS (none computed here): kit muscle-state (readiness), kit muscle-week
+# sets_effective (done so far; kit >= the S0 delta), kit rotation-current
+# (queue head / open pass), rx-calc bands + muscle credit, program.yaml.
+import argparse
+import datetime
+import hashlib
+import importlib.util
+import json
+import os
+import sqlite3
+import sys
+from pathlib import Path
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+sys.dont_write_bytecode = True
+
+import daily_plan as DP                       # noqa: E402
+from free_session import module               # noqa: E402
+
+WEEKDAYS = ('MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN')
+DEFAULT_PROGRAM = os.path.join(HERE, '..', '..', 'files', 'program', 'program.yaml')
+
+
+def die(code, msg):
+    print('%s: %s' % (code, msg), file=sys.stderr)
+    sys.exit(2)
+
+
+def kit_mf(rx):
+    """The kit's muscle_fatigue module with the S0 sets_effective reader."""
+    import ax_engine
+    d = os.path.dirname(ax_engine.kit_life_path())
+    path = os.path.join(d, 'muscle_fatigue.py')
+    if not os.path.isfile(path):
+        die('E-DAYPLAN-KIT', 'kit muscle_fatigue.py not found next to kit_life.py')
+    sys.path.insert(0, d)
+    spec = importlib.util.spec_from_file_location('kit_muscle_fatigue', path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    if not hasattr(mod, 'effective_sets'):
+        die('E-DAYPLAN-KIT', 'kit muscle-week has no sets_effective '
+            '(day-plan S0 kit delta not installed)')
+    return mod
+
+
+def state_dir():
+    return Path(os.environ.get('LIFEKIT_HEALTH_STATE_DIR')
+                or Path(HERE).resolve().parents[2] / 'files/program') / '.day-plan'
+
+
+def shadow_log(db):
+    key = hashlib.sha256(os.path.realpath(db).encode()).hexdigest()[:16]
+    return state_dir() / ('shadow-%s.jsonl' % key)
+
+
+def declared_days(program):
+    plan = program.get('time_plan') or {}
+    days = [d for d in (plan.get('lift_minutes') or {}) if d in WEEKDAYS]
+    return sorted(days, key=WEEKDAYS.index)
+
+
+def attendance(conn, today):
+    """({weekday: attended / weeks seen}, whole weeks seen) from the last 8
+    weeks of workout dates that carry logged sets; today's week is open."""
+    mon = today - datetime.timedelta(days=today.weekday())
+    since = mon - datetime.timedelta(weeks=8)
+    rows = conn.execute(
+        "SELECT DISTINCT w.date FROM workouts w JOIN workout_sets s ON "
+        "s.session_id = w.id WHERE w.date >= ? AND w.date < ?",
+        (since.isoformat(), mon.isoformat())).fetchall()
+    dates = sorted(datetime.date.fromisoformat(r[0]) for r in rows)
+    if not dates:
+        return {}, 0
+    first_mon = dates[0] - datetime.timedelta(days=dates[0].weekday())
+    weeks = max(1, (mon - first_mon).days // 7)
+    count = {}
+    for d in dates:
+        count[WEEKDAYS[d.weekday()]] = count.get(WEEKDAYS[d.weekday()], 0) + 1
+    return {k: min(1.0, v / float(weeks)) for k, v in count.items()}, weeks
+
+
+def gather(args, today, sid):
+    rx = module('rx-calc')
+    import compose_rank
+    program = rx.load_yaml(args.program)
+    rotation = program.get('rotation') or []
+    if not rotation:
+        die('E-DAYPLAN-OUTSET', 'program.yaml has no rotation')
+    rules = DP.load_rules()
+    muscle_map = rx.get_muscle_map(args.db)
+    spec = DP.build_spec(program, muscle_map, rx.slot_credit, rx.day_work_items)
+    mf = kit_mf(rx)
+    th = (mf.STATE_RECOVERING, mf.STATE_HARD)
+    credit = compose_rank.muscle_credit_table(compose_rank.load_rules())
+    at = datetime.datetime.combine(today, datetime.time(7, 0))
+    conn = sqlite3.connect('file:%s?mode=ro' % os.path.abspath(args.db), uri=True)
+    try:
+        if sid is not None:
+            # the session being built never reads its own partial sets
+            mem = sqlite3.connect(':memory:')
+            conn.backup(mem)
+            mem.execute('DELETE FROM workout_sets WHERE session_id = ?', (sid,))
+            conn.close()
+            conn = mem
+        tax = mf.Taxonomy(conn)
+        lib = mf.Library(conn, tax)
+        mon = datetime.datetime.combine(today - datetime.timedelta(days=today.weekday()),
+                                        datetime.time(0, 0))
+        done, _ = mf.effective_sets(conn, lib, tax, mon,
+                                    at + datetime.timedelta(days=1), credit)
+        st = mf.compute_state(conn, at)
+        ratios = DP.ratios_from_nodes(st['nodes'], rules['act_ratio'])
+        blocked = set()
+        try:
+            for (site,) in conn.execute(
+                    "SELECT site FROM pain_event WHERE status='open' AND "
+                    "sensation='pain' AND pain > 0 AND site IS NOT NULL"):
+                blocked |= set(rules['pain_site_muscles'].get(site, ()))
+        except sqlite3.OperationalError:
+            pass
+        names = {n for c in spec.values() for s in c['slots'] for n in [s['name']]}
+        obs, weeks_seen = attendance(conn, today)
+        performed = set()
+        for (name,) in conn.execute(
+                "SELECT DISTINCT s.exercise_name FROM workout_sets s JOIN "
+                "workouts w ON w.id = s.session_id WHERE w.date >= ? AND "
+                "w.date <= ? AND s.set_kind IN ('working','hold')",
+                (mon.date().isoformat(), today.isoformat())):
+            performed.add(name)
+        pass_open = []
+    finally:
+        conn.close()
+    k = rx.kit_rotation(args.db, today.isoformat(), sid)
+    head = k['next_split'] if k['next_split'] in rotation else rotation[0]
+    pass_open = [c for c in k['pass_remaining'] if c in rotation] or list(rotation)
+    declared = declared_days(program)
+    wd = WEEKDAYS[today.weekday()]
+    rest = list(WEEKDAYS[WEEKDAYS.index(wd) + 1:])
+    state = {'done': done, 'ratio': ratios, 'blocked': blocked,
+             'performed': performed,
+             'future_days': (DP.expected_days(rest, set(declared), obs, weeks_seen, rules)
+                             if declared else None),
+             'next_day_p': DP.expected_days([WEEKDAYS[(today.weekday() + 1) % 7]],
+                                            set(declared), obs, weeks_seen, rules),
+             'unavailable': set()}
+    band = {m: {k2: v for k2, v in rx.resolve_band(m, program, set()).items()
+                if k2 in ('floor', 'target', 'ceiling')}
+            for m in rx.MUSCLES_MAJOR + rx.MUSCLES_MINOR}
+    freq, _ = rx.program_weekly_frequency(program)
+    base = DP.base_dose(spec, rotation, freq)
+    cap = (program.get('time_plan') or {}).get('lift_minutes', {}).get(wd)
+    return dict(spec=spec, rotation=rotation, head=head, open=pass_open,
+                band=band, base=base, state=state, th=th, rules=rules,
+                declared=declared, weekday=wd, minutes_default=cap,
+                weeks_seen=weeks_seen)
+
+
+def run_plan(g, args, supplementary=None):
+    sup = (g['weekday'] not in g['declared'] and bool(g['declared'])
+           if supplementary is None else supplementary)
+    minutes = args.minutes if args.minutes else None
+    return DP.plan(g['spec'], g['rotation'], g['head'], g['band'], g['base'],
+                   g['state'], g['th'], g['rules'], minutes=minutes,
+                   avoid=args.avoid, want=args.want, energy=args.energy,
+                   supplementary=sup, open_codes=g['open'])
+
+
+def _record(p, g, today, sid):
+    edits = [s for s in p.get('slots', ()) if s['reasons']]
+    return {'sid': sid, 'date': today.isoformat(), 'weekday': g['weekday'],
+            'served': g['head'], 'plan': p.get('code'),
+            'swapped': bool(p.get('swapped')), 'reasons': p.get('reasons', []),
+            'refusals': p.get('refusals', []), 'error': p.get('error'),
+            'edits': [{'name': s['name'], 'sets': s['sets'],
+                       'reasons': s['reasons']} for s in edits],
+            'slots': p.get('slots', []), 'shortfall': p.get('shortfall', {}),
+            'future_days': (None if g['state']['future_days'] is None
+                            else round(g['state']['future_days'], 2)),
+            'weeks_seen': g['weeks_seen']}
+
+
+def cmd_build(a):
+    if not a.shadow:
+        die('E-DAYPLAN-SHADOW', 'S1 is shadow-only: build needs --shadow '
+            '(the served path ships in S3)')
+    today = datetime.date.fromisoformat(a.today) if a.today else datetime.date.today()
+    g = gather(a, today, a.sid)
+    p = run_plan(g, a)
+    rec = _record(p, g, today, a.sid)
+    path = shadow_log(a.db)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    kept = []
+    if path.is_file():
+        for line in path.read_text().splitlines():
+            if line.strip() and json.loads(line).get('sid') != a.sid:
+                kept.append(line)
+    kept.append(json.dumps(rec, ensure_ascii=False, sort_keys=True))
+    path.write_text('\n'.join(kept) + '\n')
+    emit(rec, a)
+
+
+def cmd_preview(a):
+    today = datetime.date.fromisoformat(a.today) if a.today else datetime.date.today()
+    prog = module('rx-calc').load_yaml(a.program)
+    declared = declared_days(prog)
+    if not declared:
+        die('E-DAYPLAN-OUTSET', 'program.yaml has no declared training days')
+    nxt = today + datetime.timedelta(days=1)
+    while WEEKDAYS[nxt.weekday()] not in declared:
+        nxt += datetime.timedelta(days=1)
+    g = gather(a, nxt, None)
+    a.minutes = a.avoid = a.want = a.energy = None
+    p = run_plan(g, a, supplementary=False)
+    rec = _record(p, g, nxt, a.after)
+    rec['preview_for'] = nxt.isoformat()
+    emit(rec, a)
+
+
+def emit(rec, a):
+    if a.json:
+        print(json.dumps(rec, ensure_ascii=False, indent=1, sort_keys=True))
+        return
+    print('SHADOW\t%s\tserved=%s\tplan=%s\t%s' % (
+        rec['date'], rec['served'], rec['plan'],
+        ','.join(rec['reasons']) or 'queue'))
+    for s in rec['slots']:
+        print('SLOT\t%s\t%d\t%s' % (s['name'], s['sets'], ','.join(s['reasons'])))
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog='day-plan')
+    ap.add_argument('--db', default=os.environ.get('LIFEKIT_DB', module('rx-calc').DEFAULT_DB))
+    ap.add_argument('--program', default=DEFAULT_PROGRAM)
+    sub = ap.add_subparsers(dest='cmd', required=True)
+    b = sub.add_parser('build')
+    b.add_argument('sid', type=int)
+    b.add_argument('--shadow', action='store_true')
+    b.add_argument('--minutes', type=int)
+    b.add_argument('--avoid')
+    b.add_argument('--want')
+    b.add_argument('--energy', choices=DP.ENERGY)
+    b.add_argument('--today')
+    b.add_argument('--json', action='store_true')
+    b.set_defaults(fn=cmd_build)
+    pv = sub.add_parser('preview')
+    pv.add_argument('--after', type=int)
+    pv.add_argument('--today')
+    pv.add_argument('--json', action='store_true')
+    pv.set_defaults(fn=cmd_preview)
+    a = ap.parse_args(argv)
+    a.fn(a)
+
+
+if __name__ == '__main__':
+    main()

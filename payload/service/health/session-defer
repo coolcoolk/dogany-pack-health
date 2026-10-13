@@ -1,0 +1,172 @@
+#!/usr/bin/env python3
+"""session-defer -- defer today's planned split from inside a session (2026-10-13).
+
+THE GAP. 2026-10-13 06:56 the owner, mid-prep (5 prep drills logged on a
+session-open that had tagged the row lower-body B at birth), said "cardio only today,
+lower body to tomorrow, the InBody too". The kit now has the move
+(`kit_life.sh workout-defer`), but the move is about TASKS: the session row
+session-open made today stays behind -- tagged, with 5 prep rows, the
+.active-session marker on it and its pinned card up. A day the owner did not
+train would linger as an open/trained-looking session.
+
+WHAT THIS DOES (one verb for the session path; the ask and the apply both go
+through it so the routing has a single entry):
+  1. finds the day's session row(s): tagged, or the .active-session one;
+  2. REFUSES (DEFER_REFUSED<TAB>SESSION_TRAINED, exit 1, nothing written) when
+     any of them holds a PERFORMED set (working/hold) -- that split was trained,
+     deferring it is a closeout question, not a move;
+  3. runs `kit_life.sh workout-defer <args>`; without --apply that is the ask
+     (DEFER_ASK + ASK_OPTIONS passed through unchanged) and nothing else runs;
+  4. with --apply, once the kit has moved the rows: records every moved block
+     in session-block's kept ledger (the session-ensure block keeps its
+     `sid=` note on the new day; reclaim/sweep must not archive it), then
+     discards each not-started session through `session-abort` (count-matched
+     to its prep/ramp rows) -> SESSION_NOT_STARTED lines. The rotation is not
+     the reason: the kit already ignores prep-only sessions. The row goes so
+     the day reads as not trained everywhere (pin, markers, history).
+
+stdout: the kit's lines, then per discarded session
+  SESSION_NOT_STARTED<TAB>session=<id><TAB>date=<d><TAB>session_type=<code>
+     <TAB>prep_rows_deleted=<n>
+and DEFER_CARD last -- the reply is that card, verbatim.
+A session the abort could not discard prints
+  SESSION_LINGERS<TAB>session=<id><TAB><reason>   and the exit is 2 (the move
+itself stands).
+
+Usage:
+  session-defer [--from D] [--to D] [--at HH:MM] [--with <title>]... [--apply]
+                [--db PATH] [--kit PATH]
+Exit: 0 ok / 1 refused (kit or SESSION_TRAINED) / 2 moved but a session lingers.
+stdlib only. ASCII source.
+"""
+
+import argparse
+import importlib.machinery
+import importlib.util
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import undo_lib as U  # noqa: E402
+
+DEFAULT_KIT = os.path.join(HERE, "..", "..", "database", "kit_life.sh")
+
+
+def _load(name, filename):
+    ld = importlib.machinery.SourceFileLoader(name, os.path.join(HERE, filename))
+    spec = importlib.util.spec_from_loader(ld.name, ld)
+    mod = importlib.util.module_from_spec(spec)
+    ld.exec_module(mod)
+    return mod
+
+
+def _today_kst():
+    import datetime
+    return (datetime.datetime.now(datetime.timezone.utc)
+            + datetime.timedelta(hours=9)).strftime("%Y-%m-%d")
+
+
+def day_sessions(conn, day):
+    """[(id, session_type_code, n_rows, n_performed)] for DAY's session rows:
+    tagged ones plus the active-marker one. Untagged rows (a cardio / watch
+    ingest) are never a session this verb touches."""
+    active = U.marker_read(U.ACTIVE_MARKER)
+    out = []
+    for sid, code in conn.execute(
+            "SELECT w.id, st.code FROM workouts w "
+            "LEFT JOIN session_type st ON st.id = w.session_type_id "
+            "WHERE w.date=? AND (w.session_type_id IS NOT NULL OR w.id=?) "
+            "ORDER BY w.id;", (day, active if active is not None else -1)):
+        out.append((int(sid), code, len(U.sets_of(conn, sid)),
+                    U.performed_set_count(conn, sid)))
+    return out
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="session-defer")
+    p.add_argument("--from", dest="from_day", default=None)
+    p.add_argument("--to", dest="to_day", default=None)
+    p.add_argument("--at", default=None)
+    p.add_argument("--with", dest="companions", action="append", default=[])
+    p.add_argument("--apply", action="store_true")
+    p.add_argument("--db", default=None)
+    p.add_argument("--kit", default=os.environ.get("KIT_LIFE_SH") or DEFAULT_KIT)
+    a = p.parse_args(argv)
+    from_day = a.from_day or _today_kst()
+    db = U.resolve_db(a.db)
+
+    conn = U.open_db(db)
+    try:
+        sessions = day_sessions(conn, from_day)
+    finally:
+        conn.close()
+    trained = [s for s in sessions if s[3] > 0]
+    if trained:
+        sid, code, _n, perf = trained[0]
+        print("DEFER_REFUSED\tSESSION_TRAINED\tsession=%s session_type=%s "
+              "performed_sets=%s" % (sid, code or "untagged", perf))
+        print("session-defer refused: session %s on %s already holds %s "
+              "performed set(s) -- that split was trained; close it out "
+              "(session-closeout) instead of moving it. Nothing was moved."
+              % (sid, from_day, perf), file=sys.stderr)
+        return 1
+
+    kargv = [a.kit, "workout-defer", "--from", from_day]
+    if a.to_day:
+        kargv += ["--to", a.to_day]
+    if a.at:
+        kargv += ["--at", a.at]
+    for c in a.companions:
+        kargv += ["--with", c]
+    if a.apply:
+        kargv.append("--apply")
+    try:
+        kp = subprocess.run(["bash"] + kargv, capture_output=True, text=True,
+                            timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        print("DEFER_REFUSED\tKIT_EXEC\t%s" % e)
+        return 1
+    if kp.stderr:
+        sys.stderr.write(kp.stderr)
+    lines = (kp.stdout or "").splitlines()
+    if kp.returncode != 0 or not a.apply:
+        for line in lines:
+            print(line)
+        return 0 if kp.returncode == 0 else 1
+
+    card = [l for l in lines if l.startswith("DEFER_CARD\t")]
+    for line in lines:
+        if not line.startswith("DEFER_CARD\t"):
+            print(line)
+    moved = [int(l.split("\t")[1]) for l in lines
+             if l.startswith("DEFERRED\t") and l.split("\t")[1].isdigit()]
+
+    rc = 0
+    if moved:
+        sb = _load("session_block", "session-block")
+        sb.keep_blocks(moved)
+    for sid, code, n_rows, _perf in sessions:
+        ap = subprocess.run(
+            [sys.executable, os.path.join(HERE, "session-abort"), str(sid),
+             "--confirm-sets", str(n_rows), "--force-historical", "--db", db],
+            capture_output=True, text=True, timeout=120)
+        if ap.returncode == 0 and "state=not_started" in ap.stdout:
+            print("SESSION_NOT_STARTED\tsession=%s\tdate=%s\tsession_type=%s"
+                  "\tprep_rows_deleted=%s" % (sid, from_day, code or "untagged",
+                                              n_rows))
+        else:
+            reason = next((l for l in (ap.stdout + ap.stderr).splitlines()
+                           if l.startswith("REFUSED") or "ERROR" in l
+                           or l.startswith("SESSION_ABORT")),
+                          "session-abort exit %d" % ap.returncode)
+            print("SESSION_LINGERS\tsession=%s\t%s" % (sid, reason.strip()))
+            rc = 2
+    for line in card:
+        print(line)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main())

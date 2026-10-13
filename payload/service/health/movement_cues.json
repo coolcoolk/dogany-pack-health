@@ -1,0 +1,2784 @@
+{
+  "_doc": "Movement cue steps and one common fault, ko/en. Explicit per-movement data; no runtime name-based inference. Wording is D practitioner/product instruction, not an injury-prevention claim. Existing prep cues remain in prep_cues.json (kimwog 741). Source adaptations use exercise/main-lift-cues-746 and the technique references in movement_catalog.py. Recorded user steps win.",
+  "movements": {
+    "back_squat": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "바를 등 상부에 올리고 등 위쪽을 조임. 발은 어깨너비쯤, 발끝은 무릎이 따라갈 만큼 0-30도 바깥. 매 반복 전 크게 숨을 들이마시고 배에 힘을 줘 고정.",
+          "무릎을 발끝 방향으로 굽히며 처방된 깊이까지 앉아요.",
+          "바닥에서 가슴과 엉덩이가 같이 올라온다"
+        ],
+        "fault": "바닥에서 엉덩이만 먼저 솟아 굿모닝처럼 됨",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "bar on the upper back with the upper back squeezed tight; feet about shoulder width, toes out 0-30 degrees as the knees track; big breath held and brace before each rep",
+          "Bend knees in line with toes and descend to the prescribed depth.",
+          "chest and hips rise together out of the bottom"
+        ],
+        "fault": "hips shoot up first out of the bottom and the squat turns into a good morning",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "barbell_glute_bridge": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "힙쓰러스트는 등 위를 벤치에, 브리지는 등을 바닥에 대고 무릎을 세워요. 바를 골반 위 패드에 놓아요.",
+          "갈비뼈를 내리고 발로 바닥을 밀어 골반을 들어요.",
+          "어깨부터 무릎까지 이어지는 높이에서 멈춘 뒤 천천히 내려요."
+        ],
+        "fault": "높이 들려고 허리를 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For hip thrusts support the upper back on a bench; for bridges lie on the floor with knees bent. Pad the bar over the hips.",
+          "Keep ribs down and press through the feet to lift the pelvis.",
+          "Stop with shoulders, hips and knees aligned, then lower slowly."
+        ],
+        "fault": "Do not overextend the lower back for extra height.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "barbell_reverse_lunge": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "두 발을 앞뒤로 놓아요. 리버스는 뒤로 한 걸음, 불가리안은 뒷발을 낮은 벤치에 올려요.",
+          "앞발 전체를 붙인 채 두 무릎을 굽혀 수직으로 내려요.",
+          "앞발로 바닥을 밀어 올라와요. 워킹은 다음 걸음으로 이어 가고 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "앞무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Take a split stance; step backward for a reverse lunge or rest the rear foot on a low bench for Bulgarian split squats.",
+          "Keep the front foot planted and bend both knees to lower.",
+          "Push through the front foot to rise; continue forward for walking lunges and do equal reps each side."
+        ],
+        "fault": "Do not let the front knee collapse inward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "barbell_row": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "C",
+      "ko": {
+        "steps": [
+          "RDL처럼 힌지해 버틸 수 있는 각도(약 45도 이하)로 상체 고정. 무릎 살짝. 바는 어깨 아래. 복압.",
+          "팔꿈치를 뒤로 보내 바를 배 쪽으로 당겨요.",
+          "몸통을 고정하고 팔을 천천히 펴서 돌아와요."
+        ],
+        "fault": "매 반복 상체가 올라오며 반동으로 바를 끌어올림",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "hinge as in the RDL to a torso angle you can hold still (about 45 degrees or lower); soft knees; bar hanging under the shoulders; brace",
+          "Draw the elbows back and pull the bar toward the abdomen.",
+          "Keep the torso still and slowly extend the arms to return."
+        ],
+        "fault": "the torso rises and jerks on every rep to swing the bar up",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "barbell_seal_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 또는 벤치 패드에 가슴을 붙이고 손잡이나 도구를 잡아요.",
+          "가슴을 붙인 채 팔꿈치를 뒤로 보내 갈비뼈 쪽으로 당겨요.",
+          "어깨를 으쓱하지 않고 팔을 천천히 펴요."
+        ],
+        "fault": "가슴을 패드에서 떼며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep the chest against the machine or bench pad and grip the handles or weights.",
+          "Keep chest contact and draw the elbows back toward the ribs.",
+          "Extend the arms slowly without shrugging."
+        ],
+        "fault": "Do not lift the chest off the pad for momentum.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "barbell_shrug": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "바 또는 트랩바를 잡고 팔을 길게 내려 서요.",
+          "어깨를 귀 쪽으로 곧게 들어 올려요.",
+          "잠깐 멈춘 뒤 천천히 내려요."
+        ],
+        "fault": "어깨를 앞뒤로 크게 돌리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand holding the bar or trap bar with arms straight.",
+          "Raise the shoulders straight toward the ears.",
+          "Pause briefly and lower slowly."
+        ],
+        "fault": "Do not roll the shoulders in circles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "barbell_split_squat": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "두 발을 앞뒤로 놓아요. 리버스는 뒤로 한 걸음, 불가리안은 뒷발을 낮은 벤치에 올려요.",
+          "앞발 전체를 붙인 채 두 무릎을 굽혀 수직으로 내려요.",
+          "앞발로 바닥을 밀어 올라와요. 워킹은 다음 걸음으로 이어 가고 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "앞무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Take a split stance; step backward for a reverse lunge or rest the rear foot on a low bench for Bulgarian split squats.",
+          "Keep the front foot planted and bend both knees to lower.",
+          "Push through the front foot to rise; continue forward for walking lunges and do equal reps each side."
+        ],
+        "fault": "Do not let the front knee collapse inward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "bench_press": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "C",
+      "ko": {
+        "steps": [
+          "눈이 바 바로 아래. 발바닥 전체를 바닥에 고정. 견갑을 뒤·아래로 모아 벤치에 박고 허리는 살짝 아치. 그립은 어깨너비의 1.5배 이내, 바닥 지점에서 전완이 수직.",
+          "팔꿈치는 몸통에서 45-75도, 가슴 아래쪽에 터치",
+          "바를 어깨 위쪽으로 밀어내며 몸을 바에서 밀어낸다"
+        ],
+        "fault": "넓은 그립에 팔꿈치를 90도로 벌리고 바를 목 쪽으로 내림",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "eyes under the bar; feet flat and planted; shoulder blades pulled back and down into the bench with a small arch; grip no wider than 1.5 times shoulder width, forearms vertical at the bottom",
+          "touch the lower chest with the elbows about 45-75 degrees from the body",
+          "drive the bar back up over the shoulders, push yourself away from the bar"
+        ],
+        "fault": "wide grip with elbows flared to 90 degrees, bar lowered toward the neck",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "bicep_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "팔꿈치를 몸 옆에 두고 도구를 잡아요. 해머는 손바닥을 마주 보게, 리버스는 아래로 향하게 해요.",
+          "팔꿈치 위치를 유지하며 손을 어깨 쪽으로 올려요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "허리 반동으로 무게를 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep elbows by the sides and grip the implement; palms face each other for hammer curls and down for reverse curls.",
+          "Keep elbows in place and curl toward the shoulders.",
+          "Extend slowly."
+        ],
+        "fault": "Do not swing the back to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "bodyweight_lunge": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "두 발을 앞뒤로 놓아요. 리버스는 뒤로 한 걸음, 불가리안은 뒷발을 낮은 벤치에 올려요.",
+          "앞발 전체를 붙인 채 두 무릎을 굽혀 수직으로 내려요.",
+          "앞발로 바닥을 밀어 올라와요. 워킹은 다음 걸음으로 이어 가고 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "앞무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Take a split stance; step backward for a reverse lunge or rest the rear foot on a low bench for Bulgarian split squats.",
+          "Keep the front foot planted and bend both knees to lower.",
+          "Push through the front foot to rise; continue forward for walking lunges and do equal reps each side."
+        ],
+        "fault": "Do not let the front knee collapse inward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "box_jump": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "박스 점프는 낮고 안정된 박스 앞에 서요. 스쿼트 점프는 제자리에서 시작해요.",
+          "엉덩이와 무릎을 굽혔다가 바닥을 밀어 뛰어요.",
+          "양발로 조용히 착지해 균형을 잡아요. 박스에서는 걸어서 내려와요."
+        ],
+        "fault": "착지하며 무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For box jumps stand before a low stable box; squat jumps start in place.",
+          "Bend hips and knees, then push the floor away to jump.",
+          "Land softly on both feet and stabilize; step down from the box."
+        ],
+        "fault": "Do not let knees collapse inward on landing.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "box_squat": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "박스 높이는 처방된 편안한 깊이. 스탠스는 일반 스쿼트보다 조금 넓게. 백스쿼트처럼 숨 참고 복압.",
+          "엉덩이를 뒤로 보내 박스에 살짝 닿되 몸의 힘을 유지해요.",
+          "바닥을 밀어내며 박스에서 일어난다"
+        ],
+        "fault": "박스에 털썩 앉아 몸을 뒤로 젖혔다가 반동으로 일어남",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "box height at the prescribed comfortable depth; stance a little wider than the free squat; brace as in the back squat",
+          "Sit back to touch the box while keeping the body braced.",
+          "drive up off the box by pushing the floor away"
+        ],
+        "fault": "dropping onto the box and rocking back to start the rep",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "bulgarian_split_squat": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "두 발을 앞뒤로 놓아요. 리버스는 뒤로 한 걸음, 불가리안은 뒷발을 낮은 벤치에 올려요.",
+          "앞발 전체를 붙인 채 두 무릎을 굽혀 수직으로 내려요.",
+          "앞발로 바닥을 밀어 올라와요. 워킹은 다음 걸음으로 이어 가고 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "앞무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Take a split stance; step backward for a reverse lunge or rest the rear foot on a low bench for Bulgarian split squats.",
+          "Keep the front foot planted and bend both knees to lower.",
+          "Push through the front foot to rise; continue forward for walking lunges and do equal reps each side."
+        ],
+        "fault": "Do not let the front knee collapse inward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "cable_chest_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손잡이가 가슴 높이에 오도록 케이블이나 좌석을 맞춰요.",
+          "몸통을 고정하고 손잡이를 가슴 앞쪽으로 밀어요.",
+          "팔꿈치를 천천히 굽혀 시작 위치로 돌아와요."
+        ],
+        "fault": "허리를 젖혀 손잡이를 밀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Adjust the cables or seat so the handles start at chest height.",
+          "Keep the torso still and press the handles forward.",
+          "Bend the elbows slowly to return."
+        ],
+        "fault": "Do not arch the lower back to move the handles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "cable_crunch": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "맨몸과 덤벨 크런치는 누워 무릎을 세우고 덤벨은 가슴에 붙여요. 케이블은 무릎 꿇고 로프를 머리 옆에, 기구는 패드를 맞춰요.",
+          "숨을 내쉬며 갈비뼈를 골반 쪽으로 말아요.",
+          "천천히 시작 위치로 돌아와요."
+        ],
+        "fault": "팔로 당기거나 엉덩이만 접지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For floor crunches bend the knees and hold any dumbbell at the chest; for cable crunches kneel with the rope beside the head, or adjust machine pads.",
+          "Exhale and curl the ribs toward the pelvis.",
+          "Return slowly."
+        ],
+        "fault": "Do not pull with the arms or only hinge at the hips.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "cable_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "팔꿈치를 몸 옆에 두고 도구를 잡아요. 해머는 손바닥을 마주 보게, 리버스는 아래로 향하게 해요.",
+          "팔꿈치 위치를 유지하며 손을 어깨 쪽으로 올려요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "허리 반동으로 무게를 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep elbows by the sides and grip the implement; palms face each other for hammer curls and down for reverse curls.",
+          "Keep elbows in place and curl toward the shoulders.",
+          "Extend slowly."
+        ],
+        "fault": "Do not swing the back to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "cable_fly": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손잡이가 가슴 높이에 오게 맞추고 팔꿈치를 살짝 굽혀요.",
+          "팔꿈치 각도를 유지하며 양팔을 가슴 앞으로 모아요.",
+          "가슴이 편한 범위까지만 천천히 벌려요."
+        ],
+        "fault": "팔을 너무 뒤로 벌려 어깨 앞을 늘리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the handles at chest height with elbows slightly bent.",
+          "Keep that elbow angle and bring the arms together in front of the chest.",
+          "Open slowly within a comfortable chest range."
+        ],
+        "fault": "Do not force the arms far behind the torso.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "cable_glute_kickback": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "외전 기구는 패드를 허벅지 바깥에, 케이블 킥백은 발목 스트랩을 고정해요.",
+          "골반을 고정하고 기구는 무릎을 바깥으로, 킥백은 다리를 뒤로 보내요.",
+          "천천히 돌아와요. 킥백은 양쪽 모두 해요."
+        ],
+        "fault": "골반이나 허리를 흔들어 범위를 늘리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set machine pads outside the thighs for abduction or secure the ankle strap for cable kickbacks.",
+          "Keep pelvis still; open knees outward on the machine or send the leg backward for kickbacks.",
+          "Return slowly; do kickbacks on both sides."
+        ],
+        "fault": "Do not swing the pelvis or back for extra range.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "cable_lateral_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구를 몸 옆에 두고 팔꿈치를 살짝 굽혀요. 기구는 패드 위치를 팔에 맞춰요.",
+          "어깨를 내린 채 팔을 옆으로 어깨 높이까지만 들어요.",
+          "천천히 내려요. 한 팔 동작은 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "어깨를 으쓱하거나 몸을 흔들어 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Start with the load at the sides and elbows slightly bent; adjust machine pads to your arms.",
+          "Keep shoulders down and raise arms out to shoulder height.",
+          "Lower slowly; repeat equally on each side for one-arm work."
+        ],
+        "fault": "Do not shrug or swing the torso to lift.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "cable_reverse_fly": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "케이블 또는 기구 손잡이를 가슴 앞에 잡아요. 덤벨은 앉아 몸통을 앞으로 접고 아래에 두어요.",
+          "팔꿈치를 살짝 굽힌 채 팔을 옆으로 벌려요.",
+          "천천히 시작 위치로 모아요."
+        ],
+        "fault": "상체 반동으로 팔을 뒤로 던지지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hold cable or machine handles in front of the chest; for dumbbells sit and hinge forward with weights hanging below.",
+          "Keep elbows slightly bent and open the arms out.",
+          "Return slowly."
+        ],
+        "fault": "Do not throw the arms backward with torso momentum.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "chest_press_machine": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손잡이가 가슴 높이에 오도록 케이블이나 좌석을 맞춰요.",
+          "몸통을 고정하고 손잡이를 가슴 앞쪽으로 밀어요.",
+          "팔꿈치를 천천히 굽혀 시작 위치로 돌아와요."
+        ],
+        "fault": "허리를 젖혀 손잡이를 밀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Adjust the cables or seat so the handles start at chest height.",
+          "Keep the torso still and press the handles forward.",
+          "Bend the elbows slowly to return."
+        ],
+        "fault": "Do not arch the lower back to move the handles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "chest_supported_dumbbell_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 또는 벤치 패드에 가슴을 붙이고 손잡이나 도구를 잡아요.",
+          "가슴을 붙인 채 팔꿈치를 뒤로 보내 갈비뼈 쪽으로 당겨요.",
+          "어깨를 으쓱하지 않고 팔을 천천히 펴요."
+        ],
+        "fault": "가슴을 패드에서 떼며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep the chest against the machine or bench pad and grip the handles or weights.",
+          "Keep chest contact and draw the elbows back toward the ribs.",
+          "Extend the arms slowly without shrugging."
+        ],
+        "fault": "Do not lift the chest off the pad for momentum.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "chest_supported_t_bar_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 또는 벤치 패드에 가슴을 붙이고 손잡이나 도구를 잡아요.",
+          "가슴을 붙인 채 팔꿈치를 뒤로 보내 갈비뼈 쪽으로 당겨요.",
+          "어깨를 으쓱하지 않고 팔을 천천히 펴요."
+        ],
+        "fault": "가슴을 패드에서 떼며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep the chest against the machine or bench pad and grip the handles or weights.",
+          "Keep chest contact and draw the elbows back toward the ribs.",
+          "Extend the arms slowly without shrugging."
+        ],
+        "fault": "Do not lift the chest off the pad for momentum.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "chinup": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손바닥이 얼굴 쪽을 보게 어깨너비로 봉을 잡아요.",
+          "흔들림을 멈추고 팔꿈치를 아래로 당겨 몸을 올려요.",
+          "천천히 내려 팔을 펴요."
+        ],
+        "fault": "턱만 내밀거나 다리를 차서 올라가지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Grip the bar shoulder-width with palms facing you.",
+          "Stop swinging and draw elbows down to lift the body.",
+          "Lower slowly to extend the arms."
+        ],
+        "fault": "Do not crane the chin or kick the legs to rise.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "close_grip_bench_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "벤치에 누워 견갑을 모으고 발 또는 다리 고정대를 안정시켜요. 클로즈그립은 어깨너비로 바를 잡아요.",
+          "손목 아래에 팔꿈치를 두고 바를 가슴 아래쪽으로 내려요.",
+          "벤치에 엉덩이를 붙인 채 바를 어깨 위로 밀어요."
+        ],
+        "fault": "바를 목 쪽으로 내리거나 가슴에서 튕기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie on the bench with shoulder blades set and feet or leg supports secure; use a shoulder-width grip for close-grip bench.",
+          "Keep elbows under wrists and lower the bar toward the lower chest.",
+          "Keep hips on the bench and press over the shoulders."
+        ],
+        "fault": "Do not lower toward the neck or bounce off the chest.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "close_grip_lat_pulldown": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "허벅지 패드를 붙이고 지정된 손잡이를 잡아요. 뉴트럴은 손바닥이 마주 보게, 언더핸드는 얼굴 쪽으로 향하게 해요.",
+          "상체 각도를 고정하고 팔꿈치를 아래로 보내 손잡이를 가슴 앞쪽으로 당겨요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "목 뒤로 당기거나 상체를 크게 흔들지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Secure the thigh pad and use the specified handle; palms face each other for neutral grip and toward you for underhand grip.",
+          "Keep the torso angle fixed and draw elbows down, bringing the handle in front of the chest.",
+          "Extend the arms slowly."
+        ],
+        "fault": "Do not pull behind the neck or swing the torso.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "crunch": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "맨몸과 덤벨 크런치는 누워 무릎을 세우고 덤벨은 가슴에 붙여요. 케이블은 무릎 꿇고 로프를 머리 옆에, 기구는 패드를 맞춰요.",
+          "숨을 내쉬며 갈비뼈를 골반 쪽으로 말아요.",
+          "천천히 시작 위치로 돌아와요."
+        ],
+        "fault": "팔로 당기거나 엉덩이만 접지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For floor crunches bend the knees and hold any dumbbell at the chest; for cable crunches kneel with the rope beside the head, or adjust machine pads.",
+          "Exhale and curl the ribs toward the pelvis.",
+          "Return slowly."
+        ],
+        "fault": "Do not pull with the arms or only hinge at the hips.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "deadlift": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구가 발 중앙에 오게 서요. 스모는 넓은 발 간격, 트랩바는 프레임 안에 서요.",
+          "엉덩이와 무릎을 굽혀 손잡이를 잡고 배에 힘을 줘요.",
+          "발로 바닥을 밀며 도구를 몸 가까이 들어 선 뒤 엉덩이와 무릎을 굽혀 내려요."
+        ],
+        "fault": "일어난 뒤 허리를 뒤로 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand with the load over midfoot; use a wide stance for sumo or stand inside the trap bar.",
+          "Bend hips and knees, grip the handles and brace.",
+          "Push the floor away and stand with the load close, then bend hips and knees to lower."
+        ],
+        "fault": "Do not lean backward at lockout.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "decline_bench_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "벤치에 누워 견갑을 모으고 발 또는 다리 고정대를 안정시켜요. 클로즈그립은 어깨너비로 바를 잡아요.",
+          "손목 아래에 팔꿈치를 두고 바를 가슴 아래쪽으로 내려요.",
+          "벤치에 엉덩이를 붙인 채 바를 어깨 위로 밀어요."
+        ],
+        "fault": "바를 목 쪽으로 내리거나 가슴에서 튕기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie on the bench with shoulder blades set and feet or leg supports secure; use a shoulder-width grip for close-grip bench.",
+          "Keep elbows under wrists and lower the bar toward the lower chest.",
+          "Keep hips on the bench and press over the shoulders."
+        ],
+        "fault": "Do not lower toward the neck or bounce off the chest.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dip": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "평행봉을 잡고 팔로 몸을 지지해요.",
+          "팔꿈치를 굽혀 어깨가 편한 깊이까지만 내려요.",
+          "봉을 아래로 밀어 올라와요."
+        ],
+        "fault": "어깨 앞이 당기도록 깊게 내려가지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Support yourself on parallel bars.",
+          "Bend the elbows and descend only as far as the shoulders allow comfortably.",
+          "Push the bars down to rise."
+        ],
+        "fault": "Do not sink into a deep shoulder stretch.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_bench_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "벤치에 누워 발을 바닥에 붙이고 견갑을 모아요. 덤벨을 가슴 옆에 잡아요.",
+          "손목 아래에 팔꿈치를 두고 덤벨을 위로 밀어요.",
+          "덤벨을 가슴 높이까지 천천히 내려요. 한 팔 동작은 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "덤벨을 가슴 아래로 깊게 떨어뜨리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie on the bench, plant the feet and set the shoulder blades; hold the dumbbells beside the chest.",
+          "Keep elbows under wrists and press up.",
+          "Lower slowly to chest level; for the one-arm version, repeat equally on each side."
+        ],
+        "fault": "Do not let the dumbbells sink far below chest level.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_crunch": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "맨몸과 덤벨 크런치는 누워 무릎을 세우고 덤벨은 가슴에 붙여요. 케이블은 무릎 꿇고 로프를 머리 옆에, 기구는 패드를 맞춰요.",
+          "숨을 내쉬며 갈비뼈를 골반 쪽으로 말아요.",
+          "천천히 시작 위치로 돌아와요."
+        ],
+        "fault": "팔로 당기거나 엉덩이만 접지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For floor crunches bend the knees and hold any dumbbell at the chest; for cable crunches kneel with the rope beside the head, or adjust machine pads.",
+          "Exhale and curl the ribs toward the pelvis.",
+          "Return slowly."
+        ],
+        "fault": "Do not pull with the arms or only hinge at the hips.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "팔꿈치를 몸 옆에 두고 도구를 잡아요. 해머는 손바닥을 마주 보게, 리버스는 아래로 향하게 해요.",
+          "팔꿈치 위치를 유지하며 손을 어깨 쪽으로 올려요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "허리 반동으로 무게를 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep elbows by the sides and grip the implement; palms face each other for hammer curls and down for reverse curls.",
+          "Keep elbows in place and curl toward the shoulders.",
+          "Extend slowly."
+        ],
+        "fault": "Do not swing the back to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_fly_pattern": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "벤치에 누워 아주 가벼운 덤벨을 가슴 위에 두고 팔꿈치를 조금 굽혀요.",
+          "팔꿈치 각도를 유지하며 팔을 옆으로 조금 벌려요.",
+          "가슴 위로 모으고 여유 있게 멈춰요."
+        ],
+        "fault": "준비 동작을 실패 가까이까지 하지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie on a bench with very light dumbbells above the chest and elbows slightly bent.",
+          "Keep the elbow angle fixed and open the arms gently.",
+          "Bring them back over the chest and stop well short of fatigue."
+        ],
+        "fault": "Do not turn this primer into a set near failure.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_lateral_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구를 몸 옆에 두고 팔꿈치를 살짝 굽혀요. 기구는 패드 위치를 팔에 맞춰요.",
+          "어깨를 내린 채 팔을 옆으로 어깨 높이까지만 들어요.",
+          "천천히 내려요. 한 팔 동작은 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "어깨를 으쓱하거나 몸을 흔들어 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Start with the load at the sides and elbows slightly bent; adjust machine pads to your arms.",
+          "Keep shoulders down and raise arms out to shoulder height.",
+          "Lower slowly; repeat equally on each side for one-arm work."
+        ],
+        "fault": "Do not shrug or swing the torso to lift.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_overhead_triceps_extension": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "오버헤드는 도구를 머리 위에, 라잉은 누워 가슴 위에 잡아요.",
+          "윗팔을 고정하고 팔꿈치를 굽혀 도구를 머리 쪽으로 내려요.",
+          "팔꿈치를 펴서 돌아와요."
+        ],
+        "fault": "팔꿈치를 벌리고 허리를 젖혀 밀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hold the implement overhead, or above the chest while lying for lying extensions.",
+          "Keep upper arms still and bend elbows to lower toward the head.",
+          "Extend the elbows to return."
+        ],
+        "fault": "Do not flare the elbows and arch the back to press.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_rdl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "덤벨 RDL은 덤벨을 허벅지 앞에, 굿모닝은 가벼운 바를 등 위에 놓아요. 한 발 동작은 지지발 무릎을 살짝 굽혀요.",
+          "무릎 각도를 거의 유지하며 엉덩이를 뒤로 보내요.",
+          "엉덩이가 더 뒤로 안 갈 때 멈추고 발로 바닥을 밀어 서요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "바닥에 닿으려고 허리만 더 굽히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For dumbbell RDLs hold the weights at the thighs; for good mornings support a light bar on the upper back. Soften the stance knee for single-leg work.",
+          "Keep the knee angle nearly fixed and send the hips back.",
+          "Stop when the hips stop moving back and stand; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not chase the floor by bending farther through the back.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "빈손으로 벤치를 짚고 엉덩이를 뒤로 보내 몸통을 고정해요.",
+          "도구를 든 쪽 팔꿈치를 골반 쪽으로 당겨요.",
+          "천천히 팔을 펴고 같은 횟수를 반대쪽에도 해요."
+        ],
+        "fault": "몸통을 돌려 무게를 끌어올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Support the free hand on a bench and hinge to hold the torso still.",
+          "Draw the loaded elbow toward the hip.",
+          "Lower slowly and repeat equally on the other side."
+        ],
+        "fault": "Do not twist the torso to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_shoulder_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "좌석과 등받이를 맞추고 도구 또는 손잡이를 어깨 높이에 잡아요.",
+          "배에 힘을 주고 팔꿈치 위에 손목을 둔 채 위로 밀어요.",
+          "어깨가 편한 범위로 천천히 내려요."
+        ],
+        "fault": "무게를 올리려고 허리를 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Adjust the seat and back support; start with weights or handles at shoulder height.",
+          "Brace and press up with wrists above elbows.",
+          "Lower slowly through a comfortable shoulder range."
+        ],
+        "fault": "Do not overarch the lower back to press.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_standing_calf_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "앞꿈치를 발판이나 바닥에 안정시켜요. 앉은 동작은 무릎 패드를 맞추고, 레그프레스는 다리 각도를 고정해요.",
+          "발가락으로 지지면을 눌러 뒤꿈치를 들어요.",
+          "천천히 내려요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "발목을 튕기며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the balls of the feet securely on the floor or platform; adjust knee pads when seated and keep the leg angle fixed on a leg press.",
+          "Press through the forefoot to raise the heels.",
+          "Lower slowly; repeat both sides for single-leg work."
+        ],
+        "fault": "Do not bounce through the ankles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "dumbbell_triceps_kickback": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "로프 푸시다운은 팔꿈치를 몸 옆에, 킥백은 몸을 접고 윗팔을 몸통 옆에 고정해요.",
+          "윗팔을 고정하고 팔꿈치만 펴요.",
+          "천천히 굽혀 시작 위치로 돌아와요."
+        ],
+        "fault": "어깨를 움직여 무게를 흔들지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For rope pushdowns keep elbows at the sides; for kickbacks hinge and hold upper arms beside the torso.",
+          "Keep upper arms fixed and straighten the elbows.",
+          "Bend slowly to return."
+        ],
+        "fault": "Do not swing the load from the shoulders.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "ez_bar_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "팔꿈치를 몸 옆에 두고 도구를 잡아요. 해머는 손바닥을 마주 보게, 리버스는 아래로 향하게 해요.",
+          "팔꿈치 위치를 유지하며 손을 어깨 쪽으로 올려요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "허리 반동으로 무게를 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep elbows by the sides and grip the implement; palms face each other for hammer curls and down for reverse curls.",
+          "Keep elbows in place and curl toward the shoulders.",
+          "Extend slowly."
+        ],
+        "fault": "Do not swing the back to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "ez_bar_reverse_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "팔꿈치를 몸 옆에 두고 도구를 잡아요. 해머는 손바닥을 마주 보게, 리버스는 아래로 향하게 해요.",
+          "팔꿈치 위치를 유지하며 손을 어깨 쪽으로 올려요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "허리 반동으로 무게를 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep elbows by the sides and grip the implement; palms face each other for hammer curls and down for reverse curls.",
+          "Keep elbows in place and curl toward the shoulders.",
+          "Extend slowly."
+        ],
+        "fault": "Do not swing the back to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "face_pull": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "로프 케이블을 얼굴 높이에 맞추고 양손으로 잡아요.",
+          "팔꿈치를 옆으로 보내며 로프 끝을 얼굴 양옆으로 당겨요.",
+          "몸통을 고정하고 천천히 돌아가요."
+        ],
+        "fault": "허리를 젖혀 무게를 당기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set a rope cable at face height and grip both ends.",
+          "Draw elbows out and pull the rope ends beside the face.",
+          "Keep the torso still and return slowly."
+        ],
+        "fault": "Do not lean back to pull the load.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "front_squat": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "프런트 스쿼트는 바를 어깨 앞에, 고블릿은 도구를 가슴 앞에 받쳐요.",
+          "발바닥 전체를 붙이고 무릎을 발끝 방향으로 굽혀 앉아요.",
+          "가슴과 엉덩이가 함께 올라오도록 바닥을 밀어요."
+        ],
+        "fault": "팔꿈치와 가슴이 앞으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Support the bar on the front shoulders for front squats, or hold the implement at the chest for goblet squats.",
+          "Keep the whole foot grounded and bend knees along the toes to descend.",
+          "Push the floor away so chest and hips rise together."
+        ],
+        "fault": "Do not let elbows and chest collapse forward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "goblet_squat": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "프런트 스쿼트는 바를 어깨 앞에, 고블릿은 도구를 가슴 앞에 받쳐요.",
+          "발바닥 전체를 붙이고 무릎을 발끝 방향으로 굽혀 앉아요.",
+          "가슴과 엉덩이가 함께 올라오도록 바닥을 밀어요."
+        ],
+        "fault": "팔꿈치와 가슴이 앞으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Support the bar on the front shoulders for front squats, or hold the implement at the chest for goblet squats.",
+          "Keep the whole foot grounded and bend knees along the toes to descend.",
+          "Push the floor away so chest and hips rise together."
+        ],
+        "fault": "Do not let elbows and chest collapse forward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "good_morning": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "덤벨 RDL은 덤벨을 허벅지 앞에, 굿모닝은 가벼운 바를 등 위에 놓아요. 한 발 동작은 지지발 무릎을 살짝 굽혀요.",
+          "무릎 각도를 거의 유지하며 엉덩이를 뒤로 보내요.",
+          "엉덩이가 더 뒤로 안 갈 때 멈추고 발로 바닥을 밀어 서요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "바닥에 닿으려고 허리만 더 굽히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For dumbbell RDLs hold the weights at the thighs; for good mornings support a light bar on the upper back. Soften the stance knee for single-leg work.",
+          "Keep the knee angle nearly fixed and send the hips back.",
+          "Stop when the hips stop moving back and stand; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not chase the floor by bending farther through the back.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "hammer_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "팔꿈치를 몸 옆에 두고 도구를 잡아요. 해머는 손바닥을 마주 보게, 리버스는 아래로 향하게 해요.",
+          "팔꿈치 위치를 유지하며 손을 어깨 쪽으로 올려요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "허리 반동으로 무게를 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep elbows by the sides and grip the implement; palms face each other for hammer curls and down for reverse curls.",
+          "Keep elbows in place and curl toward the shoulders.",
+          "Extend slowly."
+        ],
+        "fault": "Do not swing the back to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "high_knee_march": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "곧게 서서 팔을 자연스럽게 굽혀요.",
+          "한 무릎을 골반 높이까지 올렸다가 발을 내려요.",
+          "반대쪽과 번갈아 제자리에서 걸어요."
+        ],
+        "fault": "무릎을 높이려고 허리를 뒤로 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand tall with relaxed bent arms.",
+          "Lift one knee toward hip height and lower the foot.",
+          "Alternate legs in a controlled march."
+        ],
+        "fault": "Do not lean back to raise the knee higher.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "hip_abduction_machine": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "외전 기구는 패드를 허벅지 바깥에, 케이블 킥백은 발목 스트랩을 고정해요.",
+          "골반을 고정하고 기구는 무릎을 바깥으로, 킥백은 다리를 뒤로 보내요.",
+          "천천히 돌아와요. 킥백은 양쪽 모두 해요."
+        ],
+        "fault": "골반이나 허리를 흔들어 범위를 늘리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set machine pads outside the thighs for abduction or secure the ankle strap for cable kickbacks.",
+          "Keep pelvis still; open knees outward on the machine or send the leg backward for kickbacks.",
+          "Return slowly; do kickbacks on both sides."
+        ],
+        "fault": "Do not swing the pelvis or back for extra range.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "hip_thrust": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "힙쓰러스트는 등 위를 벤치에, 브리지는 등을 바닥에 대고 무릎을 세워요. 바를 골반 위 패드에 놓아요.",
+          "갈비뼈를 내리고 발로 바닥을 밀어 골반을 들어요.",
+          "어깨부터 무릎까지 이어지는 높이에서 멈춘 뒤 천천히 내려요."
+        ],
+        "fault": "높이 들려고 허리를 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For hip thrusts support the upper back on a bench; for bridges lie on the floor with knees bent. Pad the bar over the hips.",
+          "Keep ribs down and press through the feet to lift the pelvis.",
+          "Stop with shoulders, hips and knees aligned, then lower slowly."
+        ],
+        "fault": "Do not overextend the lower back for extra height.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "hollow_hold": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "플랭크는 팔꿈치를 어깨 아래에 놓고 몸을 길게, 할로우는 누워 허리를 바닥에 붙이고 팔다리를 뻗어요.",
+          "배에 힘을 준 자세로 정해진 시간 동안 천천히 호흡해요."
+        ],
+        "fault": "허리가 뜨거나 처지면 지렛대를 짧게 줄이세요.",
+        "rep_unit": "1회 = 처방된 시간 동안 자세 유지"
+      },
+      "en": {
+        "steps": [
+          "For a plank place elbows below shoulders and align the body; for a hollow hold lie down, press the lower back to the floor and extend the limbs.",
+          "Maintain the brace and breathe slowly for the prescribed time."
+        ],
+        "fault": "Shorten the lever if the lower back lifts or sags.",
+        "rep_unit": "1 hold = maintain the position for the prescribed duration"
+      }
+    },
+    "incline_barbell_press": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "벤치 각도는 낮은 인클라인. 엉덩이와 등 상부를 패드에 붙임. 견갑 뒤·아래. 그립 규칙은 벤치와 같음.",
+          "바를 쇄골 바로 아래로 내린다",
+          "위로, 살짝 뒤로 밀어 어깨 위에서 마무리"
+        ],
+        "fault": "엉덩이가 들리거나 벤치가 너무 세워져 숄더프레스가 됨",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "bench at a low incline; hips and upper back on the pad; shoulder blades back and down; same grip rule as the bench",
+          "lower the bar to just under the collarbone",
+          "press up and slightly back so the bar finishes over the shoulders"
+        ],
+        "fault": "hips lift off the seat (or the bench is set steep), turning it into a shoulder press",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "incline_dumbbell_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "인클라인은 등받이에 등을 기대 팔을 아래로, 프리처는 패드에 윗팔을 붙여요.",
+          "윗팔 위치를 유지하며 팔꿈치를 굽혀요.",
+          "천천히 펴되 팔꿈치를 튕기지 않아요."
+        ],
+        "fault": "어깨를 앞으로 들어 올려 마무리하지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For incline curls rest on the back pad with arms hanging; for preacher curls rest upper arms on the pad.",
+          "Keep upper arms fixed and bend the elbows.",
+          "Extend slowly without bouncing at the bottom."
+        ],
+        "fault": "Do not lift the shoulders forward to finish the curl.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "incline_dumbbell_press": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "덤벨을 허벅지에 올리고 눕는 동시에 무릎으로 하나씩 차올림. 견갑 뒤·아래. 손바닥은 정면 또는 약간 안쪽.",
+          "내려가는 내내 팔꿈치가 손목 바로 아래",
+          "덤벨을 위로, 살짝 서로 모으듯 밀어 올린다"
+        ],
+        "fault": "덤벨이 바깥으로 벌어지며 가슴 아래로 깊게 처지고 한쪽이 늦음",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "sit with the dumbbells on the thighs, kick them up one knee at a time as you lie back; shoulder blades back and down; palms forward or turned slightly in",
+          "elbows stay under the wrists all the way down",
+          "press the dumbbells up and slightly together"
+        ],
+        "fault": "dumbbells drift wide and sink far below the chest, one side lagging",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "incline_push_up": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손을 어깨보다 살짝 넓게 바닥에 짚어요. 인클라인은 손을 높은 지지대에 올려요.",
+          "머리부터 발까지 일직선을 유지하며 가슴을 손 사이로 내려요.",
+          "손으로 지지면을 밀어 시작 자세로 돌아와요."
+        ],
+        "fault": "허리가 처지지 않게 배에 힘을 유지하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Place hands slightly wider than shoulders; elevate the hands on a stable support for the incline version.",
+          "Keep head to heels aligned and lower the chest between the hands.",
+          "Push the support away to return."
+        ],
+        "fault": "Do not let the lower back sag.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "inverted_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "고정된 봉 아래에서 발을 바닥에 두고 몸을 일직선으로 만들어요.",
+          "팔꿈치를 뒤로 보내 가슴을 봉 쪽으로 당겨요.",
+          "몸통을 곧게 유지하며 천천히 내려요."
+        ],
+        "fault": "엉덩이가 아래로 처지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Position yourself under a fixed bar, heels grounded and body straight.",
+          "Draw elbows back to pull the chest toward the bar.",
+          "Lower slowly while keeping the body aligned."
+        ],
+        "fault": "Do not let the hips sag.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "jumping_jack": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "두 발을 모으고 팔을 몸 옆에 두어요.",
+          "가볍게 뛰어 발을 벌리며 팔을 위로 올려요.",
+          "다시 뛰어 발을 모으고 팔을 내려요."
+        ],
+        "fault": "무릎을 뻣뻣하게 잠근 채 착지하지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Start with feet together and arms by the sides.",
+          "Jump lightly to open the feet and raise the arms.",
+          "Jump back with feet together and lower the arms."
+        ],
+        "fault": "Do not land with locked knees.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "kettlebell_clean": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "벨을 한 손으로 잡고 엉덩이를 접어요.",
+          "엉덩이를 펴며 벨을 몸 가까이 올리고 손을 손잡이 안으로 넣어요.",
+          "벨을 전완에 부드럽게 얹은 뒤 내려요. 양쪽 모두 해요."
+        ],
+        "fault": "벨이 손목 위로 넘어와 세게 부딪히지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Grip the bell with one hand and hinge.",
+          "Extend the hips, keep the bell close and insert the hand through the handle.",
+          "Receive it softly on the forearm, then lower; repeat both sides."
+        ],
+        "fault": "Do not let the bell flip over and slam the wrist.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "kettlebell_deadlift": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구가 발 중앙에 오게 서요. 스모는 넓은 발 간격, 트랩바는 프레임 안에 서요.",
+          "엉덩이와 무릎을 굽혀 손잡이를 잡고 배에 힘을 줘요.",
+          "발로 바닥을 밀며 도구를 몸 가까이 들어 선 뒤 엉덩이와 무릎을 굽혀 내려요."
+        ],
+        "fault": "일어난 뒤 허리를 뒤로 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand with the load over midfoot; use a wide stance for sumo or stand inside the trap bar.",
+          "Bend hips and knees, grip the handles and brace.",
+          "Push the floor away and stand with the load close, then bend hips and knees to lower."
+        ],
+        "fault": "Do not lean backward at lockout.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "kettlebell_goblet_squat": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "프런트 스쿼트는 바를 어깨 앞에, 고블릿은 도구를 가슴 앞에 받쳐요.",
+          "발바닥 전체를 붙이고 무릎을 발끝 방향으로 굽혀 앉아요.",
+          "가슴과 엉덩이가 함께 올라오도록 바닥을 밀어요."
+        ],
+        "fault": "팔꿈치와 가슴이 앞으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Support the bar on the front shoulders for front squats, or hold the implement at the chest for goblet squats.",
+          "Keep the whole foot grounded and bend knees along the toes to descend.",
+          "Push the floor away so chest and hips rise together."
+        ],
+        "fault": "Do not let elbows and chest collapse forward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "kettlebell_swing": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "케틀벨을 앞에 두고 엉덩이를 접어 잡아요.",
+          "벨을 다리 사이로 보내고 엉덩이를 펴서 가슴 높이까지 띄워요.",
+          "내려오는 벨을 따라 엉덩이를 다시 접어요."
+        ],
+        "fault": "팔로 벨을 들어 올리거나 허리를 뒤로 꺾지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hinge to grip the kettlebell in front of you.",
+          "Hike it between the legs, then extend the hips to float it to chest height.",
+          "Hinge again as the bell falls."
+        ],
+        "fault": "Do not lift with the arms or lean back at the top.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "landmine_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "고정된 바 끝을 한 손으로 어깨 앞에 잡고 발을 안정시켜요.",
+          "갈비뼈를 내린 채 바를 앞쪽 위로 밀어요.",
+          "천천히 어깨 앞으로 돌아오고 반대쪽도 해요."
+        ],
+        "fault": "바를 밀며 몸통을 뒤로 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hold the anchored bar end in one hand at the shoulder with a stable stance.",
+          "Keep ribs down and press forward and upward.",
+          "Lower to the shoulder and repeat on the other side."
+        ],
+        "fault": "Do not lean backward as you press.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "lat_pulldown": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "C",
+      "ko": {
+        "steps": [
+          "허벅지 패드를 밀착. 그립은 어깨너비의 약 1.5배(1-2배 모두 가능). 상체를 살짝 뒤로. 바는 얼굴 앞으로 내린다.",
+          "팔꿈치를 아래로 보내 바를 가슴 앞쪽으로 당겨요.",
+          "몸통을 고정하고 팔을 천천히 펴서 돌아와요."
+        ],
+        "fault": "상체를 크게 젖히며 반동으로 바를 끌어내림",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "thigh pad snug; grip about 1.5 times shoulder width (any of 1-2 times works); slight lean back; bar comes down in front of the face",
+          "Draw elbows down and pull the bar toward the front of the chest.",
+          "Keep the torso still and slowly extend the arms to return."
+        ],
+        "fault": "leaning far back and swinging the torso to yank the bar down",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "leg_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 회전축에 무릎을 맞추고 발목 뒤에 패드를 대요.",
+          "골반을 패드에 붙인 채 무릎을 굽혀요.",
+          "천천히 펴요. 한 다리 동작은 양쪽 모두 해요."
+        ],
+        "fault": "골반을 들거나 허리를 젖혀 당기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Align knees with the machine pivot and place the roller behind the ankles.",
+          "Keep the pelvis against the pad and bend the knees.",
+          "Extend slowly; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not lift the pelvis or arch the back to curl.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "leg_extension": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 회전축에 무릎을 맞추고 패드를 발목 위에 두어요.",
+          "등과 엉덩이를 붙인 채 무릎을 펴요.",
+          "천천히 내려요. 한 다리 동작은 양쪽 모두 해요."
+        ],
+        "fault": "무릎을 세게 튕겨 잠그지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Align knees with the machine pivot and place the roller above the ankles.",
+          "Keep hips and back supported as you straighten the knees.",
+          "Lower slowly; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not snap the knees into lockout.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "leg_press": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "발은 발판 중앙에 골반너비쯤. 허리와 엉덩이를 패드에 붙임. 안전 멈춤 장치 설정(무릎 주의 시 처방된 범위).",
+          "무릎을 발끝 방향으로 굽혀 골반이 패드에 붙어 있는 깊이까지 내려요.",
+          "발판을 밀어 올라오되 무릎을 세게 잠그지 않아요."
+        ],
+        "fault": "너무 깊게 내려 바닥 지점에서 엉덩이가 패드에서 들림",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "feet mid-platform about hip width; lower back and hips flat on the pad; set the machine stop (use the prescribed range at a knee caution site)",
+          "Bend knees in line with toes and descend only while the pelvis stays against the pad.",
+          "Push the platform away without snapping the knees into lockout."
+        ],
+        "fault": "going so deep the hips curl off the pad at the bottom",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "leg_press_calf_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "앞꿈치를 발판이나 바닥에 안정시켜요. 앉은 동작은 무릎 패드를 맞추고, 레그프레스는 다리 각도를 고정해요.",
+          "발가락으로 지지면을 눌러 뒤꿈치를 들어요.",
+          "천천히 내려요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "발목을 튕기며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the balls of the feet securely on the floor or platform; adjust knee pads when seated and keep the leg angle fixed on a leg press.",
+          "Press through the forefoot to raise the heels.",
+          "Lower slowly; repeat both sides for single-leg work."
+        ],
+        "fault": "Do not bounce through the ankles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "leg_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "누워 손으로 바닥을 짚어요. 레그레이즈는 다리를 뻗고, 리버스 크런치는 무릎을 굽혀요.",
+          "배에 힘을 주고 다리를 올려요. 리버스 크런치는 골반을 조금 말아 들어요.",
+          "허리가 과하게 뜨기 전 범위까지만 천천히 내려요."
+        ],
+        "fault": "다리를 휘둘러 허리를 바닥에서 떼지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie down with hands supported; extend the legs for leg raises or bend knees for reverse crunches.",
+          "Brace and raise the legs; curl the pelvis slightly off the floor for reverse crunches.",
+          "Lower slowly, stopping before the back lifts excessively."
+        ],
+        "fault": "Do not swing the legs and pull the lower back off the floor.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "lying_triceps_extension": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "오버헤드는 도구를 머리 위에, 라잉은 누워 가슴 위에 잡아요.",
+          "윗팔을 고정하고 팔꿈치를 굽혀 도구를 머리 쪽으로 내려요.",
+          "팔꿈치를 펴서 돌아와요."
+        ],
+        "fault": "팔꿈치를 벌리고 허리를 젖혀 밀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hold the implement overhead, or above the chest while lying for lying extensions.",
+          "Keep upper arms still and bend elbows to lower toward the head.",
+          "Extend the elbows to return."
+        ],
+        "fault": "Do not flare the elbows and arch the back to press.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "machine_crunch": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "맨몸과 덤벨 크런치는 누워 무릎을 세우고 덤벨은 가슴에 붙여요. 케이블은 무릎 꿇고 로프를 머리 옆에, 기구는 패드를 맞춰요.",
+          "숨을 내쉬며 갈비뼈를 골반 쪽으로 말아요.",
+          "천천히 시작 위치로 돌아와요."
+        ],
+        "fault": "팔로 당기거나 엉덩이만 접지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For floor crunches bend the knees and hold any dumbbell at the chest; for cable crunches kneel with the rope beside the head, or adjust machine pads.",
+          "Exhale and curl the ribs toward the pelvis.",
+          "Return slowly."
+        ],
+        "fault": "Do not pull with the arms or only hinge at the hips.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "machine_lateral_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구를 몸 옆에 두고 팔꿈치를 살짝 굽혀요. 기구는 패드 위치를 팔에 맞춰요.",
+          "어깨를 내린 채 팔을 옆으로 어깨 높이까지만 들어요.",
+          "천천히 내려요. 한 팔 동작은 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "어깨를 으쓱하거나 몸을 흔들어 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Start with the load at the sides and elbows slightly bent; adjust machine pads to your arms.",
+          "Keep shoulders down and raise arms out to shoulder height.",
+          "Lower slowly; repeat equally on each side for one-arm work."
+        ],
+        "fault": "Do not shrug or swing the torso to lift.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "machine_shoulder_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "좌석과 등받이를 맞추고 도구 또는 손잡이를 어깨 높이에 잡아요.",
+          "배에 힘을 주고 팔꿈치 위에 손목을 둔 채 위로 밀어요.",
+          "어깨가 편한 범위로 천천히 내려요."
+        ],
+        "fault": "무게를 올리려고 허리를 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Adjust the seat and back support; start with weights or handles at shoulder height.",
+          "Brace and press up with wrists above elbows.",
+          "Lower slowly through a comfortable shoulder range."
+        ],
+        "fault": "Do not overarch the lower back to press.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "medicine_ball_slam": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "슬램은 튀지 않는 공과 빈 바닥, 회전 던지기는 공을 던져도 되는 벽 옆에 서요.",
+          "슬램은 공을 위로 올렸다 바닥으로, 회전 던지기는 발과 골반을 돌리며 벽으로 던져요.",
+          "공이 멈추면 다시 준비해요. 회전은 양쪽 모두 해요."
+        ],
+        "fault": "발을 고정한 채 허리만 비틀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For slams use a non-bouncing ball and clear floor; for rotational throws stand beside a wall rated for throws.",
+          "Slam from overhead to the floor, or pivot feet and hips to throw toward the wall.",
+          "Reset after the ball stops; perform rotational throws on both sides."
+        ],
+        "fault": "Do not twist only through the lower back with feet fixed.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "mountain_climber": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손을 어깨 아래에 두고 높은 플랭크를 만들어요.",
+          "한 무릎을 가슴 쪽으로 당겼다가 돌려놓아요.",
+          "몸통을 고정하며 양쪽을 번갈아 해요."
+        ],
+        "fault": "엉덩이가 위아래로 튀지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Start in a high plank with hands below shoulders.",
+          "Bring one knee toward the chest and return it.",
+          "Alternate sides while holding the torso still."
+        ],
+        "fault": "Do not bounce the hips up and down.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "neutral_grip_lat_pulldown": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "허벅지 패드를 붙이고 지정된 손잡이를 잡아요. 뉴트럴은 손바닥이 마주 보게, 언더핸드는 얼굴 쪽으로 향하게 해요.",
+          "상체 각도를 고정하고 팔꿈치를 아래로 보내 손잡이를 가슴 앞쪽으로 당겨요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "목 뒤로 당기거나 상체를 크게 흔들지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Secure the thigh pad and use the specified handle; palms face each other for neutral grip and toward you for underhand grip.",
+          "Keep the torso angle fixed and draw elbows down, bringing the handle in front of the chest.",
+          "Extend the arms slowly."
+        ],
+        "fault": "Do not pull behind the neck or swing the torso.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "neutral_grip_pullup": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손바닥이 서로 마주 보게 손잡이를 잡아요.",
+          "흔들림을 멈추고 팔꿈치를 아래로 당겨 몸을 올려요.",
+          "천천히 내려 팔을 펴요."
+        ],
+        "fault": "턱만 내밀거나 다리를 차서 올라가지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Grip the handles with palms facing each other.",
+          "Stop swinging and draw elbows down to lift the body.",
+          "Lower slowly to extend the arms."
+        ],
+        "fault": "Do not crane the chin or kick the legs to rise.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "overhead_press": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "선 자세, 그립은 어깨보다 살짝 넓게, 바를 어깨 앞에 얹고 전완 수직. 엉덩이와 복부 조임, 갈비뼈를 내림.",
+          "바를 수직으로 밀고, 이마를 지나면 머리를 바 밑으로 넣는다",
+          "바가 발 중앙 위, 팔이 귀 옆에서 끝난다"
+        ],
+        "fault": "허리를 크게 젖혀 인클라인 프레스처럼 밀어 올림",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "standing, grip just outside the shoulders, bar resting on the front of the shoulders with forearms vertical; glutes and abs tight, ribs down",
+          "press the bar straight up, move the head back then through once the bar passes the forehead",
+          "finish with the bar over the middle of the foot, arms by the ears"
+        ],
+        "fault": "leaning far back from the lower back to get the bar up, turning it into an incline press",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "overhead_press_smith_seated": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "좌석과 등받이를 맞추고 도구 또는 손잡이를 어깨 높이에 잡아요.",
+          "배에 힘을 주고 팔꿈치 위에 손목을 둔 채 위로 밀어요.",
+          "어깨가 편한 범위로 천천히 내려요."
+        ],
+        "fault": "무게를 올리려고 허리를 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Adjust the seat and back support; start with weights or handles at shoulder height.",
+          "Brace and press up with wrists above elbows.",
+          "Lower slowly through a comfortable shoulder range."
+        ],
+        "fault": "Do not overarch the lower back to press.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "pec_deck_fly": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손잡이가 가슴 높이에 오게 맞추고 팔꿈치를 살짝 굽혀요.",
+          "팔꿈치 각도를 유지하며 양팔을 가슴 앞으로 모아요.",
+          "가슴이 편한 범위까지만 천천히 벌려요."
+        ],
+        "fault": "팔을 너무 뒤로 벌려 어깨 앞을 늘리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the handles at chest height with elbows slightly bent.",
+          "Keep that elbow angle and bring the arms together in front of the chest.",
+          "Open slowly within a comfortable chest range."
+        ],
+        "fault": "Do not force the arms far behind the torso.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "pendlay_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "무릎을 살짝 굽히고 엉덩이를 접어 몸통을 고정해요. 언더핸드는 손바닥을 앞으로, 펜들레이는 바닥에서 시작해요.",
+          "팔꿈치를 뒤로 보내 바를 배 쪽으로 당겨요.",
+          "천천히 내려요. 펜들레이는 매번 바닥에 놓고 다시 시작해요."
+        ],
+        "fault": "상체를 튕겨 세우며 바를 당기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Soften the knees and hinge to hold the torso still; use palms forward for underhand rows and start from the floor for Pendlay rows.",
+          "Drive elbows back to pull the bar toward the abdomen.",
+          "Lower under control; reset on the floor between Pendlay reps."
+        ],
+        "fault": "Do not jerk the torso upright to pull the bar.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "pike_push_up": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손과 발을 바닥에 두고 엉덩이를 높여 몸을 접어요.",
+          "팔꿈치를 굽혀 머리를 손 사이 앞쪽으로 내려요.",
+          "손으로 바닥을 밀어 돌아와요."
+        ],
+        "fault": "머리로 바닥을 짚거나 떨어지지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Place hands and feet on the floor and lift the hips into a pike.",
+          "Bend elbows to lower the head slightly in front of the hands.",
+          "Push the floor away to return."
+        ],
+        "fault": "Do not rest or drop onto the head.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "plank": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "플랭크는 팔꿈치를 어깨 아래에 놓고 몸을 길게, 할로우는 누워 허리를 바닥에 붙이고 팔다리를 뻗어요.",
+          "배에 힘을 준 자세로 정해진 시간 동안 천천히 호흡해요."
+        ],
+        "fault": "허리가 뜨거나 처지면 지렛대를 짧게 줄이세요.",
+        "rep_unit": "1회 = 처방된 시간 동안 자세 유지"
+      },
+      "en": {
+        "steps": [
+          "For a plank place elbows below shoulders and align the body; for a hollow hold lie down, press the lower back to the floor and extend the limbs.",
+          "Maintain the brace and breathe slowly for the prescribed time."
+        ],
+        "fault": "Shorten the lever if the lower back lifts or sags.",
+        "rep_unit": "1 hold = maintain the position for the prescribed duration"
+      }
+    },
+    "plate_pullover": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "벤치에 누워 가벼운 원판을 두 손으로 가슴 위에 잡아요.",
+          "팔꿈치를 조금 굽힌 채 원판을 머리 뒤로 편한 범위까지만 내려요.",
+          "갈비뼈를 내린 채 원판을 가슴 위로 돌아오게 해요."
+        ],
+        "fault": "허리를 젖혀 더 깊이 내리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie on a bench holding a light plate above the chest with both hands.",
+          "Keep elbows slightly bent and lower the plate behind the head only within a comfortable range.",
+          "Keep ribs down and return the plate above the chest."
+        ],
+        "fault": "Do not arch the back to gain extra depth.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "preacher_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "인클라인은 등받이에 등을 기대 팔을 아래로, 프리처는 패드에 윗팔을 붙여요.",
+          "윗팔 위치를 유지하며 팔꿈치를 굽혀요.",
+          "천천히 펴되 팔꿈치를 튕기지 않아요."
+        ],
+        "fault": "어깨를 앞으로 들어 올려 마무리하지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For incline curls rest on the back pad with arms hanging; for preacher curls rest upper arms on the pad.",
+          "Keep upper arms fixed and bend the elbows.",
+          "Extend slowly without bouncing at the bottom."
+        ],
+        "fault": "Do not lift the shoulders forward to finish the curl.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "pullup": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손바닥이 얼굴 쪽을 보게 어깨너비로 봉을 잡아요.",
+          "흔들림을 멈추고 팔꿈치를 아래로 당겨 몸을 올려요.",
+          "천천히 내려 팔을 펴요."
+        ],
+        "fault": "턱만 내밀거나 다리를 차서 올라가지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Grip the bar shoulder-width with palms facing you.",
+          "Stop swinging and draw elbows down to lift the body.",
+          "Lower slowly to extend the arms."
+        ],
+        "fault": "Do not crane the chin or kick the legs to rise.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "push_up": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "손을 어깨보다 살짝 넓게 바닥에 짚어요. 인클라인은 손을 높은 지지대에 올려요.",
+          "머리부터 발까지 일직선을 유지하며 가슴을 손 사이로 내려요.",
+          "손으로 지지면을 밀어 시작 자세로 돌아와요."
+        ],
+        "fault": "허리가 처지지 않게 배에 힘을 유지하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Place hands slightly wider than shoulders; elevate the hands on a stable support for the incline version.",
+          "Keep head to heels aligned and lower the chest between the hands.",
+          "Push the support away to return."
+        ],
+        "fault": "Do not let the lower back sag.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "rdl": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "랙에서 들거나 데드리프트로 바를 들고 선 자세에서 시작. 무릎은 15-25도 살짝 굽혀 고정. 바는 허벅지에 붙임. 복압.",
+          "엉덩이를 뒤쪽 벽에 닿게 하듯 뒤로 보낸다",
+          "엉덩이가 더 뒤로 안 갈 때 멈추고, 엉덩이를 앞으로 밀며 일어선다"
+        ],
+        "fault": "엉덩이가 멈춘 뒤에도 바를 더 내리려 무릎을 더 굽히거나 등을 말아 바닥을 쫓음",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "start standing with the bar (from a rack or a deadlift); soft knees at 15-25 degrees held fixed; bar against the thighs; brace",
+          "push the hips back toward the wall behind you",
+          "stop where the hips stop moving back, then stand up by driving the hips forward"
+        ],
+        "fault": "chasing the floor -- the knees bend more and the back rounds to get the bar lower once the hips have stopped moving back",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "reverse_crunch": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "누워 손으로 바닥을 짚어요. 레그레이즈는 다리를 뻗고, 리버스 크런치는 무릎을 굽혀요.",
+          "배에 힘을 주고 다리를 올려요. 리버스 크런치는 골반을 조금 말아 들어요.",
+          "허리가 과하게 뜨기 전 범위까지만 천천히 내려요."
+        ],
+        "fault": "다리를 휘둘러 허리를 바닥에서 떼지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie down with hands supported; extend the legs for leg raises or bend knees for reverse crunches.",
+          "Brace and raise the legs; curl the pelvis slightly off the floor for reverse crunches.",
+          "Lower slowly, stopping before the back lifts excessively."
+        ],
+        "fault": "Do not swing the legs and pull the lower back off the floor.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "reverse_lunge": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "두 발을 앞뒤로 놓아요. 리버스는 뒤로 한 걸음, 불가리안은 뒷발을 낮은 벤치에 올려요.",
+          "앞발 전체를 붙인 채 두 무릎을 굽혀 수직으로 내려요.",
+          "앞발로 바닥을 밀어 올라와요. 워킹은 다음 걸음으로 이어 가고 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "앞무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Take a split stance; step backward for a reverse lunge or rest the rear foot on a low bench for Bulgarian split squats.",
+          "Keep the front foot planted and bend both knees to lower.",
+          "Push through the front foot to rise; continue forward for walking lunges and do equal reps each side."
+        ],
+        "fault": "Do not let the front knee collapse inward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "reverse_pecdec": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "케이블 또는 기구 손잡이를 가슴 앞에 잡아요. 덤벨은 앉아 몸통을 앞으로 접고 아래에 두어요.",
+          "팔꿈치를 살짝 굽힌 채 팔을 옆으로 벌려요.",
+          "천천히 시작 위치로 모아요."
+        ],
+        "fault": "상체 반동으로 팔을 뒤로 던지지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hold cable or machine handles in front of the chest; for dumbbells sit and hinge forward with weights hanging below.",
+          "Keep elbows slightly bent and open the arms out.",
+          "Return slowly."
+        ],
+        "fault": "Do not throw the arms backward with torso momentum.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "rotational_medicine_ball_throw": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "슬램은 튀지 않는 공과 빈 바닥, 회전 던지기는 공을 던져도 되는 벽 옆에 서요.",
+          "슬램은 공을 위로 올렸다 바닥으로, 회전 던지기는 발과 골반을 돌리며 벽으로 던져요.",
+          "공이 멈추면 다시 준비해요. 회전은 양쪽 모두 해요."
+        ],
+        "fault": "발을 고정한 채 허리만 비틀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For slams use a non-bouncing ball and clear floor; for rotational throws stand beside a wall rated for throws.",
+          "Slam from overhead to the floor, or pivot feet and hips to throw toward the wall.",
+          "Reset after the ball stops; perform rotational throws on both sides."
+        ],
+        "fault": "Do not twist only through the lower back with feet fixed.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "seated_cable_row": {
+      "source": "exercise/main-lift-cues-746",
+      "grade": "D",
+      "basis_grade": "D",
+      "ko": {
+        "steps": [
+          "발판에 발, 무릎 살짝 굽힘. 가슴을 세우고 바르게 앉음. 시작은 팔을 길게.",
+          "몸통 각도를 고정하고 손잡이를 배 쪽으로 당겨요.",
+          "몸통을 고정하고 팔을 천천히 펴서 돌아와요."
+        ],
+        "fault": "상체를 앞뒤로 흔들어 무게를 당김",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "feet on the plate, knees slightly bent; sit tall with the chest up; arms long at the start",
+          "Keep the torso angle fixed and pull the handle toward the abdomen.",
+          "Keep the torso still and slowly extend the arms to return."
+        ],
+        "fault": "rocking the torso back and forth to move the stack",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "seated_calf_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "앞꿈치를 발판이나 바닥에 안정시켜요. 앉은 동작은 무릎 패드를 맞추고, 레그프레스는 다리 각도를 고정해요.",
+          "발가락으로 지지면을 눌러 뒤꿈치를 들어요.",
+          "천천히 내려요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "발목을 튕기며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the balls of the feet securely on the floor or platform; adjust knee pads when seated and keep the leg angle fixed on a leg press.",
+          "Press through the forefoot to raise the heels.",
+          "Lower slowly; repeat both sides for single-leg work."
+        ],
+        "fault": "Do not bounce through the ankles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "seated_dumbbell_reverse_fly": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "케이블 또는 기구 손잡이를 가슴 앞에 잡아요. 덤벨은 앉아 몸통을 앞으로 접고 아래에 두어요.",
+          "팔꿈치를 살짝 굽힌 채 팔을 옆으로 벌려요.",
+          "천천히 시작 위치로 모아요."
+        ],
+        "fault": "상체 반동으로 팔을 뒤로 던지지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hold cable or machine handles in front of the chest; for dumbbells sit and hinge forward with weights hanging below.",
+          "Keep elbows slightly bent and open the arms out.",
+          "Return slowly."
+        ],
+        "fault": "Do not throw the arms backward with torso momentum.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "seated_leg_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 회전축에 무릎을 맞추고 발목 뒤에 패드를 대요.",
+          "골반을 패드에 붙인 채 무릎을 굽혀요.",
+          "천천히 펴요. 한 다리 동작은 양쪽 모두 해요."
+        ],
+        "fault": "골반을 들거나 허리를 젖혀 당기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Align knees with the machine pivot and place the roller behind the ankles.",
+          "Keep the pelvis against the pad and bend the knees.",
+          "Extend slowly; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not lift the pelvis or arch the back to curl.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "seated_machine_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 또는 벤치 패드에 가슴을 붙이고 손잡이나 도구를 잡아요.",
+          "가슴을 붙인 채 팔꿈치를 뒤로 보내 갈비뼈 쪽으로 당겨요.",
+          "어깨를 으쓱하지 않고 팔을 천천히 펴요."
+        ],
+        "fault": "가슴을 패드에서 떼며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep the chest against the machine or bench pad and grip the handles or weights.",
+          "Keep chest contact and draw the elbows back toward the ribs.",
+          "Extend the arms slowly without shrugging."
+        ],
+        "fault": "Do not lift the chest off the pad for momentum.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_arm_cable_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "케이블을 배 높이에 맞추고 손잡이를 한 손으로 잡아요.",
+          "골반과 가슴을 정면에 둔 채 팔꿈치를 뒤로 당겨요.",
+          "천천히 팔을 펴고 반대쪽에도 같은 횟수로 해요."
+        ],
+        "fault": "손잡이를 당기며 몸통을 비틀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the cable at abdomen height and grip it with one hand.",
+          "Keep hips and chest facing forward as you draw the elbow back.",
+          "Extend slowly and repeat equally on the other side."
+        ],
+        "fault": "Do not rotate the torso with the handle.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_arm_dumbbell_bench_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "벤치에 누워 발을 바닥에 붙이고 견갑을 모아요. 덤벨을 가슴 옆에 잡아요.",
+          "손목 아래에 팔꿈치를 두고 덤벨을 위로 밀어요.",
+          "덤벨을 가슴 높이까지 천천히 내려요. 한 팔 동작은 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "덤벨을 가슴 아래로 깊게 떨어뜨리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie on the bench, plant the feet and set the shoulder blades; hold the dumbbells beside the chest.",
+          "Keep elbows under wrists and press up.",
+          "Lower slowly to chest level; for the one-arm version, repeat equally on each side."
+        ],
+        "fault": "Do not let the dumbbells sink far below chest level.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_arm_dumbbell_lateral_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구를 몸 옆에 두고 팔꿈치를 살짝 굽혀요. 기구는 패드 위치를 팔에 맞춰요.",
+          "어깨를 내린 채 팔을 옆으로 어깨 높이까지만 들어요.",
+          "천천히 내려요. 한 팔 동작은 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "어깨를 으쓱하거나 몸을 흔들어 올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Start with the load at the sides and elbows slightly bent; adjust machine pads to your arms.",
+          "Keep shoulders down and raise arms out to shoulder height.",
+          "Lower slowly; repeat equally on each side for one-arm work."
+        ],
+        "fault": "Do not shrug or swing the torso to lift.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_arm_kettlebell_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "빈손으로 벤치를 짚고 엉덩이를 뒤로 보내 몸통을 고정해요.",
+          "도구를 든 쪽 팔꿈치를 골반 쪽으로 당겨요.",
+          "천천히 팔을 펴고 같은 횟수를 반대쪽에도 해요."
+        ],
+        "fault": "몸통을 돌려 무게를 끌어올리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Support the free hand on a bench and hinge to hold the torso still.",
+          "Draw the loaded elbow toward the hip.",
+          "Lower slowly and repeat equally on the other side."
+        ],
+        "fault": "Do not twist the torso to lift the weight.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_leg_calf_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "앞꿈치를 발판이나 바닥에 안정시켜요. 앉은 동작은 무릎 패드를 맞추고, 레그프레스는 다리 각도를 고정해요.",
+          "발가락으로 지지면을 눌러 뒤꿈치를 들어요.",
+          "천천히 내려요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "발목을 튕기며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the balls of the feet securely on the floor or platform; adjust knee pads when seated and keep the leg angle fixed on a leg press.",
+          "Press through the forefoot to raise the heels.",
+          "Lower slowly; repeat both sides for single-leg work."
+        ],
+        "fault": "Do not bounce through the ankles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_leg_extension": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 회전축에 무릎을 맞추고 패드를 발목 위에 두어요.",
+          "등과 엉덩이를 붙인 채 무릎을 펴요.",
+          "천천히 내려요. 한 다리 동작은 양쪽 모두 해요."
+        ],
+        "fault": "무릎을 세게 튕겨 잠그지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Align knees with the machine pivot and place the roller above the ankles.",
+          "Keep hips and back supported as you straighten the knees.",
+          "Lower slowly; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not snap the knees into lockout.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_leg_lying_curl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 회전축에 무릎을 맞추고 발목 뒤에 패드를 대요.",
+          "골반을 패드에 붙인 채 무릎을 굽혀요.",
+          "천천히 펴요. 한 다리 동작은 양쪽 모두 해요."
+        ],
+        "fault": "골반을 들거나 허리를 젖혀 당기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Align knees with the machine pivot and place the roller behind the ankles.",
+          "Keep the pelvis against the pad and bend the knees.",
+          "Extend slowly; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not lift the pelvis or arch the back to curl.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_leg_press": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "등과 골반을 패드에 붙이고 한 발을 발판 중앙에 놓아요.",
+          "무릎을 발끝 방향으로 굽혀 골반이 붙어 있는 범위까지 내려요.",
+          "발판을 밀어 올라오고 반대쪽도 같은 횟수로 해요."
+        ],
+        "fault": "골반이 한쪽으로 돌아가지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Keep back and pelvis on the pad and place one foot centrally on the platform.",
+          "Bend the knee along the toes, stopping while the pelvis stays supported.",
+          "Press away and repeat equally on the other side."
+        ],
+        "fault": "Do not let the pelvis rotate to one side.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_leg_rdl": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "덤벨 RDL은 덤벨을 허벅지 앞에, 굿모닝은 가벼운 바를 등 위에 놓아요. 한 발 동작은 지지발 무릎을 살짝 굽혀요.",
+          "무릎 각도를 거의 유지하며 엉덩이를 뒤로 보내요.",
+          "엉덩이가 더 뒤로 안 갈 때 멈추고 발로 바닥을 밀어 서요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "바닥에 닿으려고 허리만 더 굽히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For dumbbell RDLs hold the weights at the thighs; for good mornings support a light bar on the upper back. Soften the stance knee for single-leg work.",
+          "Keep the knee angle nearly fixed and send the hips back.",
+          "Stop when the hips stop moving back and stand; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not chase the floor by bending farther through the back.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "squat_jump": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "박스 점프는 낮고 안정된 박스 앞에 서요. 스쿼트 점프는 제자리에서 시작해요.",
+          "엉덩이와 무릎을 굽혔다가 바닥을 밀어 뛰어요.",
+          "양발로 조용히 착지해 균형을 잡아요. 박스에서는 걸어서 내려와요."
+        ],
+        "fault": "착지하며 무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For box jumps stand before a low stable box; squat jumps start in place.",
+          "Bend hips and knees, then push the floor away to jump.",
+          "Land softly on both feet and stabilize; step down from the box."
+        ],
+        "fault": "Do not let knees collapse inward on landing.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "standing_calf_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "앞꿈치를 발판이나 바닥에 안정시켜요. 앉은 동작은 무릎 패드를 맞추고, 레그프레스는 다리 각도를 고정해요.",
+          "발가락으로 지지면을 눌러 뒤꿈치를 들어요.",
+          "천천히 내려요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "발목을 튕기며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the balls of the feet securely on the floor or platform; adjust knee pads when seated and keep the leg angle fixed on a leg press.",
+          "Press through the forefoot to raise the heels.",
+          "Lower slowly; repeat both sides for single-leg work."
+        ],
+        "fault": "Do not bounce through the ankles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "step_up": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "낮고 안정된 박스에 한 발 전체를 올려요.",
+          "올린 발로 박스를 눌러 몸을 위로 올려요.",
+          "천천히 내려와 같은 쪽 횟수를 마친 뒤 반대쪽도 해요."
+        ],
+        "fault": "바닥에 있는 발로 강하게 튀어 오르지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Place one whole foot on a low stable box.",
+          "Press through that foot to step up.",
+          "Lower slowly; finish the prescribed reps and repeat on the other side."
+        ],
+        "fault": "Do not jump off the trailing foot.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "sumo_deadlift": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구가 발 중앙에 오게 서요. 스모는 넓은 발 간격, 트랩바는 프레임 안에 서요.",
+          "엉덩이와 무릎을 굽혀 손잡이를 잡고 배에 힘을 줘요.",
+          "발로 바닥을 밀며 도구를 몸 가까이 들어 선 뒤 엉덩이와 무릎을 굽혀 내려요."
+        ],
+        "fault": "일어난 뒤 허리를 뒤로 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand with the load over midfoot; use a wide stance for sumo or stand inside the trap bar.",
+          "Bend hips and knees, grip the handles and brace.",
+          "Push the floor away and stand with the load close, then bend hips and knees to lower."
+        ],
+        "fault": "Do not lean backward at lockout.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "trap_bar_deadlift": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "도구가 발 중앙에 오게 서요. 스모는 넓은 발 간격, 트랩바는 프레임 안에 서요.",
+          "엉덩이와 무릎을 굽혀 손잡이를 잡고 배에 힘을 줘요.",
+          "발로 바닥을 밀며 도구를 몸 가까이 들어 선 뒤 엉덩이와 무릎을 굽혀 내려요."
+        ],
+        "fault": "일어난 뒤 허리를 뒤로 과하게 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand with the load over midfoot; use a wide stance for sumo or stand inside the trap bar.",
+          "Bend hips and knees, grip the handles and brace.",
+          "Push the floor away and stand with the load close, then bend hips and knees to lower."
+        ],
+        "fault": "Do not lean backward at lockout.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "trap_bar_shrug": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "바 또는 트랩바를 잡고 팔을 길게 내려 서요.",
+          "어깨를 귀 쪽으로 곧게 들어 올려요.",
+          "잠깐 멈춘 뒤 천천히 내려요."
+        ],
+        "fault": "어깨를 앞뒤로 크게 돌리지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand holding the bar or trap bar with arms straight.",
+          "Raise the shoulders straight toward the ears.",
+          "Pause briefly and lower slowly."
+        ],
+        "fault": "Do not roll the shoulders in circles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "tricep_overhead_extension": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "오버헤드는 도구를 머리 위에, 라잉은 누워 가슴 위에 잡아요.",
+          "윗팔을 고정하고 팔꿈치를 굽혀 도구를 머리 쪽으로 내려요.",
+          "팔꿈치를 펴서 돌아와요."
+        ],
+        "fault": "팔꿈치를 벌리고 허리를 젖혀 밀지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Hold the implement overhead, or above the chest while lying for lying extensions.",
+          "Keep upper arms still and bend elbows to lower toward the head.",
+          "Extend the elbows to return."
+        ],
+        "fault": "Do not flare the elbows and arch the back to press.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "tricep_pushdown_rope": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "로프 푸시다운은 팔꿈치를 몸 옆에, 킥백은 몸을 접고 윗팔을 몸통 옆에 고정해요.",
+          "윗팔을 고정하고 팔꿈치만 펴요.",
+          "천천히 굽혀 시작 위치로 돌아와요."
+        ],
+        "fault": "어깨를 움직여 무게를 흔들지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For rope pushdowns keep elbows at the sides; for kickbacks hinge and hold upper arms beside the torso.",
+          "Keep upper arms fixed and straighten the elbows.",
+          "Bend slowly to return."
+        ],
+        "fault": "Do not swing the load from the shoulders.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "turkish_get_up": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "누워 한 손의 가벼운 벨을 위로 세우고 같은 쪽 무릎을 굽혀요.",
+          "반대 팔꿈치와 손으로 차례로 지지하고 골반을 들어 반대 무릎을 몸 아래에 넣어요.",
+          "몸통을 세워 반무릎 자세에서 일어서요. 순서를 거꾸로 하여 누운 뒤 반대쪽도 해요."
+        ],
+        "fault": "벨을 든 팔꿈치를 굽히거나 벨이 몸 밖으로 기울지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Lie down with a light bell held vertically and the same-side knee bent.",
+          "Roll onto the opposite elbow, then hand; lift the hips and sweep the opposite knee underneath.",
+          "Rise through half-kneeling to stand; reverse the sequence to lie down and repeat on the other side."
+        ],
+        "fault": "Do not bend the loaded elbow or let the bell drift away from vertical.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "underhand_barbell_row": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "무릎을 살짝 굽히고 엉덩이를 접어 몸통을 고정해요. 언더핸드는 손바닥을 앞으로, 펜들레이는 바닥에서 시작해요.",
+          "팔꿈치를 뒤로 보내 바를 배 쪽으로 당겨요.",
+          "천천히 내려요. 펜들레이는 매번 바닥에 놓고 다시 시작해요."
+        ],
+        "fault": "상체를 튕겨 세우며 바를 당기지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Soften the knees and hinge to hold the torso still; use palms forward for underhand rows and start from the floor for Pendlay rows.",
+          "Drive elbows back to pull the bar toward the abdomen.",
+          "Lower under control; reset on the floor between Pendlay reps."
+        ],
+        "fault": "Do not jerk the torso upright to pull the bar.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "underhand_lat_pulldown": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "허벅지 패드를 붙이고 지정된 손잡이를 잡아요. 뉴트럴은 손바닥이 마주 보게, 언더핸드는 얼굴 쪽으로 향하게 해요.",
+          "상체 각도를 고정하고 팔꿈치를 아래로 보내 손잡이를 가슴 앞쪽으로 당겨요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "목 뒤로 당기거나 상체를 크게 흔들지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Secure the thigh pad and use the specified handle; palms face each other for neutral grip and toward you for underhand grip.",
+          "Keep the torso angle fixed and draw elbows down, bringing the handle in front of the chest.",
+          "Extend the arms slowly."
+        ],
+        "fault": "Do not pull behind the neck or swing the torso.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "v_squat": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "기구 패드에 어깨와 등을 붙이고 발판에 발을 놓아요.",
+          "안전장치를 확인한 뒤 무릎을 발끝 방향으로 굽혀 내려요.",
+          "발판을 밀어 올라온 뒤 안전장치를 걸어요."
+        ],
+        "fault": "패드에서 엉덩이가 들릴 만큼 깊게 내려가지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set shoulders and back against the machine pads, feet on the platform.",
+          "Check the safeties, then bend knees in line with toes to descend.",
+          "Push the platform away to rise and re-engage the safeties when finished."
+        ],
+        "fault": "Do not descend so far that the hips lift off the pad.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "walking_lunge": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "두 발을 앞뒤로 놓아요. 리버스는 뒤로 한 걸음, 불가리안은 뒷발을 낮은 벤치에 올려요.",
+          "앞발 전체를 붙인 채 두 무릎을 굽혀 수직으로 내려요.",
+          "앞발로 바닥을 밀어 올라와요. 워킹은 다음 걸음으로 이어 가고 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "앞무릎이 안쪽으로 무너지지 않게 하세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Take a split stance; step backward for a reverse lunge or rest the rear foot on a low bench for Bulgarian split squats.",
+          "Keep the front foot planted and bend both knees to lower.",
+          "Push through the front foot to rise; continue forward for walking lunges and do equal reps each side."
+        ],
+        "fault": "Do not let the front knee collapse inward.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "wall_slide": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "등을 벽 가까이 두고 팔꿈치를 굽혀 팔을 벽에 대요.",
+          "갈비뼈를 내린 채 팔을 편한 높이까지 위로 미끄러뜨려요.",
+          "천천히 내려요."
+        ],
+        "fault": "팔을 올리려고 허리를 젖히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Stand near a wall with bent arms against it.",
+          "Keep ribs down and slide the arms upward as far as comfortable.",
+          "Slide back down slowly."
+        ],
+        "fault": "Do not arch the back to raise the arms.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "wide_grip_lat_pulldown": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "허벅지 패드를 붙이고 지정된 손잡이를 잡아요. 뉴트럴은 손바닥이 마주 보게, 언더핸드는 얼굴 쪽으로 향하게 해요.",
+          "상체 각도를 고정하고 팔꿈치를 아래로 보내 손잡이를 가슴 앞쪽으로 당겨요.",
+          "천천히 팔을 펴요."
+        ],
+        "fault": "목 뒤로 당기거나 상체를 크게 흔들지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Secure the thigh pad and use the specified handle; palms face each other for neutral grip and toward you for underhand grip.",
+          "Keep the torso angle fixed and draw elbows down, bringing the handle in front of the chest.",
+          "Extend the arms slowly."
+        ],
+        "fault": "Do not pull behind the neck or swing the torso.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "single_leg_deadlift": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "덤벨 RDL은 덤벨을 허벅지 앞에, 굿모닝은 가벼운 바를 등 위에 놓아요. 한 발 동작은 지지발 무릎을 살짝 굽혀요.",
+          "무릎 각도를 거의 유지하며 엉덩이를 뒤로 보내요.",
+          "엉덩이가 더 뒤로 안 갈 때 멈추고 발로 바닥을 밀어 서요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "바닥에 닿으려고 허리만 더 굽히지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "For dumbbell RDLs hold the weights at the thighs; for good mornings support a light bar on the upper back. Soften the stance knee for single-leg work.",
+          "Keep the knee angle nearly fixed and send the hips back.",
+          "Stop when the hips stop moving back and stand; repeat on each side for single-leg work."
+        ],
+        "fault": "Do not chase the floor by bending farther through the back.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "smith_seated_calf_raise": {
+      "source": "exercise/main-lift-cues-746; movement_catalog technique references (adaptation)",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "앞꿈치를 발판이나 바닥에 안정시켜요. 앉은 동작은 무릎 패드를 맞추고, 레그프레스는 다리 각도를 고정해요.",
+          "발가락으로 지지면을 눌러 뒤꿈치를 들어요.",
+          "천천히 내려요. 한 발 동작은 양쪽 모두 해요."
+        ],
+        "fault": "발목을 튕기며 반동을 쓰지 마세요.",
+        "rep_unit": "1회 = 시작 자세에서 동작 후 시작 자세로 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Set the balls of the feet securely on the floor or platform; adjust knee pads when seated and keep the leg angle fixed on a leg press.",
+          "Press through the forefoot to raise the heels.",
+          "Lower slowly; repeat both sides for single-leg work."
+        ],
+        "fault": "Do not bounce through the ankles.",
+        "rep_unit": "1 rep = perform the movement and return to the starting position"
+      }
+    },
+    "wall_sit": {
+      "source": "movement_catalog technique references; product instruction",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "등을 벽에 붙이고 발을 앞으로 내밀어요.",
+          "벽을 따라 내려가 처방된 깊이에서 무릎과 발끝 방향을 맞춰요.",
+          "등을 붙인 채 정해진 시간 동안 호흡하며 버틴 뒤 올라와요."
+        ],
+        "fault": "무릎이 안쪽으로 모이지 않게 하세요.",
+        "rep_unit": "1회 = 처방된 시간 동안 자세 유지"
+      },
+      "en": {
+        "steps": [
+          "Stand with your back against the wall and feet forward.",
+          "Slide down to the prescribed depth with knees tracking over toes.",
+          "Keep your back supported and breathe through the timed hold, then rise."
+        ],
+        "fault": "Do not let the knees collapse inward.",
+        "rep_unit": "1 hold = the prescribed duration"
+      }
+    },
+    "burpee": {
+      "source": "movement_catalog technique references; product instruction",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "서서 무릎과 엉덩이를 굽혀 바닥에 손을 짚어요.",
+          "두 발을 뒤로 보내 높은 플랭크를 만들어요.",
+          "발을 다시 손 가까이 가져오고 일어서서 가볍게 뛰어요."
+        ],
+        "fault": "플랭크에서 허리가 처지지 않게 하세요.",
+        "rep_unit": "1회 = 서기에서 플랭크를 거쳐 다시 서기"
+      },
+      "en": {
+        "steps": [
+          "From standing bend hips and knees to place hands on the floor.",
+          "Send the feet back to a high plank.",
+          "Bring feet back toward the hands, stand and jump lightly."
+        ],
+        "fault": "Do not let the lower back sag in the plank.",
+        "rep_unit": "1 rep = standing through plank and back to standing"
+      }
+    },
+    "cable_hip_abduction": {
+      "source": "movement_catalog technique references; product instruction",
+      "grade": "D",
+      "ko": {
+        "steps": [
+          "낮은 케이블의 발목 스트랩을 기구에서 먼 쪽 발에 걸고 손으로 지지대를 잡아요.",
+          "골반을 정면으로 둔 채 다리를 옆으로 조금 벌려요.",
+          "천천히 돌아와 양쪽 같은 횟수로 해요."
+        ],
+        "fault": "다리를 높이 들려고 몸통을 옆으로 기울이지 마세요.",
+        "rep_unit": "1회 = 한쪽 다리를 벌렸다가 돌아오기"
+      },
+      "en": {
+        "steps": [
+          "Attach a low cable strap to the far ankle and hold a support.",
+          "Keep hips facing forward and move the leg out to the side.",
+          "Return slowly and repeat equally on the other side."
+        ],
+        "fault": "Do not lean sideways to raise the leg higher.",
+        "rep_unit": "1 rep = move one leg out and return"
+      }
+    }
+  }
+}

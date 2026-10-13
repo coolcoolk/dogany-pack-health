@@ -1,0 +1,154 @@
+#!/usr/bin/env python3
+# week-health -- the health agent's weekly retro (kit retro-sections provider,
+# lanes `weekly` + `grid`; pack_health 0.30.0, owner 2026-10-02 08:27).
+#
+# The kit's weekly-review.sh domain path runs on Sunday, before the main
+# agent's weekly (the next-week placement feeds its next-week plan), over the
+# run date's own Mon..Sun (KIT_RETRO_WEEK_START / _END; derived from the run
+# date when absent). Three registry uses:
+#
+#   week-health --mode grid        Mon..Sun data rows for the kit grid:
+#                                  date<TAB>minutes<TAB>shown<TAB>split label
+#                                  (a planned day with nothing logged: 0 and
+#                                  "빠짐"); the kit draws it.
+#   week-health                    (--part week, <= 3 lines, no decision)
+#     운동: 계획 5회 중 3회 · 250분      sessions done vs planned
+#     몸: 체중 82.9 → 83.1kg · 체지방 21.6% (9/9)   body trend (fresh only)
+#     목표: <title> · 지금 21.6%         goal check by layer (Q3: short judged
+#                                        weekly, mid shown -- judged on the
+#                                        month's last Sunday, long untouched)
+#   week-health --part calorie     the calorie step's weekly signals (751):
+#                                  the first 2-3 week recalibration (trend vs
+#                                  the food log; the Health-app link offered
+#                                  again once when declined) and the NEAT-drop
+#                                  signal (weekly steps 20% under the cut's
+#                                  first two weeks), each said once
+#   week-health --part next        the next-week placement proposal, ONE line
+#     다음 주: 월 가A · 화 가B … (5회), 이대로 둘까요?
+#                                  -- the message's one decision; registered
+#                                  last so it is the card's last line.
+#
+# Silence: a week with no planned day and no workout -> every part exits 3.
+#
+#   week-health --lane weekly [--mode line|section|grid]
+#               [--part week|calorie|next]
+#               [--date YYYY-MM-DD]
+# Read-only. Facts and rules: brief_lib.py.
+import argparse
+import datetime
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brief_lib as BL                                          # noqa: E402
+
+
+def bounds(day):
+    week = BL.week_of(day)
+    return week, min(day, week[-1])
+
+
+def active(conn, sched, day):
+    n_plan, done, _m = BL.week_counts(conn, sched, day, bounds(day)[1])
+    return n_plan > 0 or done > 0
+
+
+def week_lines(conn, day):
+    sched = BL.schedule(conn)
+    if not active(conn, sched, day):
+        return []
+    week, through = bounds(day)
+    n_plan, done, minutes = BL.week_counts(conn, sched, day, through)
+    if n_plan:
+        out = [BL.t("health.retro.week", planned=n_plan, done=done,
+                    minutes=BL.num(minutes))]
+    else:
+        out = [BL.t("health.retro.week_free", done=done, minutes=BL.num(minutes))]
+    out.append(BL.body_line(conn, week[-1]))
+    out.append(BL.goal_line(conn, week[-1]))
+    return BL.capped(out)
+
+
+def grid_rows(conn, day):
+    sched = BL.schedule(conn)
+    if not active(conn, sched, day):
+        return []
+    week, through = bounds(day)
+    rows = BL.workouts(conn, week[0], through)
+    out = []
+    for d in week:
+        if d > through:
+            break
+        mine = [r for r in rows if r["date"] == d.isoformat()]
+        if mine:
+            m = sum(r["minutes"] for r in mine)
+            label = "·".join(dict.fromkeys(r["label"] for r in mine if r["label"]))
+            out.append("%s\t%d\t%d\t%s" % (d.isoformat(), round(m), round(m), label))
+        elif BL.planned(sched, d)[0]:
+            out.append("%s\t0\t\t%s" % (d.isoformat(), BL.t("health.retro.grid_missed")))
+    if not out:
+        return []
+    return ["unit\t%s" % BL.t("health.retro.grid_unit")] + out
+
+
+def next_lines(conn, day):
+    sched = BL.schedule(conn)
+    if not active(conn, sched, day):
+        return []
+    mon = BL.week_of(day)[-1] + datetime.timedelta(days=1)
+    days = [d for d in BL.week_of(mon) if BL.planned(sched, d)[0]]
+    if not days:
+        return []
+    codes = []
+    program = BL.load_program()
+    rotation = list((program or {}).get("rotation") or [])
+    if rotation:
+        rx = BL.session_rx(mon)
+        first = (rx or {}).get("rotation_day")
+        if first in rotation:
+            i = rotation.index(first)
+            codes = [rotation[(i + k) % len(rotation)] for k in range(len(days))]
+    if codes:
+        days_txt = " · ".join("%s %s" % (BL.wd_short(d), c) for d, c in zip(days, codes))
+    else:
+        days_txt = "·".join(BL.wd_short(d) for d in days)
+    plan = BL.t("health.retro.next_week_count", days=days_txt, n=len(days))
+    return [BL.t("health.retro.next_week", plan=plan)]
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="week-health")
+    p.add_argument("--lane", choices=("morning", "daily", "weekly"), required=True)
+    p.add_argument("--mode", choices=("line", "section", "grid"), default="section")
+    p.add_argument("--part", choices=("week", "next", "calorie"),
+                   default="week")
+    p.add_argument("--date")
+    p.add_argument("--db")
+    a = p.parse_args(argv)
+    if a.lane != "weekly" or (a.mode == "grid" and a.part != "week"):
+        return BL.EXIT_NOTHING
+    try:
+        if a.db:
+            os.environ["HEALTH_BRIEF_DB"] = a.db
+        day = BL.run_date(a.date)
+        conn = BL.connect()
+        try:
+            if a.mode == "grid":
+                rows = grid_rows(conn, day)
+                if not rows:
+                    return BL.EXIT_NOTHING
+                print("\n".join(rows))
+                return BL.EXIT_OK
+            lines = {"next": next_lines, "calorie": BL.calorie_week_lines,
+                     "week": week_lines}[a.part](conn, day)
+        finally:
+            conn.close()
+    except Exception as exc:  # noqa: BLE001 -- a provider never fails a retro
+        print("week-health: %s" % exc, file=sys.stderr)
+        return BL.EXIT_NOTHING
+    return BL.emit(lines, a.mode)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,1651 @@
+{
+  "doc": "Body-ideal archetype table (goal-interview strand step). One row per archetype a user names as 'the body I want'. SOURCE OF TRUTH is the graded warehouse row in `item` (payload/knowledge/kimwog); this table is its machine index for the kit strand hints. kit_tokens = registered goal_metric_source tokens a strand can own (e1rm_/max_reps_ need a per-lift row); kit_readings = values the pack/kit can read but no strand can own; missing_tokens = proposed names for what cannot be measured here (see missing_token_defs). practice.picks = kit practice-set pick keys; practice.avoid_as_primary = measures/picks that misrepresent this archetype. Built 2026-09-30 (owner ask 19:53); pass 2 (owner ask 19:57/20:02) added rows 046-053. The pack wires it into kit hints.",
+  "version": 2,
+  "as_of": "2026-09-30",
+  "map_item": "exercise/body-ideal-archetype-map-032",
+  "registered_tokens": {
+    "exact": [
+      "weekly_sessions",
+      "body_weight",
+      "body_fat_pct",
+      "skeletal_muscle_kg",
+      "unilateral_share_sets",
+      "zero_load_control_share_sets",
+      "lean_arm_l_kg",
+      "lean_arm_r_kg",
+      "lean_trunk_kg",
+      "lean_leg_l_kg",
+      "lean_leg_r_kg",
+      "controlled_tempo_share_sets"
+    ],
+    "prefix": [
+      "e1rm_<lift>",
+      "max_reps_<lift>"
+    ],
+    "source": "dogany-lifekit payload/database/schema.sql goal_metric_source seed rows (033/055)"
+  },
+  "readable_not_registered": [
+    "lean_arm_l_kg",
+    "lean_arm_r_kg",
+    "lean_trunk_kg",
+    "lean_leg_l_kg",
+    "lean_leg_r_kg",
+    "lean_<seg>_pct",
+    "weight_kg",
+    "fat_mass_kg",
+    "lean_mass_kg",
+    "workouts.minutes",
+    "workouts.kcal",
+    "workouts.avg_hr"
+  ],
+  "practice_picks": {
+    "functional": [
+      "power",
+      "mixed_circuit",
+      "conditioning"
+    ],
+    "connection": [
+      "breath_trunk",
+      "mobility_flow",
+      "whole_body"
+    ]
+  },
+  "missing_token_defs": {
+    "waist_cm": "waist circumference (hand-logged girth)",
+    "shoulder_cm": "shoulder circumference / width (hand-logged girth)",
+    "thigh_cm": "thigh girth (hand-logged)",
+    "arm_cm": "upper-arm girth (hand-logged)",
+    "cardio_minutes_week": "weekly aerobic minutes from workouts.minutes (readable, not a strand token)",
+    "run_km_week": "weekly running distance",
+    "swim_m_week": "weekly swim distance",
+    "race_time_s_<distance>": "race / time-trial time",
+    "benchmark_time_s_<name>": "mixed-modal benchmark workout time",
+    "jump_cm": "vertical / countermovement jump height",
+    "sprint_s_<distance>": "sprint time",
+    "rom_<joint>_deg": "range of motion test (or sit_reach_cm)",
+    "skill_level_<skill>": "bodyweight skill ladder level (handstand, muscle-up, lever)",
+    "total_kg / dots": "powerlifting total or relative-strength score (derivable, not registered)",
+    "grip_kg": "handgrip dynamometer strength (grappler, climber)",
+    "hang_s_<edge>": "maximum dead-hang time on a given fingerboard edge (climber finger strength-endurance)",
+    "climb_grade_<discipline>": "hardest route / boulder sent, per discipline (lead, boulder)",
+    "neck_cm": "neck circumference (hand-logged girth; grappler neck development)",
+    "carry_kg_m_<carry>": "loaded carry load x distance (farmer / sandbag / bear-hug carry)",
+    "row_m_week": "weekly rowing distance (erg or water)",
+    "ftp_w_per_kg": "cycling functional threshold power relative to body weight",
+    "ride_km_week": "weekly riding distance",
+    "balance_s_single_leg": "single-leg balance hold time (eyes open/closed stated)",
+    "agility_s_<test>": "change-of-direction test time (e.g. 5-0-5, spider drill)"
+  },
+  "rules": [
+    "one named ideal = one strand with its own measure; never blend ideals into one number",
+    "a strand whose measure is missing is carried as a direction with the gap named, never proxied by body_fat_pct",
+    "Pilates maps to slow, controlled, full-range movement (controlled_tempo_share_sets), NOT to timed isometric holds (zero_load_control_share_sets)",
+    "X-taper != V-taper: the X includes judged legs; its measure includes skeletal_muscle_kg and segmental leg lean mass, not body fat alone",
+    "real conflicts (energy direction, body-weight direction, time) go to the ORDER choice, not a blended target",
+    "grappler (047) != combat/striking (044): force-first, grip/isometric, body weight may go UP; MMA stays on 044",
+    "zero_load_control_share_sets is a PARTIAL fit where holding is the work (climber hangs, grappler holds, ski low holds) and never the Pilates measure",
+    "weight-sensitive sports (044, 047, 049 lightweight, 046, 050, 051): coach the strength/skill side of the ratio; acute cuts and restriction are the caught route (exercise/harm-route-boundary-031)",
+    "sport rows 046-053: the sport is the primary practice; the gym strand supports with transferable strength and the row's injury-specific work; ski/snowboard enters as a pre-season block"
+  ],
+  "archetypes": [
+    {
+      "key": "classic_physique_x",
+      "item": "exercise/ideal-classic-physique-x-taper-033",
+      "family": "shape",
+      "label_ko": "클래식 피지크 (X자)",
+      "words": [
+        "클래식",
+        "X자",
+        "엑스자",
+        "x-taper",
+        "x taper",
+        "x-frame",
+        "classic physique",
+        "x테이퍼",
+        "엑스테이퍼",
+        "클래식 피지크"
+      ],
+      "picture_ko": "넓은 어깨·등 → 잘록한 허리 → 다시 벌어지는 허벅지까지, 위아래가 균형 잡힌 X자 몸 (다리도 심사)",
+      "distinguishing": [
+        "upper half: side delts + lat width",
+        "small waist at the crossing point",
+        "lower half: quad sweep, hamstrings, glutes, calves -- legs are judged",
+        "proportion over size; height-indexed weight cap below open"
+      ],
+      "not": [
+        {
+          "archetype": "mens_physique_v",
+          "why": "V = upper half only; board shorts, legs not judged"
+        },
+        {
+          "archetype": "open_bodybuilding",
+          "why": "no weight cap; mass over proportion"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "skeletal_muscle_kg",
+          "body_fat_pct",
+          "e1rm_<lift>",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg",
+          "lean_trunk_kg",
+          "lean_leg_l_kg",
+          "lean_leg_r_kg"
+        ],
+        "kit_readings": [
+          "lean_<seg>_pct",
+          "weekly sets per region"
+        ],
+        "missing_tokens": [
+          "waist_cm",
+          "shoulder_cm",
+          "thigh_cm"
+        ]
+      },
+      "practice": {
+        "picks": [],
+        "avoid_as_primary": [
+          "body_fat_pct as the only strand"
+        ],
+        "program": "hypertrophy with regional balance: delts/lats AND quads/hams/glutes/calves; trunk for function",
+        "objective": "band_center (build) / functional (cut)"
+      },
+      "combines_with": [
+        "crossfit_functional",
+        "pilates",
+        "yoga_mobility",
+        "mens_physique_v"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding (cap)",
+        "endurance (running volume, energy)"
+      ],
+      "risks": [
+        "upper-body-only programming (the V mistake)",
+        "extreme cut / dehydration / drugs (harm-route-boundary-031)"
+      ],
+      "picture_short_ko": "어깨·등은 넓고 허리는 잘록하며 허벅지까지 발달한 X자 몸"
+    },
+    {
+      "key": "mens_physique_v",
+      "item": "exercise/ideal-mens-physique-v-taper-034",
+      "family": "shape",
+      "label_ko": "멘즈 피지크 (V자)",
+      "words": [
+        "멘즈 피지크",
+        "V자",
+        "브이자",
+        "v-taper",
+        "v taper",
+        "men's physique",
+        "피지크",
+        "v테이퍼",
+        "브이테이퍼",
+        "멘즈피지크"
+      ],
+      "picture_ko": "넓은 어깨와 등이 잘록한 허리로 좁아지는 상체 V자, 선명한 복근, 과하지 않은 근육",
+      "distinguishing": [
+        "upper-body V front and back",
+        "visible abs/obliques",
+        "extreme muscularity marked down",
+        "legs covered by board shorts, not judged"
+      ],
+      "not": [
+        {
+          "archetype": "classic_physique_x",
+          "why": "X adds scored legs and more mass"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "body_fat_pct",
+          "skeletal_muscle_kg",
+          "e1rm_<lift>",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg",
+          "lean_trunk_kg",
+          "lean_leg_l_kg",
+          "lean_leg_r_kg"
+        ],
+        "kit_readings": [],
+        "missing_tokens": [
+          "waist_cm",
+          "shoulder_cm"
+        ]
+      },
+      "practice": {
+        "picks": [],
+        "avoid_as_primary": [],
+        "program": "hypertrophy with upper-body bias (lateral/rear delts, lats, upper chest), lean phase; legs trained for health",
+        "objective": "band_center / functional"
+      },
+      "combines_with": [
+        "crossfit_functional",
+        "pilates",
+        "calisthenics_gymnast",
+        "swimmer"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting (body-weight direction)"
+      ],
+      "risks": [
+        "skipping legs entirely",
+        "over-cutting for abs"
+      ],
+      "picture_short_ko": "넓은 어깨·등이 잘록한 허리로 좁아지는 상체 V자 몸"
+    },
+    {
+      "key": "open_bodybuilding",
+      "item": "exercise/ideal-open-bodybuilding-035",
+      "family": "shape",
+      "label_ko": "오픈 보디빌딩",
+      "words": [
+        "보디빌딩",
+        "보디빌더",
+        "오픈",
+        "bodybuilding",
+        "bodybuilder",
+        "mass monster"
+      ],
+      "picture_ko": "체급 상한 없이 가능한 한 큰 근육을, 균형과 선명도를 갖춰 극도로 낮은 체지방에서 보여주는 몸",
+      "distinguishing": [
+        "maximal muscle size with balance, density, definition",
+        "no weight cap",
+        "most-muscular pose"
+      ],
+      "not": [
+        {
+          "archetype": "classic_physique_x",
+          "why": "classic caps mass for proportion"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "skeletal_muscle_kg",
+          "body_fat_pct",
+          "body_weight",
+          "e1rm_<lift>",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg",
+          "lean_trunk_kg",
+          "lean_leg_l_kg",
+          "lean_leg_r_kg"
+        ],
+        "kit_readings": [
+          "weekly sets per muscle"
+        ],
+        "missing_tokens": [
+          "arm_cm",
+          "thigh_cm"
+        ]
+      },
+      "practice": {
+        "picks": [],
+        "avoid_as_primary": [],
+        "program": "high-volume hypertrophy per muscle, long building phases, periodic lean phases",
+        "objective": "band_center"
+      },
+      "combines_with": [
+        "pilates",
+        "yoga_mobility",
+        "powerlifting"
+      ],
+      "conflicts_with": [
+        "endurance",
+        "mens_physique_v (ceiling)",
+        "classic_physique_x (cap)"
+      ],
+      "risks": [
+        "PED route (caught)",
+        "peak-week dehydration (caught)",
+        "eating/body-image disorder risk"
+      ]
+    },
+    {
+      "key": "crossfit_functional",
+      "item": "exercise/ideal-crossfit-functional-036",
+      "family": "capability",
+      "label_ko": "크로스핏 / 기능성 체력",
+      "words": [
+        "크로스핏",
+        "기능성",
+        "체력",
+        "애슬레틱",
+        "컨디셔닝",
+        "WOD",
+        "crossfit",
+        "functional",
+        "hyrox",
+        "하이록스"
+      ],
+      "picture_ko": "무겁게 들고, 빨리 움직이고, 숨이 차도 오래 버티는 -- 무엇이든 해내는 다재다능한 몸",
+      "distinguishing": [
+        "work capacity across broad time and modal domains",
+        "breadth: strength + power + conditioning + bodyweight skill",
+        "scored as time/rounds/reps/load, not shape"
+      ],
+      "not": [
+        {
+          "archetype": "pilates",
+          "why": "balance/coordination/linking is the connection side, not function"
+        },
+        {
+          "archetype": "powerlifting",
+          "why": "one peak vs breadth"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "e1rm_<lift>",
+          "max_reps_<lift>",
+          "weekly_sessions"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr",
+          "body_fat_pct",
+          "skeletal_muscle_kg"
+        ],
+        "missing_tokens": [
+          "benchmark_time_s_<name>",
+          "cardio_minutes_week",
+          "run_km_week",
+          "jump_cm"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "conditioning",
+          "mixed_circuit",
+          "power"
+        ],
+        "avoid_as_primary": [
+          "unilateral (as 'function')",
+          "breath_trunk (as 'function')"
+        ],
+        "program": "concurrent strength + intervals + mixed circuit 1-2x/wk + low-dose power; supervision before load under fatigue",
+        "objective": "functional",
+        "kind_ko": "전신 연습",
+        "kind_en": "whole-body move",
+        "examples": [
+          "kettlebell_swing",
+          "burpee",
+          "medicine_ball_slam"
+        ]
+      },
+      "combines_with": [
+        "classic_physique_x",
+        "pilates",
+        "combat_fighter",
+        "weightlifting_power"
+      ],
+      "conflicts_with": [
+        "powerlifting peak",
+        "endurance duration focus"
+      ],
+      "risks": [
+        "shoulder (kipping/overhead under fatigue)",
+        "spine",
+        "knee",
+        "prior injury",
+        "no supervision"
+      ],
+      "picture_short_ko": "무겁게 들고 빨리 움직이며 오래 버티는 다재다능한 몸"
+    },
+    {
+      "key": "pilates",
+      "item": "exercise/ideal-pilates-controlled-movement-037",
+      "family": "movement",
+      "label_ko": "필라테스 (연결 / 통제된 움직임)",
+      "words": [
+        "필라테스",
+        "연결",
+        "리포머",
+        "pilates",
+        "reformer",
+        "contrology"
+      ],
+      "picture_ko": "호흡에 맞춰 척추를 한 마디씩 굴리고 팔다리를 몸통 중심에서 정확하게 움직이는, 느리고 끊김 없는 전 가동범위 움직임 (홀드가 아님)",
+      "distinguishing": [
+        "principles: centering, concentration, control, precision, flow, breathing",
+        "slow, continuous, full-range, precisely aligned MOVEMENT",
+        "spinal articulation; limbs around an organised trunk; breath paired to movement phase",
+        "difficulty = control, not load"
+      ],
+      "not": [
+        {
+          "archetype": "yoga_mobility",
+          "why": "range/positions vs precise trunk-organised control"
+        },
+        {
+          "archetype": "dancer",
+          "why": "controlled movement without jumps/turns vs range + power + conditioning"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "weekly_sessions",
+          "controlled_tempo_share_sets"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "ax_exercise.tempo (per-lift field, no share token)"
+        ],
+        "missing_tokens": [
+          "rom_<joint>_deg"
+        ],
+        "never": [
+          "zero_load_control_share_sets",
+          "body_fat_pct",
+          "skeletal_muscle_kg"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "breath_trunk",
+          "mobility_flow",
+          "whole_body"
+        ],
+        "avoid_as_primary": [
+          "zero_load_control_share_sets (counts holds)",
+          "unilateral_share_sets as the definition (partial only)",
+          "body_fat_pct",
+          "skeletal_muscle_kg",
+          "hollow_hold as the breath_trunk pick"
+        ],
+        "program": "a controlled-movement slot each session (roll-down, bridge articulation, leg circles, breath-paced dead bug), mobility flow, slow stated tempo (<=8 s/rep) on ordinary lifts",
+        "objective": "none (does not compete for growth volume)",
+        "kind_ko": "느린 제어 동작",
+        "kind_en": "slow controlled move",
+        "examples": [
+          "roll_down",
+          "reverse_lunge"
+        ]
+      },
+      "combines_with": [
+        "classic_physique_x",
+        "crossfit_functional",
+        "every archetype"
+      ],
+      "conflicts_with": [],
+      "risks": [
+        "reducing it to holds",
+        "flexion-heavy mat work on an irritable back -> pain triage first",
+        "expecting body-composition change (pooled trials: none vs control)"
+      ],
+      "picture_short_ko": "호흡에 맞춰 몸통 중심에서 느리고 정확하게 움직이는 몸"
+    },
+    {
+      "key": "calisthenics_gymnast",
+      "item": "exercise/ideal-calisthenics-gymnast-038",
+      "family": "movement",
+      "label_ko": "맨몸운동 / 체조선수형",
+      "words": [
+        "맨몸",
+        "캘리스테닉스",
+        "체조",
+        "철봉",
+        "머슬업",
+        "물구나무",
+        "calisthenics",
+        "gymnast",
+        "street workout"
+      ],
+      "picture_ko": "가볍고 탄탄하며 자기 몸을 자유자재로 다루는 몸 -- 턱걸이·딥스·물구나무·머슬업을 해내는 체중 대비 힘",
+      "distinguishing": [
+        "relative strength (per kg body weight)",
+        "bodyweight skill ladder",
+        "progression by leverage, not plates"
+      ],
+      "not": [
+        {
+          "archetype": "mens_physique_v",
+          "why": "scoreboard is skill/reps, not size"
+        },
+        {
+          "archetype": "crossfit_functional",
+          "why": "single modality to skill, not breadth"
+        },
+        {
+          "archetype": "climber",
+          "why": "finger/grip limiter and wall skill"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "max_reps_<lift>",
+          "e1rm_<lift>",
+          "body_weight",
+          "body_fat_pct",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg",
+          "lean_trunk_kg"
+        ],
+        "kit_readings": [
+          "hold_sec per set"
+        ],
+        "missing_tokens": [
+          "skill_level_<skill>",
+          "rom_<joint>_deg"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "whole_body",
+          "mobility_flow",
+          "power"
+        ],
+        "avoid_as_primary": [],
+        "program": "progressive variations for push/pull/legs, trunk skills, handstand practice; separate mobility work",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "mens_physique_v",
+        "crossfit_functional",
+        "pilates"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting (mass)"
+      ],
+      "risks": [
+        "elbow/wrist tendons from straight-arm skills",
+        "shoulder from rings/kipping"
+      ]
+    },
+    {
+      "key": "yoga_mobility",
+      "item": "exercise/ideal-yoga-mobility-039",
+      "family": "movement",
+      "label_ko": "요가 / 유연성·가동성",
+      "words": [
+        "요가",
+        "유연",
+        "가동성",
+        "뻣뻣",
+        "스트레칭",
+        "yoga",
+        "mobility",
+        "flexibility"
+      ],
+      "picture_ko": "고관절·햄스트링·흉추·어깨가 넓고 편하게 움직이고, 그 자세를 균형 있게 버티며 숨이 차분한 몸",
+      "distinguishing": [
+        "range of motion first",
+        "balance and positional strength",
+        "breath/calm"
+      ],
+      "not": [
+        {
+          "archetype": "pilates",
+          "why": "range/positions vs precise controlled movement"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "weekly_sessions",
+          "zero_load_control_share_sets"
+        ],
+        "kit_readings": [
+          "workouts.minutes"
+        ],
+        "missing_tokens": [
+          "rom_<joint>_deg"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "mobility_flow"
+        ],
+        "avoid_as_primary": [],
+        "program": "regular stretching (PNF/static) or yoga, full-range loaded lifts, mobility flow; static stretching away from heavy/explosive work",
+        "objective": "none"
+      },
+      "combines_with": [
+        "every archetype"
+      ],
+      "conflicts_with": [],
+      "risks": [
+        "forcing end range in hypermobile joints",
+        "long static holds right before explosive work"
+      ]
+    },
+    {
+      "key": "powerlifting",
+      "item": "exercise/ideal-powerlifting-040",
+      "family": "capability",
+      "label_ko": "파워리프팅 / 최대근력",
+      "words": [
+        "파워리프팅",
+        "3대",
+        "스쿼트 벤치 데드",
+        "힘",
+        "powerlifting",
+        "strength",
+        "1rm"
+      ],
+      "picture_ko": "스쿼트·벤치·데드리프트를 무겁게 드는 두껍고 단단한 몸 -- 드는 무게가 기준",
+      "distinguishing": [
+        "max load on squat/bench/deadlift to federation standard",
+        "total within a weight class",
+        "leanness irrelevant"
+      ],
+      "not": [
+        {
+          "archetype": "weightlifting_power",
+          "why": "slow max force vs speed"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "e1rm_<lift>",
+          "body_weight",
+          "skeletal_muscle_kg"
+        ],
+        "kit_readings": [
+          "top-set load",
+          "RIR",
+          "weekly sets per lift"
+        ],
+        "missing_tokens": [
+          "total_kg / dots"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "power"
+        ],
+        "avoid_as_primary": [],
+        "program": "heavy low-rep work on the three lifts, periodised, RIR-autoregulated; accessory hypertrophy",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "open_bodybuilding",
+        "pilates",
+        "yoga_mobility"
+      ],
+      "conflicts_with": [
+        "mens_physique_v",
+        "calisthenics_gymnast",
+        "endurance"
+      ],
+      "risks": [
+        "lower back",
+        "shoulder/pec",
+        "knee",
+        "skipping recovery"
+      ]
+    },
+    {
+      "key": "weightlifting_power",
+      "item": "exercise/ideal-weightlifting-athletic-power-041",
+      "family": "capability",
+      "label_ko": "역도 / 운동선수형 폭발력",
+      "words": [
+        "역도",
+        "인상",
+        "용상",
+        "클린",
+        "스내치",
+        "폭발",
+        "점프",
+        "순발력",
+        "운동선수",
+        "weightlifting",
+        "snatch",
+        "clean",
+        "athletic",
+        "explosive"
+      ],
+      "picture_ko": "바닥에서 머리 위까지 폭발하듯 들어올리고, 높이 뛰고 빠르게 튀어나가는 탄력 있는 몸",
+      "distinguishing": [
+        "rate of force development",
+        "snatch / clean & jerk",
+        "overhead and deep-squat mobility"
+      ],
+      "not": [
+        {
+          "archetype": "powerlifting",
+          "why": "speed vs slow max force"
+        },
+        {
+          "archetype": "sprinter_athletic",
+          "why": "vertical bar/jump power vs horizontal elastic speed on a clock"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "e1rm_<lift>",
+          "body_weight"
+        ],
+        "kit_readings": [
+          "skeletal_muscle_kg"
+        ],
+        "missing_tokens": [
+          "jump_cm",
+          "sprint_s_<distance>"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "power"
+        ],
+        "avoid_as_primary": [],
+        "program": "low-rep explosive work with full rest, heavy squats/pulls, jump and throw derivatives; power before fatigue",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "powerlifting",
+        "crossfit_functional",
+        "combat_fighter"
+      ],
+      "conflicts_with": [
+        "endurance (explosive strength blunted by concurrent training)",
+        "deep cut"
+      ],
+      "risks": [
+        "lumbar/knee in the catch",
+        "wrist/elbow",
+        "landings on cautioned joints"
+      ]
+    },
+    {
+      "key": "endurance",
+      "item": "exercise/ideal-endurance-runner-triathlete-042",
+      "family": "capability",
+      "label_ko": "지구력 (러너 / 철인)",
+      "words": [
+        "러닝",
+        "마라톤",
+        "철인",
+        "트라이애슬론",
+        "지구력",
+        "runner",
+        "marathon",
+        "triathlon",
+        "endurance"
+      ],
+      "picture_ko": "가볍고 군살 없는, 숨이 오래가는 몸 -- 크기보다 오래, 효율적으로 움직이는 능력",
+      "distinguishing": [
+        "long-duration aerobic output and economy",
+        "low body mass for the effort",
+        "fatigue-resistant rather than large muscle"
+      ],
+      "not": [
+        {
+          "archetype": "crossfit_functional",
+          "why": "long duration vs breadth"
+        },
+        {
+          "archetype": "cyclist",
+          "why": "weight-supported, watts/kg, no bone loading"
+        },
+        {
+          "archetype": "rower",
+          "why": "lean mass helps the rower, costs the runner"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "weekly_sessions",
+          "body_weight",
+          "body_fat_pct",
+          "e1rm_<lift>"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "cardio_minutes_week",
+          "run_km_week",
+          "race_time_s_<distance>"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "conditioning"
+        ],
+        "avoid_as_primary": [],
+        "program": "mostly easy aerobic volume + some intervals, gradual build, 2 heavy low-volume strength sessions/wk, plyometrics",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "healthy_lean",
+        "yoga_mobility",
+        "pilates"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting",
+        "weightlifting_power (same-session)"
+      ],
+      "risks": [
+        "novice running injury rate 17.8/1000 h",
+        "low energy availability",
+        "dropping strength work"
+      ]
+    },
+    {
+      "key": "swimmer",
+      "item": "exercise/ideal-swimmer-043",
+      "family": "look_sport",
+      "label_ko": "수영선수형",
+      "words": [
+        "수영",
+        "수영선수",
+        "swimmer",
+        "swimming"
+      ],
+      "picture_ko": "길고 군살 없는 상체에 넓은 어깨와 등이 펼쳐진 몸, 부드러운 어깨와 강한 몸통",
+      "distinguishing": [
+        "upper-body V by volume, less bulk",
+        "long lats, shoulder mobility",
+        "aerobic engine; part of the look is selection (limb length)"
+      ],
+      "not": [
+        {
+          "archetype": "mens_physique_v",
+          "why": "stage leanness and bulk ceiling differ"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "body_fat_pct",
+          "max_reps_<lift>",
+          "weekly_sessions",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg",
+          "lean_trunk_kg"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "swim_m_week",
+          "rom_<joint>_deg"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "mobility_flow"
+        ],
+        "avoid_as_primary": [],
+        "program": "pool aerobic volume + technique; gym: pulling volume, cuff/scapular control, trunk",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "mens_physique_v",
+        "endurance",
+        "pilates"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding"
+      ],
+      "risks": [
+        "shoulder overuse with volume jumps"
+      ]
+    },
+    {
+      "key": "combat_fighter",
+      "item": "exercise/ideal-combat-fighter-044",
+      "family": "capability",
+      "label_ko": "격투기 선수형",
+      "words": [
+        "격투기",
+        "복싱",
+        "MMA",
+        "킥복싱",
+        "파이터",
+        "fighter",
+        "boxing",
+        "mma"
+      ],
+      "picture_ko": "군살 없이 단단하고, 몇 분 동안 폭발적인 동작을 반복해도 숨이 버티는 몸 -- 체급 안에서",
+      "distinguishing": [
+        "repeated power bursts on an aerobic base",
+        "trunk/neck/grip strength",
+        "weight class"
+      ],
+      "not": [
+        {
+          "archetype": "crossfit_functional",
+          "why": "fixed weight class, contact, skill demands"
+        },
+        {
+          "archetype": "grappler_ssireum",
+          "why": "grappling is force/grip/isometric-first and may be heavy; this row is striking-leaning (bursts, lean at a class)"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "body_weight",
+          "body_fat_pct",
+          "skeletal_muscle_kg",
+          "e1rm_<lift>"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "cardio_minutes_week",
+          "sprint_s_<distance>"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "conditioning",
+          "power",
+          "mixed_circuit"
+        ],
+        "avoid_as_primary": [],
+        "program": "round-matched intervals, 2x/wk strength+power, trunk/neck, mobility; gradual weight management",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "crossfit_functional",
+        "weightlifting_power",
+        "grappler_ssireum"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting (light class)"
+      ],
+      "risks": [
+        "acute weight cut / dehydration (caught route; sport position stand describes it)",
+        "contact injury"
+      ]
+    },
+    {
+      "key": "healthy_lean",
+      "item": "exercise/ideal-healthy-lean-injury-free-045",
+      "family": "default",
+      "label_ko": "건강하고 탄탄한 몸 (안 다치는 몸)",
+      "words": [
+        "건강",
+        "탄탄",
+        "안 다치",
+        "오래",
+        "다이어트",
+        "healthy",
+        "fit",
+        "lean",
+        "injury"
+      ],
+      "picture_ko": "적당히 군살 없고, 일상과 나이 듦을 버틸 근력과 체력이 있으며, 오래 다치지 않고 운동을 이어가는 몸",
+      "distinguishing": [
+        "health ranges, no stage look",
+        "balance across strength / aerobic / mobility",
+        "WHO: 150-300 min moderate aerobic + 2 days strength",
+        "strength training cuts sports injury ~3x"
+      ],
+      "not": [],
+      "measures": {
+        "kit_tokens": [
+          "weekly_sessions",
+          "body_fat_pct",
+          "skeletal_muscle_kg",
+          "body_weight",
+          "e1rm_<lift>",
+          "max_reps_<lift>"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr",
+          "pain_event log"
+        ],
+        "missing_tokens": [
+          "cardio_minutes_week",
+          "rom_<joint>_deg"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "mobility_flow",
+          "conditioning"
+        ],
+        "avoid_as_primary": [],
+        "program": "2+ full-body strength sessions, aerobic minutes to the guideline band, mobility flow, conservative progression",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "every archetype (floor)"
+      ],
+      "conflicts_with": [],
+      "risks": [
+        "cardio-only (drops the injury lever)",
+        "all-or-nothing volume jumps"
+      ]
+    },
+    {
+      "key": "climber",
+      "item": "exercise/ideal-climber-bouldering-046",
+      "family": "look_sport",
+      "label_ko": "클라이머 / 볼더링형",
+      "words": [
+        "클라이밍",
+        "볼더링",
+        "암벽",
+        "클라이머",
+        "리드",
+        "climbing",
+        "bouldering",
+        "climber"
+      ],
+      "picture_ko": "가볍고 군살 없는 몸에 손가락·전완·등이 체중 대비 아주 강한, 벽에 오래 매달리는 몸",
+      "distinguishing": [
+        "strength-to-weight in fingers, forearms and back",
+        "hanging (bent- and straight-arm) and trunk tension",
+        "low body fat, modest legs; finger strength is the usual limiter"
+      ],
+      "not": [
+        {
+          "archetype": "calisthenics_gymnast",
+          "why": "finger/grip limiter and wall skill, not bodyweight skill ladder"
+        },
+        {
+          "archetype": "mens_physique_v",
+          "why": "judged on what it can hang from, not size"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "body_weight",
+          "body_fat_pct",
+          "max_reps_<lift>",
+          "e1rm_<lift>",
+          "zero_load_control_share_sets",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "hang_s_<edge>",
+          "grip_kg",
+          "climb_grade_<discipline>"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "power",
+          "whole_body",
+          "mobility_flow"
+        ],
+        "avoid_as_primary": [
+          "body_fat_pct or body_weight as the goal (strength-to-weight is coached on the strength side)"
+        ],
+        "program": "climbing volume first; progressive fingerboard after a climbing base; weighted pulling; antagonist push + rotator cuff; lever/leg-raise trunk",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "calisthenics_gymnast",
+        "yoga_mobility",
+        "mens_physique_v (moderate mass)"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting (mass)"
+      ],
+      "risks": [
+        "finger pulley overuse (load jumps)",
+        "shoulder overuse",
+        "low energy availability / weight cutting to climb harder"
+      ]
+    },
+    {
+      "key": "grappler_ssireum",
+      "item": "exercise/ideal-grappler-ssireum-wrestler-047",
+      "family": "capability",
+      "label_ko": "씨름 / 레슬러 / 그래플러형",
+      "words": [
+        "씨름",
+        "씨름선수",
+        "레슬링",
+        "레슬러",
+        "유도",
+        "주짓수",
+        "그래플링",
+        "샅바",
+        "ssireum",
+        "wrestling",
+        "wrestler",
+        "judo",
+        "bjj",
+        "grappling",
+        "grappler"
+      ],
+      "picture_ko": "굵은 몸통과 목, 놓지 않는 악력, 상대를 들어 돌리는 엉덩이 힘 -- 버티다가 한순간 터뜨리는 몸",
+      "distinguishing": [
+        "maximal and isometric strength over speed (force-velocity curve shifted up)",
+        "grip, upper-back holding and hip drive (lift, turn, throw)",
+        "thick neck and trunk; body weight may go UP (씨름 classes to 140 kg)"
+      ],
+      "not": [
+        {
+          "archetype": "combat_fighter",
+          "why": "striking-leaning row: repeated bursts over rounds, lean at a class"
+        },
+        {
+          "archetype": "powerlifting",
+          "why": "grip, isometric-dynamic mix against a moving opponent, conditioning"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "e1rm_<lift>",
+          "zero_load_control_share_sets",
+          "body_weight",
+          "skeletal_muscle_kg",
+          "body_fat_pct",
+          "lean_trunk_kg",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg",
+          "lean_leg_l_kg",
+          "lean_leg_r_kg"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "grip_kg",
+          "neck_cm",
+          "carry_kg_m_<carry>"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "power",
+          "mixed_circuit",
+          "conditioning"
+        ],
+        "avoid_as_primary": [
+          "body_weight as a class target by acute dieting or dehydration (caught route)"
+        ],
+        "program": "heavy hinge + squat, rows/pulls, loaded carries and isometric holds paired with drives, grip, gentle neck progression, rotational trunk, short intervals",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "powerlifting",
+        "weightlifting_power",
+        "combat_fighter"
+      ],
+      "conflicts_with": [
+        "endurance",
+        "climber",
+        "mens_physique_v (heavy class)"
+      ],
+      "risks": [
+        "weight cut for a class (caught route; sport practice includes it)",
+        "low-back and neck overload",
+        "left-right asymmetry"
+      ]
+    },
+    {
+      "key": "sprinter_athletic",
+      "item": "exercise/ideal-sprinter-athletic-048",
+      "family": "capability",
+      "label_ko": "스프린터 / 운동선수형",
+      "words": [
+        "스프린터",
+        "단거리",
+        "육상",
+        "육상선수",
+        "100m",
+        "스프린트",
+        "sprinter",
+        "sprint",
+        "track"
+      ],
+      "picture_ko": "군살 없이 단단하고, 엉덩이·햄스트링·종아리가 탄력 있게 발달한, 짧게 폭발적으로 달리는 몸",
+      "distinguishing": [
+        "horizontal, elastic power measured by a clock",
+        "posterior chain (glutes, hamstrings, calves) dominance",
+        "lean, athletic upper body without bulk"
+      ],
+      "not": [
+        {
+          "archetype": "weightlifting_power",
+          "why": "vertical bar/jump power vs horizontal speed"
+        },
+        {
+          "archetype": "endurance",
+          "why": "seconds, not hours; more muscle"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "e1rm_<lift>",
+          "body_fat_pct",
+          "skeletal_muscle_kg",
+          "body_weight",
+          "lean_leg_l_kg",
+          "lean_leg_r_kg"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "sprint_s_<distance>",
+          "jump_cm"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "power",
+          "conditioning"
+        ],
+        "avoid_as_primary": [
+          "long interval conditioning as the sprint measure (different quality)"
+        ],
+        "program": "short maximal sprints with full recovery, built gradually; heavy lower-body strength 2x/wk; plyometrics; hamstring work in knee-flexion and hip-extension patterns; trunk",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "weightlifting_power",
+        "classic_physique_x",
+        "racket_sports"
+      ],
+      "conflicts_with": [
+        "endurance (volume)",
+        "open_bodybuilding"
+      ],
+      "risks": [
+        "hamstring strain (highest burden at high velocity)",
+        "sprint volume jumps"
+      ]
+    },
+    {
+      "key": "rower",
+      "item": "exercise/ideal-rower-049",
+      "family": "capability",
+      "label_ko": "조정 선수형",
+      "words": [
+        "조정",
+        "로잉",
+        "로잉머신",
+        "에르그",
+        "rowing",
+        "rower",
+        "erg",
+        "concept2"
+      ],
+      "picture_ko": "크고 길쭉한 체격에 넓은 등과 강한 다리·엉덩이, 몸통은 단단하고 심폐는 아주 큰 몸",
+      "distinguishing": [
+        "leg-driven whole-body pulling over ~6-7 min",
+        "large back and posterior chain, stiff trunk in a hinge",
+        "endurance ideal where lean mass helps (with VO2max)"
+      ],
+      "not": [
+        {
+          "archetype": "endurance",
+          "why": "lean mass helps the rower, costs the runner"
+        },
+        {
+          "archetype": "swimmer",
+          "why": "leg drive, weight-supported on a seat"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "skeletal_muscle_kg",
+          "body_weight",
+          "body_fat_pct",
+          "e1rm_<lift>",
+          "weekly_sessions"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "race_time_s_<distance>",
+          "row_m_week",
+          "cardio_minutes_week"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "conditioning",
+          "power",
+          "breath_trunk"
+        ],
+        "avoid_as_primary": [
+          "body_weight down for the lightweight class by acute loss (caught route)"
+        ],
+        "program": "mostly easy aerobic erg/water volume + some hard intervals; 2-3 strength sessions (hinge, squat, rows, trunk); build erg volume gradually",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "classic_physique_x",
+        "mens_physique_v",
+        "crossfit_functional",
+        "swimmer"
+      ],
+      "conflicts_with": [
+        "climber (mass)"
+      ],
+      "risks": [
+        "low-back pain (previous LBP is the risk marker)",
+        "rib stress fracture (8-16% of elite careers)",
+        "erg-only weeks"
+      ]
+    },
+    {
+      "key": "cyclist",
+      "item": "exercise/ideal-cyclist-050",
+      "family": "capability",
+      "label_ko": "사이클 선수형",
+      "words": [
+        "사이클",
+        "자전거",
+        "로드바이크",
+        "라이딩",
+        "싸이클",
+        "cycling",
+        "cyclist",
+        "road bike",
+        "bike"
+      ],
+      "picture_ko": "가볍고 군살 없는 몸에 허벅지와 엉덩이가 단단한, 몇 시간을 일정한 힘으로 밟는 몸",
+      "distinguishing": [
+        "sustained power per kg",
+        "quadriceps/glute dominance, slim upper body (road)",
+        "weight-supported: no impact, no bone loading"
+      ],
+      "not": [
+        {
+          "archetype": "endurance",
+          "why": "weight-supported; bone and body-mass trade-offs differ from running"
+        },
+        {
+          "archetype": "rower",
+          "why": "lighter upper body, no pull"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "body_weight",
+          "body_fat_pct",
+          "e1rm_<lift>",
+          "weekly_sessions"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "ftp_w_per_kg",
+          "ride_km_week",
+          "cardio_minutes_week"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "conditioning",
+          "power",
+          "mobility_flow"
+        ],
+        "avoid_as_primary": [],
+        "program": "mostly easy aerobic riding + threshold/intervals; 2 heavy low-rep lower-body strength sessions/wk (economy and bone); some impact (jumps, running, hiking); hip-flexor/thoracic mobility",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "endurance",
+        "healthy_lean",
+        "classic_physique_x (legs)"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting (mass on climbs)"
+      ],
+      "risks": [
+        "low bone density from riding-only training",
+        "patellofemoral pain with load jumps",
+        "crash injuries (clavicle)"
+      ]
+    },
+    {
+      "key": "dancer",
+      "item": "exercise/ideal-dancer-051",
+      "family": "movement",
+      "label_ko": "무용수형",
+      "words": [
+        "무용",
+        "무용수",
+        "발레",
+        "현대무용",
+        "댄서",
+        "댄스",
+        "ballet",
+        "dancer",
+        "dance"
+      ],
+      "picture_ko": "길고 곧은 자세, 넓지만 통제된 가동범위, 가볍게 뛰어오르고 흔들림 없이 착지하는 몸",
+      "distinguishing": [
+        "range with control (active flexibility)",
+        "balance, turns, jumps and landings",
+        "foot/ankle strength and intermittent conditioning"
+      ],
+      "not": [
+        {
+          "archetype": "pilates",
+          "why": "range + power + conditioning, not controlled movement alone"
+        },
+        {
+          "archetype": "yoga_mobility",
+          "why": "jumps, turns, choreography endurance"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "unilateral_share_sets",
+          "max_reps_<lift>",
+          "weekly_sessions"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "rom_<joint>_deg",
+          "balance_s_single_leg",
+          "jump_cm"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "mobility_flow",
+          "breath_trunk",
+          "whole_body",
+          "power"
+        ],
+        "avoid_as_primary": [
+          "body_weight or body_fat_pct as the dancer goal (energy-deficiency risk in the population)",
+          "passive stretching as the whole mobility plan"
+        ],
+        "program": "class first; moderate-volume strength for legs, hips, trunk, feet; plyometric and landing work; controlled end-range strength; intervals matched to a piece",
+        "objective": "none (does not compete for growth volume)"
+      },
+      "combines_with": [
+        "pilates",
+        "yoga_mobility",
+        "calisthenics_gymnast"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting (mass)",
+        "deep cut"
+      ],
+      "risks": [
+        "low energy availability / disordered eating",
+        "low-back pain (~73% 12-month)",
+        "foot/ankle overuse",
+        "avoiding strength for fear of bulk"
+      ]
+    },
+    {
+      "key": "ski_snowboard",
+      "item": "exercise/ideal-ski-snowboard-052",
+      "family": "look_sport",
+      "label_ko": "스키 / 스노보드형",
+      "words": [
+        "스키",
+        "스노보드",
+        "보드",
+        "스키어",
+        "ski",
+        "skiing",
+        "snowboard",
+        "snowboarding"
+      ],
+      "picture_ko": "낮은 자세를 오래 버티는 단단한 허벅지·엉덩이, 흔들려도 무너지지 않는 균형, 한 시즌을 다치지 않고 타는 무릎",
+      "distinguishing": [
+        "eccentric and isometric leg endurance in a flexed stance",
+        "balance and trunk control on an unstable surface",
+        "seasonal; knee (ski) vs wrist (board) risk"
+      ],
+      "not": [
+        {
+          "archetype": "sprinter_athletic",
+          "why": "eccentric, low-position, long effort vs short horizontal speed"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "e1rm_<lift>",
+          "unilateral_share_sets",
+          "zero_load_control_share_sets"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "balance_s_single_leg",
+          "jump_cm"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "power",
+          "conditioning",
+          "whole_body"
+        ],
+        "avoid_as_primary": [],
+        "program": "6-8 week pre-season block on top of the main ideal: squats + single-leg, eccentric emphasis, wall-sit/low holds, lateral bounds and landings, balance, hamstrings, run-length intervals; boarders add fall practice + wrist guards",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "classic_physique_x",
+        "sprinter_athletic",
+        "crossfit_functional",
+        "every archetype (seasonal block)"
+      ],
+      "conflicts_with": [],
+      "risks": [
+        "ACL (gear-induced: slip-catch, back-weighted landing)",
+        "snowboard wrist injury",
+        "arriving untrained"
+      ]
+    },
+    {
+      "key": "racket_sports",
+      "item": "exercise/ideal-racket-sports-053",
+      "family": "look_sport",
+      "label_ko": "라켓 스포츠형 (테니스 / 배드민턴 / 스쿼시)",
+      "words": [
+        "테니스",
+        "배드민턴",
+        "스쿼시",
+        "라켓",
+        "탁구",
+        "tennis",
+        "badminton",
+        "squash",
+        "racket",
+        "racquet"
+      ],
+      "picture_ko": "가볍게 튀어나가고 방향을 바꾸는 다리, 회전을 싣는 몸통, 오래 휘둘러도 탈 없는 어깨 -- 한 시간을 뛰고도 지치지 않는 몸",
+      "distinguishing": [
+        "repeated short multi-directional sprints and lunges",
+        "rotational trunk power and a robust dominant shoulder",
+        "intermittent, reaction-driven conditioning"
+      ],
+      "not": [
+        {
+          "archetype": "sprinter_athletic",
+          "why": "multi-directional, one-sided upper body, reaction"
+        },
+        {
+          "archetype": "endurance",
+          "why": "intermittent, not steady"
+        }
+      ],
+      "measures": {
+        "kit_tokens": [
+          "unilateral_share_sets",
+          "e1rm_<lift>",
+          "weekly_sessions",
+          "lean_arm_l_kg",
+          "lean_arm_r_kg"
+        ],
+        "kit_readings": [
+          "workouts.minutes",
+          "workouts.kcal",
+          "workouts.avg_hr"
+        ],
+        "missing_tokens": [
+          "agility_s_<test>",
+          "sprint_s_<distance>",
+          "rom_<joint>_deg"
+        ]
+      },
+      "practice": {
+        "picks": [
+          "power",
+          "conditioning",
+          "whole_body"
+        ],
+        "avoid_as_primary": [],
+        "program": "court time first; lower-body strength + single-leg; landing/deceleration drills; rotator cuff + scapular; keep shoulder range; med-ball rotation; rally-length intervals",
+        "objective": "functional"
+      },
+      "combines_with": [
+        "healthy_lean",
+        "sprinter_athletic",
+        "crossfit_functional",
+        "pilates",
+        "yoga_mobility"
+      ],
+      "conflicts_with": [
+        "open_bodybuilding",
+        "powerlifting (agility, time)"
+      ],
+      "risks": [
+        "shoulder overuse (ROM faults, cuff weakness, load)",
+        "ankle sprain and landing ACL (badminton)",
+        "elbow overuse"
+      ]
+    }
+  ]
+}

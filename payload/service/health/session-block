@@ -1,0 +1,247 @@
+#!/usr/bin/env python3
+# session-block -- reclaim the day block a 0-set session leaves behind.
+#
+# Ticket 2026-08-26-session-ensure-ghost-block. session-ensure.sh creates a
+# "헬스 - <split>" block when the day has no OPEN one -- including a day whose
+# block is already DONE (a second session). If that session then ends with no
+# sets (mock / diagnosis / opened by mistake), nothing ever settles the block:
+# a ghost that sits in task-overdue forever (12852, 2026-08-20; reproduced
+# 2026-08-26 on a copy -> CREATED 13013).
+#
+# DESIGN DECISION (the ticket left it open between two routes):
+#   route 1  "do not create when the day's block is already done"
+#   route 2  "reclaim the block the session created when it ends with 0 sets"
+# Route 2, alone. It judges on the FACT (did this session log a set), which is
+# the rule the 2026-08-23 rotation fix adopted, and it removes the ghost without
+# taking a block away from a legitimate same-day second session (a makeup that
+# does train keeps its block and closeout settles it). Route 1 would suppress
+# exactly that block and still leave a ghost on a day whose FIRST session was
+# the 0-set one.
+#
+# THE LINK. session-ensure.sh now writes the block note as
+# `session-ensure sid=<workouts.id>` -- the session it opened in the same call.
+# That is the only block this tool will ever touch: a block is reclaimed iff
+# its note names a session AND that session has no workout_sets (or no longer
+# exists: session-abort deleted it) AND the block is still unsettled. Rotation
+# blocks, owner blocks and pre-link "session-ensure" notes are never matched.
+#
+# THE WRITE goes through the kit facade (`kit_life.sh task-archive <id>` ->
+# status abandoned, hidden from task-find/task-overdue), never raw SQL: the
+# archive is the kit's own tombstone path and honours its mirror discipline
+# (a mirrored block must be tombstoned, not deleted). kit_life.sh is taken from
+# the SAME directory as --db, so the read and the write can never be two DBs.
+#
+# Usage:
+#   session-block reclaim <session_id> [--db PATH] [--dry-run]
+#       session-abort calls this after a discard. Reclaims the block(s) linked
+#       to that session if it has no sets.
+#   session-block sweep [--today YYYY-MM-DD] [--db PATH] [--dry-run]
+#       session-ensure.sh calls this at every session start. Reclaims linked
+#       blocks of sessions dated BEFORE today with no sets, and of sessions
+#       that no longer exist. Today's and the active session's blocks are
+#       never swept (a session that has not logged its first set yet is not a
+#       ghost).
+#
+# stdout: RECLAIMED<TAB><block_id><TAB><sid>   one per archived block
+#         (DRY-RECLAIM in --dry-run); nothing when there is nothing to do.
+# Exit: 0 always on the happy/graceful paths; 1 bad args. Best-effort: a
+# reclaim failure is reported on stderr and never fails the caller.
+# stdlib only. ASCII source.
+
+import argparse
+import datetime
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DEFAULT_DB = os.path.join(PROJECT_ROOT, "database", "kit_life.db")
+STATE_DIR = (os.environ.get("LIFEKIT_HEALTH_STATE_DIR")
+             or os.path.join(PROJECT_ROOT, "files", "program"))
+NOTE_PREFIX = "session-ensure sid="
+NOTE_RE = re.compile(r"^session-ensure sid=(\d+)$")
+
+
+def note_for(session_id):
+    """The block note session-ensure.sh writes. One definition."""
+    return "%s%d" % (NOTE_PREFIX, int(session_id))
+
+
+def _today_kst():
+    now = (datetime.datetime.now(datetime.timezone.utc)
+           + datetime.timedelta(hours=9))
+    return now.strftime("%Y-%m-%d")
+
+
+def _active_sid():
+    try:
+        with open(os.path.join(STATE_DIR, ".active-session")) as fh:
+            txt = fh.read().strip()
+        return int(txt) if txt else None
+    except (OSError, ValueError):
+        return None
+
+
+# KEPT BLOCKS (2026-10-13). A deferred workout day MOVES the session's block to
+# another day (kit `workout-defer`, via session-defer) while the session it was
+# opened for is discarded as not-started. The note still names that sid, so
+# reclaim/sweep would archive the block on its NEW day -- the defer undone a
+# moment later. session-defer records each moved block id here; a kept block
+# is never reclaimed. Pack state, one id per line (the kit has no note-update
+# verb to unlink it at the source).
+KEPT_LEDGER = os.path.join(STATE_DIR, ".kept-blocks")
+
+
+def kept_blocks():
+    try:
+        with open(KEPT_LEDGER) as fh:
+            return {int(x) for x in fh.read().split() if x.isdigit()}
+    except OSError:
+        return set()
+
+
+def keep_blocks(block_ids, dry_run=False):
+    """Add block ids to the kept ledger. Returns the ledger path (None on a
+    write failure or dry run)."""
+    ids = kept_blocks() | {int(b) for b in block_ids}
+    if dry_run:
+        return None
+    try:
+        os.makedirs(os.path.dirname(KEPT_LEDGER), exist_ok=True)
+        with open(KEPT_LEDGER, "w") as fh:
+            fh.write("".join("%d\n" % b for b in sorted(ids)))
+        return KEPT_LEDGER
+    except OSError as e:
+        print("session-block: kept ledger write failed: %s" % e,
+              file=sys.stderr)
+        return None
+
+
+def linked_open_blocks(db_path, session_id=None):
+    """[(block_id, sid)] for unsettled blocks whose note links a session.
+    A kept block (moved by a defer) is never listed."""
+    conn = sqlite3.connect("file:%s?mode=ro" % os.path.abspath(db_path),
+                           uri=True)
+    try:
+        if session_id is None:
+            rows = conn.execute(
+                "SELECT id, note FROM timeblock WHERE note LIKE ? AND "
+                "settled_outcome IS NULL AND status IN ('open','expired')",
+                (NOTE_PREFIX + "%",)).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT id, note FROM timeblock WHERE note = ? AND "
+                "settled_outcome IS NULL AND status IN ('open','expired')",
+                (note_for(session_id),)).fetchall()
+    finally:
+        conn.close()
+    out = []
+    kept = kept_blocks()
+    for bid, note in rows:
+        m = NOTE_RE.match(note or "")
+        if m and bid not in kept:
+            out.append((bid, int(m.group(1))))
+    return out
+
+
+def session_facts(db_path, sid):
+    """(exists, date, n_sets)."""
+    conn = sqlite3.connect("file:%s?mode=ro" % os.path.abspath(db_path),
+                           uri=True)
+    try:
+        row = conn.execute("SELECT date FROM workouts WHERE id=?",
+                           (sid,)).fetchone()
+        n = conn.execute("SELECT COUNT(*) FROM workout_sets WHERE "
+                         "session_id=?", (sid,)).fetchone()[0]
+    finally:
+        conn.close()
+    return (row is not None, row[0] if row else None, n)
+
+
+def archive(db_path, block_id):
+    """task-archive through the kit facade beside --db. (ok, detail)."""
+    sh = os.path.join(os.path.dirname(db_path), "kit_life.sh")
+    if not os.path.isfile(sh):
+        return False, "kit_life.sh not found beside the db (%s)" % sh
+    try:
+        p = subprocess.run(["bash", sh, "task-archive", str(block_id)],
+                           capture_output=True, text=True, timeout=60)
+    except Exception as e:                               # noqa: BLE001
+        return False, str(e)
+    if p.returncode != 0:
+        return False, (p.stderr or p.stdout or "exit %d" % p.returncode
+                       ).strip()
+    return True, (p.stdout or "").strip().splitlines()[0:1]
+
+
+def _reclaim(db_path, pairs, dry_run):
+    n = 0
+    for bid, sid in pairs:
+        if dry_run:
+            print("DRY-RECLAIM\t%d\t%d" % (bid, sid))
+            n += 1
+            continue
+        ok, detail = archive(db_path, bid)
+        if ok:
+            print("RECLAIMED\t%d\t%d" % (bid, sid))
+            n += 1
+        else:
+            print("session-block: could not archive block %d (sid %d): %s"
+                  % (bid, sid, detail), file=sys.stderr)
+    return n
+
+
+def cmd_reclaim(db_path, sid, dry_run):
+    exists, _date, n_sets = session_facts(db_path, sid)
+    if exists and n_sets > 0:
+        return 0            # a session that trained keeps its block
+    return _reclaim(db_path, linked_open_blocks(db_path, sid), dry_run)
+
+
+def cmd_sweep(db_path, today, dry_run):
+    active = _active_sid()
+    todo = []
+    for bid, sid in linked_open_blocks(db_path):
+        if sid == active:
+            continue
+        exists, date, n_sets = session_facts(db_path, sid)
+        if n_sets > 0:
+            continue
+        if exists and (date is None or date >= today):
+            continue        # today's session may not have logged a set yet
+        todo.append((bid, sid))
+    return _reclaim(db_path, todo, dry_run)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="session-block")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    r = sub.add_parser("reclaim")
+    r.add_argument("session_id", type=int)
+    s = sub.add_parser("sweep")
+    s.add_argument("--today", default=None)
+    for p in (r, s):
+        p.add_argument("--db", default=DEFAULT_DB)
+        p.add_argument("--dry-run", action="store_true")
+    a = ap.parse_args(argv)
+    # NOT abspath-resolved through symlinks: kit_life.sh must be the sibling
+    # of the path we were given (database/kit_life.db -> database/kit_life.sh).
+    db = os.path.abspath(a.db)
+    if not os.path.exists(db):
+        print("session-block: db not found: %s" % db, file=sys.stderr)
+        return 0
+    try:
+        if a.cmd == "reclaim":
+            cmd_reclaim(db, a.session_id, a.dry_run)
+        else:
+            cmd_sweep(db, a.today or _today_kst(), a.dry_run)
+    except sqlite3.Error as e:
+        print("session-block: %s" % e, file=sys.stderr)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

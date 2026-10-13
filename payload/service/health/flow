@@ -1,0 +1,61 @@
+#!/usr/bin/env python3
+"""flow -- the one command of a live session: `flow step <sid> --event E`.
+
+Every owner act (a tap or typed words the agent parsed into ONE event) is
+`flow step`. The ledger (session_flow.py) computes the next screen; emit.py posts
+it (table -> card+keyboard). stdout is a receipt, never content the agent
+relays: FRAME_POSTED, SAY_SLOT <kind>|NONE, FLOW_FACT lines.
+
+  flow step <sid> --event start --args-json '{"split":"A","lifts":[...]}'
+  flow step <sid> --event set_logged --args-json '{"kg":60,"reps":8,"rir":2}'
+  flow step <sid> --event tap --args-json '{"ver":7,"event":"reps","arg":"8"}'
+  flow tap 'flow|<sid>|<ver>|<event>|<arg>'   (the bridge's route for a flow button)
+  flow show <sid>
+Exit: 0 ok, 2 refused with a named code (FLOW_REFUSED code=...).
+"""
+import argparse
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="flow")
+    sub = p.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("step")
+    s.add_argument("sid")
+    s.add_argument("--event", required=True)
+    s.add_argument("--args-json", default="{}")
+    s.add_argument("--no-post", action="store_true", help="compute and print the frame only")
+    s.add_argument("--now", type=float, default=None, help="epoch seconds (suites only)")
+    t = sub.add_parser("tap", help="route one flow button: flow tap 'flow|<sid>|<ver>|<event>|<arg>'")
+    t.add_argument("callback_data")
+    v = sub.add_parser("show")
+    v.add_argument("sid")
+    a = p.parse_args(argv)
+    import session_flow
+    if a.cmd == "tap":
+        import flow_adapter
+        return flow_adapter.tap(a.callback_data)
+    if a.cmd == "show":
+        print(json.dumps(session_flow.show(a.sid), ensure_ascii=False, indent=1))
+        return 0
+    try:
+        frame = session_flow.locked_step(a.sid, a.event, json.loads(a.args_json), a.now)
+    except session_flow.FlowError as exc:
+        print("FLOW_REFUSED code=%s detail=%s" % (exc.code, exc.detail))
+        return 2
+    if a.no_post:
+        print(json.dumps(frame, ensure_ascii=False))
+        return 0
+    import flow_adapter
+    import emit
+    receipt = flow_adapter.post(a.sid, frame, quiet=False)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

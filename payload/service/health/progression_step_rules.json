@@ -1,0 +1,165 @@
+{
+  "version": 2,
+  "_ruling": "owner 2026-10-13 16:30 '주동근으로 판단해야지 왜 바벨로우는 하체냐... 데드 180에서 무게 2.5도 올리기 어려운거 모르냐?' and 16:32 '복합관절이냐에 따라 다르고, 데드 60-65는 쉬웠고, 데드 20-25는 어렵고, 180에서 2.5도 어렵다'. Replaces the name-keyword increment (LOWER_BODY_KEYWORDS -> 5 kg, else 2.5 kg). OWN-RULE / HEURISTIC: every number below is our tuning, not graded evidence; owner-tunable here, never in code. A slot's inc_override still wins over all of it.",
+  "region": {
+    "by_root": {
+      "legs": "lower",
+      "core": "core"
+    },
+    "default": "upper",
+    "_why": "region comes from the PRIME MOVER: the exercise_muscle rows with role 'primary', each walked up muscle_node to its root. Lower only when EVERY primary roots under a lower root (deadlift glutes+hamstrings -> legs -> lower; barbell_row back -> upper). No primary row -> region unknown -> the conservative step (never a name guess)."
+  },
+  "movement_class": {
+    "isolation_patterns": [
+      "isolation",
+      "core"
+    ],
+    "_why": "class from exercise_pattern (isolation/core -> isolation, any other pattern -> compound), else ax_exercise.movement. Neither -> unknown, treated like isolation (the tighter cap)."
+  },
+  "nominal_step_kg": {
+    "lower_compound": 5.0,
+    "upper_compound": 2.5,
+    "core_compound": 2.5,
+    "isolation": 2.5,
+    "_why": "the largest step a lift of this region/class takes in the normal band. Unknown region or class -> the minimum loadable step only."
+  },
+  "level": {
+    "near_ratio": 0.85,
+    "near_max_step_kg": 2.5,
+    "far_ratio": 0.6,
+    "far_step_multiplier": 2.0,
+    "_why": "axis (a) DISTANCE TO THE LIFTER'S OWN LEVEL: working weight / the best e1RM this lifter ever logged on the lift (e1rm_rx.session_points, excluded sessions kept: a bad day can only lower a best, never raise it). >= near_ratio: near own level -> at most near_max_step_kg (180 deadlift vs ~200: +2.5, never +5); a grid with no step that small goes reps-first. < far_ratio: returning / ramping back -> up to nominal x far_step_multiplier (60 deadlift vs ~200: +5 fine). Between: nominal. No history -> no level -> minimum loadable step (no guessed jump)."
+  },
+  "relative_cap": {
+    "compound": 0.1,
+    "isolation": 0.075,
+    "unknown": 0.075,
+    "_why": "axis (b) RELATIVE JUMP: step / current load must not exceed the class cap (isolation tighter). 20 -> 25 deadlift = +25% -> over -> the largest lattice step under the cap (micro plates) or reps-first. 60 -> 65 = +8% -> allowed. The cap never grows with load."
+  },
+  "reps_first": {
+    "extra_reps": 2,
+    "_why": "when no loadable step satisfies both axes (dumbbell 2 -> 4, 5 kg grid near own level), progress by reps first: hold the load and target rep_range top + extra_reps; once the top set reaches that, take the minimum loadable step."
+  },
+  "no_lattice_step_kg": 2.5,
+  "_no_lattice_why": "a slot with no resolvable grid steps on multiples of this (the conservative small step; was 5.0 for keyword-matched names).",
+  "stage": {
+    "_ruling": "owner 2026-10-13 17:06 '80에서 90으로 번쩍 (5x5, 5kg 점프)' -- jump speed depends on body size + training level: adult men reach ~80 fast then slow; adult women 40->60 is already hard. OWN-RULE / HEURISTIC: the thresholds below are rough bodyweight multiples in the spirit of common strength-standard tables, NOT graded evidence; owner-tunable here, never in code.",
+    "standards": {
+      "_why": "STAGE by strength ratio = this session's top-set e1RM (Epley) / bodyweight, against the sex's threshold for the lift class. ratio < intermediate_at -> novice; < advanced_at -> intermediate; else advanced. by_exercise (keyed by exercise_name, data not a keyword match) overrides by_class for a lift whose standard sits far from its class (deadlift > squat).",
+      "by_class": {
+        "male": {
+          "lower_compound": {
+            "intermediate_at": 1.5,
+            "advanced_at": 2.25
+          },
+          "upper_compound": {
+            "intermediate_at": 1.0,
+            "advanced_at": 1.5
+          },
+          "core_compound": {
+            "intermediate_at": 1.0,
+            "advanced_at": 1.5
+          },
+          "isolation": {
+            "intermediate_at": 0.4,
+            "advanced_at": 0.7
+          }
+        },
+        "female": {
+          "lower_compound": {
+            "intermediate_at": 1.0,
+            "advanced_at": 1.5
+          },
+          "upper_compound": {
+            "intermediate_at": 0.6,
+            "advanced_at": 0.9
+          },
+          "core_compound": {
+            "intermediate_at": 0.6,
+            "advanced_at": 0.9
+          },
+          "isolation": {
+            "intermediate_at": 0.25,
+            "advanced_at": 0.45
+          }
+        }
+      },
+      "by_exercise": {
+        "deadlift": {
+          "male": {
+            "intermediate_at": 1.75,
+            "advanced_at": 2.5
+          },
+          "female": {
+            "intermediate_at": 1.25,
+            "advanced_at": 1.75
+          }
+        }
+      }
+    },
+    "training_age": {
+      "_why": "kit config training_years_band (lt1|1to3|3plus) + pack training_experience (beginner|returner|continuous). 3plus -> never novice (a long-trained lifter with a low ratio is a returner: the PEAK axis handles the regain). lt1 or beginner -> never advanced. Missing -> the ratio alone.",
+      "no_novice_bands": [
+        "3plus"
+      ],
+      "no_advanced_bands": [
+        "lt1"
+      ],
+      "no_advanced_experience": [
+        "beginner"
+      ]
+    },
+    "recent_rate": {
+      "window_days": 28,
+      "stall_gain": 0.02,
+      "_why": "the lifter's OWN recent progression: best e1RM in the newest window_days (anchored on the newest logged session, no clock) vs the window before it. Gain under stall_gain (2% per 4 weeks) -> a ratio-novice is read as intermediate (linear gains are over). Either window empty -> not judged."
+    },
+    "steps": {
+      "_why": "per stage: cap_abs (kg) by class and cap_rel (step / load). novice: session-to-session, lower compound 5-10 kg, upper 2.5-5 (cap_rel 0.0625 gives 5 kg at 80, 10 kg at 160; 2.5 at 40). intermediate: smaller. advanced: the minimum loadable step only if it is under cap_rel, else reps-first. Non-novice AT or past own peak also takes level.near_max_step_kg (new territory is slow). Cadence (weekly for intermediates) is not modelled here: the step size is.",
+      "novice": {
+        "cap_abs": {
+          "lower_compound": 10.0,
+          "upper_compound": 5.0,
+          "core_compound": 2.5,
+          "isolation": 2.5
+        },
+        "cap_rel": {
+          "compound": 0.0625,
+          "isolation": 0.075
+        }
+      },
+      "intermediate": {
+        "cap_abs": {
+          "lower_compound": 5.0,
+          "upper_compound": 2.5,
+          "core_compound": 2.5,
+          "isolation": 2.5
+        },
+        "cap_rel": {
+          "compound": 0.05,
+          "isolation": 0.05
+        }
+      },
+      "advanced": {
+        "cap_abs": "min",
+        "cap_rel": {
+          "compound": 0.025,
+          "isolation": 0.025
+        }
+      }
+    },
+    "missing": "STAGE needs sex + bodyweight + the lift's class. Any missing -> stage 'unknown' and the two-axis rule (level x relative cap) runs unchanged: no novice jump is ever granted on a guess. step_basis.stage_missing names what was missing."
+  },
+  "peak": {
+    "_ruling": "owner 2026-10-13 17:08 '예전에 데드 182까지 1RM' -- the all-time best matters. OWN-RULE / HEURISTIC.",
+    "_why": "PEAK = max(best logged e1RM, owner-REPORTED best with source tag; kit config key 'lift_peak_reported', written by the pack verb lift-peak). REGAIN zone = this session's top-set e1RM < peak x until_ratio: muscle memory, the regain step is nominal (x far_step_multiplier when below far_ratio), under regain cap_rel, and never past the load that would put the same reps at the peak (headroom). At / past the peak, or no headroom for the smallest step -> stage rules.",
+    "config_key": "lift_peak_reported",
+    "until_ratio": 0.97,
+    "far_ratio": 0.75,
+    "far_step_multiplier": 2.0,
+    "cap_rel": {
+      "compound": 0.1,
+      "isolation": 0.075
+    }
+  }
+}

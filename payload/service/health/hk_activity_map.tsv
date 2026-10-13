@@ -1,0 +1,43 @@
+# hk_activity_map.tsv -- HealthKit workout activity_type -> kit workout_types.
+#
+# Read by service/health/hk-ingest. Data, not code: the Korean category and
+# subtype words are the kit's own workout_types vocabulary (workout-log
+# SKILL.md dictionary), so they live here and the engine stays ASCII.
+#
+# Row kinds (TAB separated):
+#   map    <activity_type>  <category>  <subtype>
+#   alias  type_<raw>       <activity_type>
+#   other  -                <category>  <subtype>     (every unmapped type)
+#
+# `strength` in the 5th column of a map row marks the strength family: those
+# attach to the same-day set-logged session when there is one.
+#
+# alias rows: the receiver sends `type_<raw>` when the app build does not name
+# a type. The raw number is HKWorkoutActivityType's stable enum value, so a
+# raw code of a type this table already names is the SAME activity and gets
+# the same row -- only for the named set below. Every other type_<raw> stays
+# `other`. (Measured 2026-09-26: 70 of 102 stored workouts are type_20, i.e.
+# the owner's gym sessions; mapped to `other` they would never attach to the
+# set-logged session and would double every gym day.)
+map	running	유산소	러닝
+map	cycling	유산소	사이클
+map	walking	유산소	걷기
+map	stairClimbing	유산소	계단 오르기
+map	stairStepper	유산소	계단 오르기
+map	rowing	유산소	로잉
+map	swimming	유산소	수영
+map	hiking	스포츠·액티비티	등산
+map	yoga	유연·회복	요가
+map	traditionalStrengthTraining	근력	미상	strength
+map	functionalStrengthTraining	근력	미상	strength
+map	highIntensityIntervalTraining	펑셔널·HIIT	HIIT
+alias	type_13	cycling
+alias	type_20	functionalStrengthTraining
+alias	type_24	hiking
+alias	type_37	running
+alias	type_46	swimming
+alias	type_50	traditionalStrengthTraining
+alias	type_52	walking
+alias	type_57	yoga
+alias	type_63	highIntensityIntervalTraining
+other	-	기타	기타

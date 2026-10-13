@@ -1,0 +1,75 @@
+{
+  "source": "exercise/activation-rules-by-pattern-731",
+  "grade": "D",
+  "default_enabled": false,
+  "relative_load_proposal": {
+    "bodyweight_ratio": 0.5,
+    "owner_confirmed": false,
+    "enforced": false,
+    "reason": "Preference/caution enables primers per final owner decision 06:54; load alone never enables them."
+  },
+  "max_drills": 2,
+  "sets": 1,
+  "target_reps": 10,
+  "rir_min": 5,
+  "minutes_max": 3,
+  "patterns": {
+    "horizontal_push": [
+      "plate_pullover",
+      "dumbbell_fly_pattern"
+    ],
+    "vertical_push": [
+      "wall_slide",
+      "band_external_rotation"
+    ],
+    "squat": [
+      "glute_bridge"
+    ],
+    "hinge": [
+      "hip_hinge_drill",
+      "glute_bridge"
+    ],
+    "horizontal_pull": [
+      "band_pull_apart"
+    ],
+    "vertical_pull": [
+      "band_pull_apart"
+    ]
+  },
+  "caution_patterns": {
+    "horizontal_push": [
+      "band_external_rotation",
+      "band_pull_apart"
+    ],
+    "vertical_push": [
+      "band_external_rotation",
+      "band_pull_apart"
+    ],
+    "horizontal_pull": [
+      "band_external_rotation",
+      "band_pull_apart"
+    ],
+    "vertical_pull": [
+      "band_external_rotation",
+      "band_pull_apart"
+    ],
+    "squat": [
+      {
+        "code": "adductor_squeeze",
+        "hold_sec": 15,
+        "target_unit": "hold_sets",
+        "target_reps": 1
+      },
+      "ankle_mobility"
+    ],
+    "hinge": [
+      {
+        "code": "adductor_squeeze",
+        "hold_sec": 15,
+        "target_unit": "hold_sets",
+        "target_reps": 1
+      },
+      "ankle_mobility"
+    ]
+  }
+}

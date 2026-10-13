@@ -1,0 +1,278 @@
+#!/usr/bin/env python3
+"""session-abort -- discard a session that was opened by mistake (2026-08-25).
+
+THE GAP THIS CLOSES. `session-open` creates a session; `session-closeout` tags
+one; NOTHING discarded one. The nearest thing, `session-cursor clear`, removes
+the .active-session MARKER only -- the workouts row and every set survive, so a
+mistaken session stays half-open forever and `session-closeout --check` reports
+NEEDS_CLOSEOUT on it for the rest of time, blocking rx rotation. The other
+nearest thing, `kit_life.sh workout-del`, DID delete the row (cascading every set
+silently) and left five filesystem markers, the rest countdown and the pinned
+card all pointing at a dead session id. This verb is the missing one: a
+complete, guarded, marker-clean session discard.
+
+WHY A MARKER AND NOT A `workouts.status` COLUMN (no migration 035): full
+reasoning in undo_lib.abort_state_note(). Short form -- abort means DISCARD, so
+the row is deleted and there is nothing left to hold a status; session-closeout's
+F1/DGN-801 tombstone is the established representation for the same lifecycle;
+and the audit trail lands in .discarded/ where it is inspectable AND reversible,
+which a status column never was.
+
+WHAT IT DOES
+  1. refuses unless every dependency is named and the set count is echoed back;
+  2. deletes workout_sets -> workout_classifications -> workouts in ONE tx,
+     explicitly child-first so the result never depends on cascade settings;
+  3. stamps .session-closed with the discarded sid (set-add's `_mark_active`
+     then refuses to revive the gate for it -- the F1 phantom-logging guard);
+  4. removes .active-session (only if it points at THIS session);
+  5. clears .exercise-entered / .set-table-published / .set-arm-override /
+     .plate-cue / .arm-gen / .idrill-arm for the session;
+  6. cancels the live rest countdown; clears the pinned 표3 종목카드;
+  7. archives every destroyed row to .discarded/;
+  8. reclaims the day block session-ensure.sh opened for this session
+     (`session-block reclaim`, printed as RECLAIMED <block> <sid>).
+
+REFUSALS (exit 3, nothing written, dependents NAMED):
+  SESSION_ABORT_RECORD_REF   `record` rows point at this session -- they have NO
+                             FK and would DANGLE (a later rowid reuse re-binds
+                             them). Resolve with experience-delete-source first.
+  SESSION_ABORT_CLOSED       tagged AND holds a performed (working/hold) set --
+                             a real, closed session -> --force-closed. A tagged
+                             session with only prep/ramp rows is NOT closed:
+                             session-open tags at birth (2026-10-13 fix), so it
+                             aborts as state=not_started.
+  SESSION_ABORT_HISTORICAL   not the active/most-recent session -> --force-historical
+  SESSION_ABORT_UNCONFIRMED  --confirm-sets missing/mismatched; sets NAMED
+
+Usage:
+  session-abort <session_id>
+                [--confirm-sets <n>] [--force-closed] [--force-historical]
+                [--db PATH] [--no-pin-clear] [--dry-run]
+
+Exit: 0 aborted / 1 usage or not found / 3 REFUSED (nothing written).
+stdlib only.
+"""
+
+import argparse
+import os
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import undo_lib as U  # noqa: E402
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(
+        prog="session-abort",
+        description="Discard a workout session opened by mistake.")
+    p.add_argument("session_id", type=int)
+    p.add_argument("--confirm-sets", type=int, default=None,
+                   help="exact number of set rows to destroy (from the refusal)")
+    p.add_argument("--force-closed", action="store_true")
+    p.add_argument("--force-historical", action="store_true")
+    p.add_argument("--db", default=None)
+    p.add_argument("--no-pin-clear", action="store_true")
+    p.add_argument("--dry-run", action="store_true")
+    a = p.parse_args(argv)
+
+    db = U.resolve_db(a.db)
+    conn = U.open_db(db)
+    try:
+        srow = U.session_row(conn, a.session_id)
+        if srow is None:
+            print("ERROR: no workouts row with id=%s" % a.session_id,
+                  file=sys.stderr)
+            return 1
+        date, note, stype = srow
+
+        rows = U.sets_of(conn, a.session_id)
+        exs = U.exercises_of(conn, a.session_id)
+        classes = U.classification_count(conn, a.session_id)
+        records = U.referencing_records(conn, a.session_id)
+        arms = U.arm_files_for(a.session_id)
+        base = "session-abort %s" % a.session_id
+        forced = ("%s%s" % (" --force-closed" if a.force_closed else "",
+                            " --force-historical" if a.force_historical else ""))
+
+        def set_deps():
+            return [("set", "%s\t%s" % (r[2], U.fmt_set(r))) for r in rows]
+
+        # -- REFERENCE SAFETY 1 (HARD): `record` has no FK to workouts -- the
+        #    pointer is (source_table, source_id) text+int. Deleting the session
+        #    leaves those rows DANGLING and a later rowid reuse silently re-binds
+        #    them to a different session (kit_life.py GUARD #3b). No --force for
+        #    this one: it is resolvable, so it must be resolved.
+        if records:
+            U.refuse(
+                "SESSION_ABORT_RECORD_REF",
+                "session=%s date=%s records=%s sets=%s"
+                % (a.session_id, date, len(records), len(rows)),
+                [("record", "record_id=%s\tulid=%s" % (rid, ru))
+                 for rid, ru in records],
+                "⚠️ %s(%s) 세션을 가리키는 기록(record) %s건이 남아 있어 폐기를 "
+                "멈췄습니다 — 먼저 그 연결부터 정리해야 합니다."
+                % (a.session_id, date, len(records)),
+                "refusing to orphan %d record row(s) (%s). `record` points at a "
+                "source with (source_table, source_id) and NO foreign key, so "
+                "deleting workouts id=%s would leave them dangling and a later "
+                "rowid reuse would silently re-bind them to a different "
+                "session. Resolve the link FIRST -- `kit_life.sh "
+                "experience-delete-source workouts %s --confirm-destroy-sets "
+                "%d` deletes the source and its record rows in the same tx -- "
+                "then this verb is unnecessary."
+                % (len(records), ",".join(str(r) for r, _u in records),
+                   a.session_id, a.session_id, len(rows)),
+                "kit_life.sh experience-delete-source workouts %s "
+                "--confirm-destroy-sets %d" % (a.session_id, len(rows)))
+
+        # -- REFERENCE SAFETY 2: a TAGGED session WITH a performed set is a
+        #    closed, real session. The tag alone proves nothing: session-open
+        #    tags the row at BIRTH, so a tag-only test read every just-opened
+        #    session as closed (2026-10-13 06:56: lower-body B stopped after 5 prep
+        #    rows, abort REFUSED as "already finalised"). A session holding only
+        #    prep/ramp rows never trained its split -- the kit's rotation skips
+        #    it too (PERFORMED_SET_KINDS) -- so it is "not started" and aborts
+        #    through the ordinary count-matched confirmation.
+        performed = U.performed_set_count(conn, a.session_id)
+        not_started = performed == 0
+        if stype and not not_started and not a.force_closed:
+            U.refuse(
+                "SESSION_ABORT_CLOSED",
+                "session=%s date=%s session_type=%s sets=%s exercises=%s"
+                % (a.session_id, date, stype, len(rows),
+                   ";".join("%s:%d" % (n, c) for n, c, _s in exs) or "none"),
+                set_deps(),
+                "⚠️ %s(%s)은 이미 %s로 마감된 세션입니다 (%s세트, %s). 실수로 "
+                "연 세션이 아니라 실제 기록입니다 — 정말 통째로 버릴까요?"
+                % (a.session_id, date, stype, len(rows),
+                   ", ".join(n for n, _c, _s in exs) or "종목 없음"),
+                "refusing to abort a CLOSED session: session_type_id=%r means "
+                "session-closeout already finalised it, so this is settled "
+                "history (%d set row(s) across %d exercise(s)) feeding every "
+                "volume/e1RM aggregate -- not a session opened by mistake."
+                % (stype, len(rows), len(exs)),
+                "%s --force-closed --confirm-sets %d" % (base, len(rows)))
+
+        # -- REFERENCE SAFETY 3: is this the session in play?
+        active = U.marker_read(U.ACTIVE_MARKER)
+        tomb = U.marker_read(U.CLOSED_TOMBSTONE)
+        newest = U.newest_session_id(conn)
+        if a.session_id not in (active, tomb, newest) and not a.force_historical:
+            U.refuse(
+                "SESSION_ABORT_HISTORICAL",
+                "session=%s date=%s sets=%s active=%s tombstoned=%s newest=%s"
+                % (a.session_id, date, len(rows), active, tomb, newest),
+                set_deps(),
+                "⚠️ %s(%s)은 지금 진행 중인 세션이 아닙니다 (%s세트). 그래도 그 "
+                "세션을 통째로 버릴까요?" % (a.session_id, date, len(rows)),
+                "refusing to discard a session that is neither active (%s) nor "
+                "tombstoned-latest (%s) nor the newest row (%s) -- a stale "
+                "session id is the likeliest cause." % (active, tomb, newest),
+                "%s --force-historical --confirm-sets %d" % (base, len(rows)))
+
+        # -- REFERENCE SAFETY 4: count-matched confirmation.
+        if a.confirm_sets is None or a.confirm_sets != len(rows):
+            deps = set_deps()
+            deps += [("classification", "workout_classifications rows=%d"
+                      % classes)] if classes else []
+            deps += [("idrill-arm", "%s\t%s set_seq=%s"
+                      % (pth, pl.get("exercise_name"), pl.get("set_seq")))
+                     for pth, pl in arms]
+            U.refuse(
+                "SESSION_ABORT_UNCONFIRMED",
+                "session=%s date=%s session_type=%s note=%s sets=%s "
+                "exercises=%s classifications=%s armed=%s given=%s"
+                % (a.session_id, date, stype or "untagged",
+                   (note or "").replace("\t", " ").replace("\n", " ") or "none",
+                   len(rows),
+                   ";".join("%s:%d" % (n, c) for n, c, _s in exs) or "none",
+                   classes, len(arms),
+                   "none" if a.confirm_sets is None else a.confirm_sets),
+                deps,
+                "⚠️ %s(%s) 세션을 통째로 버립니다 — %s세트(%s)가 영구 삭제됩니다. "
+                "진행할까요?"
+                % (a.session_id, date, len(rows),
+                   ", ".join("%s %d세트" % (n, c) for n, c, _s in exs)
+                   or "기록된 세트 없음"),
+                "refusing an unconfirmed session discard: workouts id=%s (%s) "
+                "plus %d set row(s) across %d exercise(s) and %d "
+                "classification row(s) would be destroyed permanently. The "
+                "confirmation is COUNT-MATCHED on purpose -- echo back the "
+                "number you just read, so a casual call cannot satisfy it."
+                % (a.session_id, date, len(rows), len(exs), classes),
+                "%s%s --confirm-sets %d" % (base, forced, len(rows)))
+
+        # -- COMMIT: child-first in ONE tx, so the outcome never depends on
+        #    whether the caller's connection had foreign_keys enabled.
+        arch = U.archive("session-abort-%s" % a.session_id,
+                         {"verb": "session-abort", "db": db,
+                          "session_id": a.session_id, "date": date,
+                          "note": note, "session_type": stype,
+                          "classifications": classes,
+                          "rows": U.rows_as_dicts(rows)}, a.dry_run)
+        if not a.dry_run:
+            conn.execute("BEGIN;")
+            n_sets = conn.execute(
+                "DELETE FROM workout_sets WHERE session_id=?;",
+                (a.session_id,)).rowcount
+            try:
+                n_cls = conn.execute(
+                    "DELETE FROM workout_classifications WHERE workout_id=?;",
+                    (a.session_id,)).rowcount
+            except Exception:  # noqa: BLE001 -- table absent on an old DB
+                n_cls = 0
+            n_w = conn.execute("DELETE FROM workouts WHERE id=?;",
+                               (a.session_id,)).rowcount
+            conn.commit()
+        else:
+            n_sets, n_cls, n_w = len(rows), classes, 1
+
+        print("%sSESSION_ABORTED session=%s date=%s session_type=%s "
+              "sets_deleted=%s classifications_deleted=%s workouts_deleted=%s "
+              "state=%s"
+              % ("DRY_RUN " if a.dry_run else "", a.session_id, date,
+                 stype or "untagged", n_sets, n_cls, n_w,
+                 "not_started" if not_started else "started"))
+        for r in rows:
+            print("  DESTROYED set\t%s\t%s" % (r[2], U.fmt_set(r)))
+        print("ARCHIVE %s" % (arch or ("(dry-run)" if a.dry_run
+                                       else "FAILED -- rows are gone, not saved")))
+        # The abort STATE: tombstone first (so no window exists where
+        # .active-session is gone but the tombstone is not yet in place --
+        # session-closeout's F1 ordering, verbatim), then drop the gate marker.
+        tpath = U.stamp_tombstone(a.session_id, a.dry_run)
+        print("  INVALIDATED session-closed\t%s (aborted sid stamped; set-add "
+              "will refuse to revive the gate for it)" % (tpath or "FAILED"))
+        for path in U.clear_active_marker(a.session_id, a.dry_run):
+            print("  INVALIDATED active-session\t%s" % path)
+        for kind, path in U.invalidate_session_scoped(
+                a.session_id, None, clear_pin=not a.no_pin_clear,
+                drop_entry=True, dry_run=a.dry_run):
+            print("  INVALIDATED %s\t%s" % (kind, path))
+        for path in U.clear_arm_gen(a.session_id, a.dry_run):
+            print("  INVALIDATED arm-gen\t%s" % path)
+        # The day block session-ensure.sh opened FOR this session goes with it
+        # (ghost-block ticket 2026-08-26). Best-effort: a block that will not
+        # archive never un-does the discard; session-ensure's sweep retries.
+        try:
+            import importlib.machinery
+            import importlib.util
+            _ld = importlib.machinery.SourceFileLoader(
+                "session_block", os.path.join(os.path.dirname(
+                    os.path.abspath(__file__)), "session-block"))
+            _sp = importlib.util.spec_from_loader(_ld.name, _ld)
+            _sb = importlib.util.module_from_spec(_sp)
+            _ld.exec_module(_sb)
+            _sb.cmd_reclaim(os.path.abspath(db), a.session_id, a.dry_run)
+        except Exception as e:  # noqa: BLE001
+            print("  WARN block reclaim skipped: %s" % e, file=sys.stderr)
+        print("ABORT_SAY: ✅ %s(%s) 세션을 폐기했습니다 — 기록 %s세트까지 전부 "
+              "지웠고, 타이머/표/고정카드도 정리했습니다."
+              % (a.session_id, date, n_sets))
+        return 0
+    finally:
+        conn.close()
+
+
+if __name__ == "__main__":
+    sys.exit(main())

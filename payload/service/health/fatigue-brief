@@ -1,0 +1,1493 @@
+#!/usr/bin/env python3
+# fatigue-brief -- every sentence the user reads about muscle fatigue.
+#
+# WHAT THIS IS (worklog 2026-09-26-muscle-fatigue-function-tracking, phase 2;
+# spec files/outbox/muscle-fatigue-spec.md A3b). The kit computes fatigue
+# (kit_life 056, muscle_fatigue.py: muscle-state / muscle-week); this tool is
+# the ONLY place it turns into words, a photo and choices. Same shape as the
+# goal interview's `next` tools: the tool decides the move and renders it, the
+# model carries it verbatim and records the pick. Nothing here is a prose
+# rule the model is asked to keep:
+#
+#   open    session start: heatmap photo (< 1 s) + up to 4 fatigue lines
+#           (most fatigued first, grouped by body flow, each "% + when/what")
+#           + ONE recommendation chosen by the kit's graded level:
+#             none      nothing to propose (a quiet line at most)
+#             light     keep the session, warm those regions up once more --
+#                       one line, NO question (owner 11:27)
+#             moderate  ONE swap package, or care choices when the prior two
+#                       training days still load today's planned areas
+#             heavy     cardio / small muscle / mobility recommendation
+#                       with the regular session one tap away
+#           Every proposal carries a keep-as-is choice (11:29) and the full list is
+#           one tap away (a see-all button, 11:30). There is NO skip / rest
+#           move -- the level table has no such row and the copy gate refuses
+#           the words (owner 11:27, 08-23 soft-cost rule).
+#   pick    records the answer to `open` (swap | keep | cardio:<method> |
+#           small | mobility | expand). A care pick tags this session outside
+#           the rotation, leaving its planned day next. Legacy routine picks
+#           are accepted for previously saved brief state.
+#   slot    at exercise entry: is this planned exercise swapped? -> the
+#           exercise to log, one line, and the one-tap way back to the original.
+#   revert  that tap.
+#   close   session end: 2 lines, no question (+ one draft-map confirm for
+#           exercises created mid-session, asked once; silence = kept).
+#           session-closeout calls close_tail() itself after its card.
+#   retro   weekly retro section (kit retro-sections provider): at most 3
+#           lines, facts-only in the weekly card; standalone allows one
+#           decision. The functional check speaks only for
+#           a user who set a function direction.
+#   signal  "my hamstrings feel stiff": write the body signal through the kit and say the
+#           module-term confirmation. Pain is not handled here (pain-triage).
+#
+# NUMBERS. Every % and every time the user sees is a kit output: pct from
+# muscle-state display items / node rows, ETA from the node's eta. This file
+# computes no fatigue number; it only picks, orders and phrases them. The
+# photo carries the same rows as the text.
+#
+# LANES (D10). LLM lane: turning "hamstrings feel stiff" into --site/--sensation, relaying
+# output. RULE lane: everything else (which lines, which level move, which
+# substitutes, which routine, every sentence).
+#
+# Usage
+#   fatigue-brief open   (--session N | --day CODE) [--day CODE] [--at T]
+#                        [--photo PATH | --no-photo] [--json]
+#   fatigue-brief pick   --session N --pick swap|keep|expand|cardio:<method>|small|mobility
+#   fatigue-brief slot   --session N --exercise NAME [--json]
+#   fatigue-brief revert --session N --exercise NAME
+#   fatigue-brief close  --session N [--at T] [--json]
+#   fatigue-brief retro  --lane daily|weekly [--mode line|section]
+#                        [--week YYYY-Www] [--today YYYY-MM-DD] [--facts-only]
+#   fatigue-brief signal --site NODE --sensation stiff|tight|sore
+#                        [--side L|R|both] [--exercise NAME]
+#   common: --db PATH --program PATH --state-dir DIR
+#   env: KIT_DB_DIR (kit read model dir, default <root>/database),
+#        KIT_LIFE_SH (kit writes), RENDER_PYTHON (heatmap interpreter)
+#
+# Exit: 0 printed, 1 usage/env error, 2 refused (named on stderr),
+#       3 nothing to say (retro provider contract), 4 routed elsewhere (pain).
+#
+# stdlib only (the photo is optional: numpy + Pillow, possibly in another
+# interpreter). User-facing Korean lives in fatigue_copy.json only.
+
+import sys as _sys; _sys.dont_write_bytecode = True   # never leave __pycache__ in the pack or kit tree (compat-lint C4b)
+import argparse
+import datetime
+import importlib.machinery
+import importlib.util
+import json
+import os
+import re
+import sqlite3
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import ui_labels as UL                                          # noqa: E402
+
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DEFAULT_DB = os.path.join(PROJECT_ROOT, "database", "kit_life.db")
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+STATE_DIR = (os.environ.get("LIFEKIT_HEALTH_STATE_DIR")
+             or os.path.join(PROJECT_ROOT, "files", "program"))
+OUTBOX = os.path.join(PROJECT_ROOT, "files", "outbox")
+COPY_PATH = os.path.join(HERE, "fatigue_copy.json")
+
+EXIT_OK, EXIT_ERR, EXIT_REFUSED, EXIT_NOTHING, EXIT_ROUTED = 0, 1, 2, 3, 4
+
+MAX_LINES = 4             # owner 11:30: at most 4 lines up front
+MAX_CAUSE_EX = 2          # exercises named per cause
+PLAN_DEFAULT_SETS = 3
+OFFER_CLOSE_AFTER = 2     # spec A5: the same weekly proposal, 2 offers -> closed
+LEVEL_RANK = {"none": 0, "light": 1, "moderate": 2, "heavy": 3}
+PHOTO_BUDGET_MS = 1000
+
+# ---------------------------------------------------------------------------
+# copy + its gate
+# ---------------------------------------------------------------------------
+with open(COPY_PATH, encoding="utf-8") as _fh:
+    _COPYDATA = json.load(_fh)
+COPY = _COPYDATA["copy"]
+WHEN = _COPYDATA["when"]
+SENSATION = _COPYDATA["sensation"]
+FUNCTIONAL = _COPYDATA["functional"]
+EX_KO = _COPYDATA["exercise"]
+
+# Internal vocabulary that must never reach the user, and the words that
+# would propose skipping a session (the level table has no such move; the
+# copy cannot grow one either). Checked on every template at import and on
+# every rendered line at runtime.
+INTERNAL_TERMS = (
+    "fatigue", "residual", "dose", "ratio", "node", "draft", "level",
+    "light", "moderate", "heavy", "swap", "package", "coverage",
+    "provenance", "muscle", "state", "eta", "declared", "program.yaml",
+    "rotation", "slot", "tag", "map", "kit", "prep",
+    # Korean: fatigue-score, residual, node, muscle-map, tag, draft, slot,
+    # rotation, card
+    "\ud53c\ub85c\ub3c4", "\uc794\uc5ec", "\ub178\ub4dc",
+    "\uadfc\uc721\ub9f5", "\ud0dc\uadf8", "\ucd08\uc548", "\uc2ac\ub86f",
+    "\ub85c\ud14c\uc774\uc158", "\uce74\ub4dc",
+)
+# rest, rest (noun), skip (x2), skip (loanword), omit, leave out, postpone,
+# "do it next time", "not today"
+SKIP_TERMS = ("\uc26c", "\ud734\uc2dd", "\uac74\ub108\ub6f0", "\uac74\ub108 \ub6f0",
+              "\uc2a4\ud0b5", "\uc0dd\ub7b5", "\ube7c\uace0", "\ubbf8\ub8e8",
+              "\ub2e4\uc74c\uc5d0 \ud558", "\uc624\ub298\uc740 \uc548")
+_SNAKE = re.compile(r"[a-z]+_[a-z0-9_]+")
+
+
+class CopyLeak(Exception):
+    pass
+
+
+def gate(text, where):
+    if "--" in text or any(ch in text for ch in ("👋", "👊", "✋", "👉", "👍")):
+        raise CopyLeak("punctuation or hand emoji in user copy (%s): %s" % (where, text))
+    low = text.lower()
+    for t in INTERNAL_TERMS:
+        if t in low:
+            raise CopyLeak("internal term %r in user copy (%s): %s"
+                           % (t, where, text))
+    for t in SKIP_TERMS:
+        if t in text:
+            raise CopyLeak("skip/rest wording %r in user copy (%s): %s"
+                           % (t, where, text))
+    if _SNAKE.search(text):
+        raise CopyLeak("machine token in user copy (%s): %s" % (where, text))
+    return text
+
+
+_FIELD = re.compile(r"\{[^}]*\}")
+for _k, _v in list(COPY.items()) + [("ex:" + k, v) for k, v in EX_KO.items()]:
+    gate(_FIELD.sub("", _v), "copy[%s]" % _k)
+for _k, _v in FUNCTIONAL.items():
+    gate(_v["name"], "functional[%s]" % _k)
+    gate(_v["add"], "functional[%s]" % _k)
+
+
+def T(key, **kw):
+    return gate(COPY[key].format(**kw), key)
+
+
+def _josa_pair(kind):
+    return {"i": ("\uc774", "\uac00"), "eun": ("\uc740", "\ub294"),
+            "reul": ("\uc744", "\ub97c"), "wa": ("\uacfc", "\uc640")}[kind]
+
+
+def J(word, kind):
+    """word + the agreeing particle (i / eun / reul / wa / ro)."""
+    if kind == "irang":
+        return word + ("\uc774\ub791" if UL._has_final(word) else "\ub791")
+    if kind == "ro":
+        # (eu)ro: a final consonant other than rieul takes the 'eu' form
+        w = (word or "").strip()
+        ch = w[-1] if w else ""
+        fin = 0
+        if "\uac00" <= ch <= "\ud7a3":
+            fin = (ord(ch) - 0xAC00) % 28
+        elif UL._has_final(w):
+            fin = 1
+        return word + ("\uc73c\ub85c" if fin not in (0, 8) else "\ub85c")
+    a, b = _josa_pair(kind)
+    return UL.josa(word, a, b)
+
+
+def joined(labels):
+    return "\u00b7".join(labels)
+
+
+# ---------------------------------------------------------------------------
+# kit access: reads in-process through the kit's read model, writes through
+# kit_life.sh (the kit owns its data)
+# ---------------------------------------------------------------------------
+def kit_db_dir(db_path=None):
+    env = os.environ.get("KIT_DB_DIR")
+    if env:
+        return env
+    return os.path.join(PROJECT_ROOT, "database")
+
+
+_MF = {}
+
+
+def mf():
+    """The kit's muscle_fatigue module, or None (pre-056 kit / no kit)."""
+    d = kit_db_dir()
+    if d in _MF:
+        return _MF[d]
+    path = os.path.join(d, "muscle_fatigue.py")
+    mod = None
+    if os.path.exists(path):
+        loader = importlib.machinery.SourceFileLoader(
+            "kit_muscle_fatigue", path)
+        spec = importlib.util.spec_from_loader(loader.name, loader)
+        mod = importlib.util.module_from_spec(spec)
+        loader.exec_module(mod)
+    _MF[d] = mod
+    return mod
+
+
+def kit_sh():
+    return (os.environ.get("KIT_LIFE_SH")
+            or os.path.join(PROJECT_ROOT, "database", "kit_life.sh"))
+
+
+def kit(args):
+    try:
+        p = subprocess.run([kit_sh()] + list(args), capture_output=True,
+                           text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        return 127, "", "kit_life.sh unavailable: %s\n" % exc
+    return p.returncode, p.stdout, p.stderr
+
+
+def ro_conn(db):
+    return sqlite3.connect("file:%s?mode=ro" % os.path.abspath(db), uri=True)
+
+
+def _load(name, path):
+    loader = importlib.machinery.SourceFileLoader(name, path)
+    spec = importlib.util.spec_from_loader(name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+# ---------------------------------------------------------------------------
+# program: day codes, planned exercises, display names
+# ---------------------------------------------------------------------------
+class Program(object):
+    def __init__(self, path):
+        self.path = path
+        self.data = {}
+        if path and os.path.exists(path):
+            rx = _load("rx_calc_fatigue", os.path.join(HERE, "rx-calc"))
+            self.data = rx.load_yaml(path) or {}
+        self.days = self.data.get("days") or {}
+        self.rotation = [c for c in (self.data.get("rotation") or [])
+                         if c in self.days]
+        # Optional owner setting in program.yaml; absent on older installs.
+        self.cardio_preference = self.data.get("cardio_preference")
+        self.display = {}
+        for code, day in self.days.items():
+            for ex in (day or {}).get("exercises") or []:
+                if ex.get("name") and ex.get("display"):
+                    self.display.setdefault(ex["name"], ex["display"])
+
+    def planned(self, code):
+        out = []
+        for ex in ((self.days.get(code) or {}).get("exercises") or []):
+            if not ex.get("name"):
+                continue
+            try:
+                n = float(ex.get("sets") or PLAN_DEFAULT_SETS)
+            except (TypeError, ValueError):
+                n = float(PLAN_DEFAULT_SETS)
+            out.append((ex["name"], n))
+        return out
+
+    def names(self):
+        return set(self.display) | {n for c in self.days
+                                     for n, _ in self.planned(c)}
+
+
+def ex_ko(name, prog=None):
+    if prog is not None and name in prog.display:
+        return prog.display[name]
+    return EX_KO.get(name) or COPY["generic_ex"]
+
+
+# ---------------------------------------------------------------------------
+# time words
+# ---------------------------------------------------------------------------
+def _dt(s):
+    return datetime.datetime.strptime(s[:16], "%Y-%m-%d %H:%M")
+
+
+def tod_word(t):
+    h = t.hour
+    if h < 6:
+        return WHEN["dawn"]
+    if h < 11:
+        return WHEN["morning"]
+    if h < 17:
+        return WHEN["noon"]
+    if h < 21:
+        return WHEN["evening"]
+    return WHEN["night"]
+
+
+def day_word(t, now, future=False):
+    dd = (t.date() - now.date()).days
+    if dd == 0:
+        return WHEN["today"]
+    if not future:
+        if dd == -1:
+            return WHEN["yesterday"]
+        if dd == -2:
+            return WHEN["day_before"]
+        if -6 <= dd < -2:
+            return WHEN["weekday"].format(wd=WHEN["weekdays"][t.weekday()])
+    else:
+        if dd == 1:
+            return WHEN["tomorrow"]
+        if dd == 2:
+            return WHEN["day_after"]
+        if 2 < dd <= 6:
+            return WHEN["weekday"].format(wd=WHEN["weekdays"][t.weekday()])
+    return WHEN["date"].format(m=t.month, d=t.day)
+
+
+def past_when(ts, now):
+    t = _dt(ts)
+    w = day_word(t, now)
+    if w in (WHEN["today"], WHEN["yesterday"]):
+        return "%s %s" % (w, tod_word(t))
+    return w
+
+
+def future_when(ts, now):
+    t = _dt(ts)
+    return "%s %s" % (day_word(t, now, future=True), tod_word(t))
+
+
+# ---------------------------------------------------------------------------
+# the reading
+# ---------------------------------------------------------------------------
+def _item_hot(it):
+    return it["ratio"] >= 0.5 or bool(it.get("signals"))   # kit STATE_RECOVERING
+
+
+class Reading(object):
+    """One kit muscle-state reading plus what the copy needs from it."""
+
+    def __init__(self, db, at, prog):
+        self.M = mf()
+        if self.M is None:
+            raise RuntimeError("kit read model (muscle_fatigue.py) not found "
+                               "under %s" % kit_db_dir())
+        self.db, self.at, self.prog = db, at, prog
+        self.conn = ro_conn(db)
+        self.st = self.M.compute_state(self.conn, at)
+        self.tax = self.st["tax"]
+        self.lib = self.st["lib"]
+        self.items = self.M.display_items(self.st)
+
+    def close(self):
+        self.conn.close()
+
+    def root(self, node):
+        cur, seen = node, set()
+        while self.tax.parent(cur) and cur not in seen:
+            seen.add(cur)
+            cur = self.tax.parent(cur)
+        return cur
+
+    def cause(self, item):
+        parts = []
+        prov = item.get("provenance") or []
+        if prov and item["ratio"] >= self.M.STATE_RECOVERING:
+            top = prov[0]
+            when = past_when(top["at"], self.at)
+            names = [e["name"] for e in top["exercises"]]
+            decl = [n for n in names if n.startswith("(declared:")]
+            real = [n for n in names if not n.startswith("(declared:")]
+            if real:
+                parts.append(T("cause_ex", when=when, exercises=joined(
+                    [ex_ko(n, self.prog) for n in real[:MAX_CAUSE_EX]])))
+            elif decl:
+                node = decl[0][len("(declared:"):-1]
+                parts.append(T("cause_declared", when=when,
+                               region=self.tax.label(node)))
+        for sid in item.get("signals") or []:
+            sg = next((s for s in self.st["signals"] if s["id"] == sid), None)
+            if sg and sg["sensation"] in SENSATION:
+                parts.append(T("cause_signal",
+                               when=past_when(sg["observed_at"], self.at),
+                               sensation=SENSATION[sg["sensation"]][0]))
+                break
+        return " / ".join(parts)
+
+    def top_items(self):
+        """<= MAX_LINES display items: the most fatigued, grouped by body
+        flow -- groups ordered by their most fatigued member, members by
+        fatigue inside a group."""
+        top = [it for it in self.items if it.get("top")]
+        groups = {}
+        for it in top:
+            groups.setdefault(self.root(it["node"]), []).append(it)
+        ordered = sorted(groups.values(),
+                         key=lambda g: -max(i["ratio"] for i in g))
+        out = []
+        for g in ordered:
+            out.extend(sorted(g, key=lambda i: -i["ratio"]))
+        return out[:MAX_LINES]
+
+    def photo_rows(self):
+        """The picture's side panel: EVERY fatigued region (the MAX_LINES cap
+        is for the text lines, not the picture) in body-flow order, then the
+        regions the last session trained that are already recovered, muted.
+        Row = (label, pct, ratio, recovered)."""
+        hot = [it for it in self.items if _item_hot(it)]
+        groups = {}
+        for it in hot:
+            groups.setdefault(self.root(it["node"]), []).append(it)
+        ordered = sorted(groups.values(),
+                         key=lambda g: -max(i["ratio"] for i in g))
+        rows = []
+        for g in ordered:
+            rows.extend((i["label"], i["pct"], i["ratio"], False)
+                        for i in sorted(g, key=lambda i: -i["ratio"]))
+        rows.extend((i["label"], i["pct"], i["ratio"], True)
+                    for i in getattr(self.M, "last_session_items",
+                                         lambda *_: [])(self.st, self.items))
+        return rows
+
+    def line(self, it):
+        cause = self.cause(it)
+        if cause:
+            return T("line", label=it["label"], pct=it["pct"], cause=cause)
+        return T("line_bare", label=it["label"], pct=it["pct"])
+
+    def all_rows(self):
+        """Every muscle with anything left, body-flow order ('see all')."""
+        rows = []
+        shown = set()
+        for it in self.items:
+            rows.append((it["label"], it["pct"], it["node"]))
+            shown.update(it.get("members") or [it["node"]])
+        for n, r in sorted(self.st["nodes"].items(),
+                           key=lambda kv: self.tax.order(kv[0])):
+            if n in shown or r["pct"] < 1:
+                continue
+            if self.tax.kind(n) != "muscle":
+                continue
+            if any(s in shown for s in self.tax.subregions(n)):
+                continue
+            rows.append((r["label"], r["pct"], n))
+        rows.sort(key=lambda x: self.tax.order(x[2]))
+        return rows
+
+    def node_ratio(self):
+        return dict((n, r["ratio"]) for n, r in self.st["nodes"].items())
+
+    def plan(self, exercises):
+        targets, planned, unknown = self.M.plan_targets(
+            self.conn, self.tax, self.lib, exercises=exercises)
+        g = self.M.grade(self.st, targets)
+        g["unknown"] = unknown
+        g["planned"] = planned
+        return g
+
+
+# ---------------------------------------------------------------------------
+# proposals
+# ---------------------------------------------------------------------------
+def _driver_load(rd, ex, drivers):
+    """planned-set load `ex` puts on the driver regions (credit x cost)."""
+    cw = rd.M.COST_W.get(rd.lib.cost_of(ex)[0], 1.0)
+    tot = 0.0
+    for node, w in rd.lib.credit(ex).items():
+        m = rd.tax.muscle_of(node) or node
+        if m in drivers:
+            tot += w * cw
+    return tot
+
+
+def swap_package(rd, code, grade):
+    """ONE package: each planned exercise that loads a hard region gets the
+    same-pattern substitute that loads it least (08-24 rule: substitutes
+    come from the same movement pattern; nothing is applied until the user
+    confirms the package, 11:29). Candidates: mapped, not already in today's
+    plan, and known to this user (in their program or registered)."""
+    drivers = {d["target"] for d in grade["targets"]
+               if d["ratio"] >= rd.M.LEVEL_MODERATE}
+    planned = [n for n, _ in rd.prog.planned(code)]
+    known = rd.prog.names() | set(rd.lib.ax)
+    used, pkg = set(planned), []
+    for ex in planned:
+        if not rd.lib.mapped(ex):
+            continue
+        base = _driver_load(rd, ex, drivers)
+        if base < 0.5:
+            continue
+        pat = rd.lib.pattern.get(ex)
+        if not pat or pat == "isolation":
+            continue
+        best = None
+        for cand in sorted(rd.lib.names()):
+            if cand in used or cand not in known:
+                continue
+            if rd.lib.pattern.get(cand) != pat or not rd.lib.mapped(cand):
+                continue
+            load = _driver_load(rd, cand, drivers)
+            if load >= base:
+                continue
+            key = (load, cand not in rd.prog.names(), cand)
+            if best is None or key < best[0]:
+                best = (key, cand)
+        if best:
+            used.add(best[1])
+            pkg.append({"orig": ex, "new": best[1],
+                        "orig_display": ex_ko(ex, rd.prog),
+                        "new_display": ex_ko(best[1], rd.prog)})
+    return pkg
+
+
+def routine_alt(rd, code, grade):
+    """The rotation day that overlaps least with what is still loaded: the
+    lowest level, then the lowest peak. Only a day graded strictly below
+    today's level is offered (a routine change must actually route around
+    the load); None -> no routine proposal."""
+    best = None
+    for alt in rd.prog.rotation:
+        if alt == code:
+            continue
+        exs = rd.prog.planned(alt)
+        if not exs:
+            continue
+        g = rd.plan(exs)
+        key = (LEVEL_RANK[g["level"]], g["max_ratio"], alt)
+        if best is None or key < best[0]:
+            best = (key, alt, g)
+    if best is None or \
+            LEVEL_RANK[best[2]["level"]] >= LEVEL_RANK[grade["level"]]:
+        return None
+    return best[1], best[2]
+
+
+def _labels(rd, drivers):
+    return [d["label"] for d in drivers]
+
+
+def _dedupe(seq):
+    out = []
+    for x in seq:
+        if x not in out:
+            out.append(x)
+    return out
+
+
+from movement_catalog import CARDIO_CATALOG
+CARDIO = {key: item['ko'] for key, item in CARDIO_CATALOG.items()}
+
+
+def cardio_options(prog):
+    pref = prog.cardio_preference
+    if isinstance(pref, dict):
+        pref = pref.get("pick")
+    if isinstance(pref, str):
+        for key, label in CARDIO.items():
+            if pref in (key, label, "stairs" if key == "stepmill" else ""):
+                return [(key, label)]
+    return list(CARDIO.items())
+
+
+def accumulated(rd, drivers):
+    """Two preceding training days both contributed to loaded planned areas."""
+    targets = {d["target"] for d in drivers
+               if d["ratio"] >= rd.M.LEVEL_MODERATE}
+    days = set()
+    for s in rd.st["sessions"]:
+        if any((rd.tax.muscle_of(n) or n) in targets for n in s.load):
+            days.add(s.t.date())
+    today = rd.at.date()
+    return all(today - datetime.timedelta(days=i) in days for i in (1, 2))
+
+
+# ---------------------------------------------------------------------------
+# photo
+# ---------------------------------------------------------------------------
+def render_photo(rd, rows, out_path):
+    """The heatmap photo, or (None, why). In-process when this interpreter
+    has numpy + Pillow; otherwise the render interpreter (RENDER_PYTHON, the
+    shared render venv, python3 on PATH) runs fatigue_heatmap.py."""
+    payload = {"node_ratio": rd.node_ratio(),
+               "rows": [list(r) for r in rows], "out": out_path,
+               "title": COPY["photo_title"],
+               "legend": {"front": COPY["photo_front"],
+                          "back": COPY["photo_back"],
+                          "scale_high": COPY["photo_high"],
+                          "scale_low": COPY["photo_low"],
+                          "empty": COPY["photo_empty"],
+                          "recovered": COPY["photo_recovered"]}}
+    import fatigue_heatmap as FH
+    ok, why = FH.available()
+    # FATIGUE_RENDER_INPROCESS=0 forces the render interpreter (tests pin a
+    # stub renderer that way on hosts that also have numpy + Pillow).
+    if ok and os.environ.get("FATIGUE_RENDER_INPROCESS", "1") != "0":
+        r = FH.render(payload["node_ratio"], payload["rows"], out_path,
+                      title=payload["title"], legend=payload["legend"])
+        return r, None
+    for py in _render_pythons():
+        try:
+            p = subprocess.run([py, os.path.join(HERE, "fatigue_heatmap.py")],
+                               input=json.dumps(payload), text=True,
+                               capture_output=True, timeout=20)
+        except (OSError, subprocess.TimeoutExpired) as exc:
+            why = "%s: %s" % (py, exc)
+            continue
+        if p.returncode == 0:
+            return json.loads(p.stdout), None
+        why = "%s: %s" % (py, (p.stderr or "").strip()[-200:])
+    return None, why
+
+
+def _render_pythons():
+    out = []
+    env = os.environ.get("RENDER_PYTHON")
+    if env:
+        out.append(env)
+    venv = os.path.expanduser("~/dogany/.venvs/render/bin/python")
+    if os.path.exists(venv):
+        out.append(venv)
+    for c in ("python3",):
+        out.append(c)
+    return out
+
+
+# ---------------------------------------------------------------------------
+# state (per session; the tool is its only writer)
+# ---------------------------------------------------------------------------
+def state_path(state_dir, session_id):
+    return os.path.join(state_dir, ".fatigue-brief", "%s.json" % session_id)
+
+
+def read_state(state_dir, session_id):
+    try:
+        with open(state_path(state_dir, session_id), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def write_json(path, obj):
+    d = os.path.dirname(path)
+    os.makedirs(d, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(prefix=".fb-", dir=d)
+    with os.fdopen(fd, "w", encoding="utf-8") as f:
+        json.dump(obj, f, ensure_ascii=False, indent=1)
+        f.write("\n")
+    os.replace(tmp, path)
+
+
+def choice(pick, label, rec=False):
+    return {"pick": pick, "label": gate(label + (COPY["rec"] if rec else ""),
+                                        "choice"),
+            "recommended": bool(rec)}
+
+
+# ---------------------------------------------------------------------------
+# open
+# ---------------------------------------------------------------------------
+def session_code(db, session_id):
+    try:
+        conn = ro_conn(db)
+        try:
+            row = conn.execute(
+                "SELECT st.code FROM workouts w JOIN session_type st "
+                "ON st.id = w.session_type_id WHERE w.id = ?",
+                (session_id,)).fetchone()
+        finally:
+            conn.close()
+        return row[0] if row else None
+    except sqlite3.Error:
+        return None
+
+
+def build_open(db, prog, code, at, photo_path=None):
+    rd = Reading(db, at, prog)
+    try:
+        top = rd.top_items()
+        exs = prog.planned(code) if code else []
+        g = rd.plan(exs) if exs else None
+        # The text speaks ONLY about today's target regions (owner 2026-10-13
+        # 06:39: the picture already carries the rest, repeating it is noise).
+        # No plan for the day -> no target regions -> no text lines.
+        targets = {d["target"] for d in (g["targets"] if g else [])}
+        top_all = top
+        top = [it for it in top_all
+               if (rd.tax.muscle_of(it["node"]) or it["node"]) in targets
+               or it["node"] in targets]
+        lines = [rd.line(it) for it in top]
+        level = g["level"] if g else "none"
+        move = {"kind": "brief", "day": code, "level": level,
+                "lines": lines, "say": None, "choices": [],
+                "proposal": {"action": "none"},
+                "numbers": [{"label": it["label"], "pct": it["pct"],
+                             "node": it["node"], "source": "muscle-state"}
+                            for it in top_all]}
+        drivers = [d for d in (g["targets"] if g else []) if d["hit"]]
+        hard = [d for d in drivers if d["ratio"] >= rd.M.LEVEL_MODERATE]
+        expand = {"pick": "expand", "label": gate(COPY["c_expand"], "expand"),
+                  "lines": [T("expand_head")]}
+        move["expand"] = expand
+
+        def light_move():
+            sig = [d for d in drivers if d["signal_nodes"]
+                   and d["ratio"] < rd.M.LEVEL_HIT]
+            fat = [d for d in drivers if d not in sig]
+            says = []
+            if fat:
+                # name the part the lines show (front delts, not "shoulders")
+                labels = joined(_dedupe([d["worst_label"] or d["label"]
+                                         for d in fat]))
+                says.append(T("light", labels_eun=J(labels, "eun"),
+                              labels_reul=J(labels, "reul")))
+            for d in sig[:1]:
+                node = d["signal_nodes"][0]
+                sg = next(s for s in rd.st["signals"]
+                          if s["node"] == node and not s["pain_gate"])
+                lab = rd.tax.label(node)
+                says.append(T("light_signal",
+                              when=past_when(sg["observed_at"], at),
+                              label=lab, label_reul=J(lab, "reul"),
+                              sensation=SENSATION[sg["sensation"]][0]))
+            move["say"] = " ".join(says) if says else None
+            move["proposal"] = {
+                "action": "prep_bump",
+                "regions": [d["target"] for d in drivers],
+                "nodes": sorted({d["worst_node"] or d["target"]
+                                 for d in drivers}
+                                | {n for d in drivers
+                                   for n in d["signal_nodes"]})}
+            move["level_served"] = "light"
+
+        def swap_move():
+            pkg = swap_package(rd, code, g)
+            if not pkg:
+                return False
+            labels = joined(_labels(rd, hard or drivers))
+            move["say"] = "\n".join(
+                [T("moderate", day=code, labels_reul=J(labels, "reul"))]
+                + [T("swap_line", orig=p["orig_display"], new=p["new_display"])
+                   for p in pkg])
+            move["choices"] = [choice("swap", COPY["c_swap"], True),
+                               choice("keep", COPY["c_keep"])]
+            move["proposal"] = {"action": "swap_package", "package": pkg}
+            move["level_served"] = "moderate"
+            return True
+
+        def care_move():
+            labels = joined(_dedupe([d["worst_label"] or d["label"]
+                                     for d in hard or drivers])[:3])
+            options = cardio_options(prog)
+            first = options[0][1]
+            move["say"] = T("care", labels_eun=J(labels, "eun"),
+                            cardio=first)
+            move["choices"] = [choice("cardio:%s" % options[0][0],
+                                      T("c_cardio", cardio=options[0][1]), True)]
+            move["choices"] += [choice("small", COPY["c_small"]),
+                                choice("mobility", COPY["c_mobility"]),
+                                choice("keep", COPY["c_keep"])]
+            move["proposal"] = {"action": "lighter_care",
+                                "regions": [d["target"] for d in hard or drivers],
+                                "cardio_options": [key for key, _ in options],
+                                "regular_day": code}
+            move["level_served"] = level
+
+        if level == "heavy":
+            care_move()
+        elif level == "moderate":
+            if accumulated(rd, drivers):
+                care_move()
+            elif not swap_move():
+                light_move()
+        elif level == "light":
+            light_move()
+        else:
+            if lines:
+                move["say"] = T("none_today") if exs else None
+            elif not top_all:
+                move["say"] = T("all_clear")
+            move["level_served"] = "none"
+        if move["choices"]:
+            move["answer"] = {"verb": "fatigue-brief pick --session <id> "
+                                      "--pick <pick>"}
+        # live 2026-10-08 06:19: level=none / pct 0 still said the "still very
+        # tired" line. The tired line is the photo's caption for a day the plan
+        # actually hits fatigue -- gated on the level AND a non-zero pct.
+        tired = (level != "none"
+                 and any((it.get("pct") or 0) > 0 for it in top[:2]))
+        if lines and tired:
+            labels = joined(_dedupe([it['label'] for it in top[:2]]))
+            move['lines'] = []
+            move['say'] = '%s 아직 많이 지쳐 있어요.' % J(labels, 'eun')
+            move['say_quote'] = True       # the fatigue statement is a blockquote (owner 2026-10-13)
+        for s in lines + ([move["say"]] if move["say"] else []):
+            gate(s, "open")
+        if photo_path and top_all:
+            rows = rd.photo_rows()
+            res, why = render_photo(rd, rows, photo_path)
+            move["photo"] = res["path"] if res else None
+            move["photo_ms"] = res["ms"] if res else None
+            move["photo_cpu_ms"] = res.get("cpu_ms") if res else None
+            if why:
+                move["photo_error"] = why
+        else:
+            move["photo"] = None
+        return move
+    finally:
+        rd.close()
+
+
+def print_move(mv, as_json):
+    if as_json:
+        print(json.dumps(mv, ensure_ascii=False, indent=1))
+        return
+    if mv.get("photo"):
+        print("PHOTO\t%s" % mv["photo"])
+    for l in mv.get("lines") or []:
+        print("> %s" % l if mv.get("kind") == "brief" else l)      # the open list is a blockquote
+    if mv.get("say"):
+        if mv.get("lines"):
+            print("")
+        print("> %s" % mv["say"] if mv.get("say_quote") else mv["say"])
+    if mv.get("choices"):
+        print("CHOICES\t%s" % " | ".join(c["label"] for c in mv["choices"]))
+    elif mv.get("expand"):
+        print("EXPAND\t%s" % mv["expand"]["label"])
+
+
+def cmd_open(a):
+    at = _dt(a.at) if a.at else datetime.datetime.now().replace(
+        second=0, microsecond=0)
+    prog = Program(a.program)
+    code = a.day or (session_code(a.db, a.session) if a.session else None)
+    photo = None
+    if not a.no_photo:
+        photo = a.photo or os.path.join(
+            OUTBOX, "fatigue-%s.jpg" % (a.session or at.strftime("%Y%m%d%H%M")))
+        os.makedirs(os.path.dirname(os.path.abspath(photo)), exist_ok=True)
+    try:
+        mv = build_open(a.db, prog, code, at, photo)
+    except RuntimeError as exc:
+        print("fatigue-brief: %s" % exc, file=sys.stderr)
+        return EXIT_ERR
+    if a.session:
+        st = read_state(a.state_dir, a.session)
+        st["open"] = mv
+        write_json(state_path(a.state_dir, a.session), st)
+    print_move(mv, a.json)
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# pick / slot / revert
+# ---------------------------------------------------------------------------
+def cmd_pick(a):
+    st = read_state(a.state_dir, a.session)
+    mv = st.get("open")
+    if not mv:
+        print("fatigue-brief pick: no briefing for session %s (run open "
+              "first)" % a.session, file=sys.stderr)
+        return EXIT_REFUSED
+    picks = {c["pick"] for c in mv.get("choices") or []} | {"expand"}
+    if a.pick not in picks:
+        print("fatigue-brief pick: %r is not one of %s"
+              % (a.pick, sorted(picks)), file=sys.stderr)
+        return EXIT_REFUSED
+    out = {"kind": "ack", "pick": a.pick, "lines": [], "say": None,
+           "choices": []}
+    if a.pick == "expand":
+        out["lines"] = mv["expand"]["lines"]
+        out["choices"] = [c for c in mv.get("choices") or []
+                          if c["pick"] != "expand"]
+        out["kind"] = "expand"
+    elif a.pick == "keep":
+        st["decision"] = "keep"
+        st.pop("swaps", None)
+        out["say"] = T("ack_keep")
+        out["day"] = mv["day"]
+    elif a.pick.startswith("cardio:") or a.pick in ("small", "mobility"):
+        # 보충 is outside program.rotation, so this session cannot advance it.
+        rc = retag(a.db, a.session, "보충")
+        if rc != 0:
+            return EXIT_REFUSED
+        st["decision"] = a.pick
+        st.pop("swaps", None)
+        out["regular_day_next"] = mv["day"]
+        if a.pick.startswith("cardio:"):
+            key = a.pick.split(":", 1)[1]
+            out["activity"] = {"kind": "cardio", "method": key}
+            out["say"] = T("ack_cardio", cardio_ro=J(CARDIO[key], "ro"))
+        elif a.pick == "small":
+            out["activity"] = {"kind": "small_muscle"}
+            out["say"] = T("ack_small")
+        else:
+            out["activity"] = {"kind": "mobility"}
+            out["say"] = T("ack_mobility")
+    elif a.pick == "swap":
+        st["decision"] = "swap"
+        st["swaps"] = [dict(p, reverted=False)
+                       for p in mv["proposal"]["package"]]
+        out["say"] = T("ack_swap")
+    elif a.pick.startswith("routine:"):
+        alt = a.pick.split(":", 1)[1]
+        rc = retag(a.db, a.session, alt)
+        if rc != 0:
+            return EXIT_REFUSED
+        st["decision"] = a.pick
+        out["say"] = T("ack_routine", alt_ro=J(alt, "ro"))
+        out["day"] = alt
+    write_json(state_path(a.state_dir, a.session), st)
+    print_move(out, a.json)
+    return EXIT_OK
+
+
+def retag(db, session_id, code):
+    """The routine change IS the session's day: the canonical tag write
+    (session-closeout.tag_session_type), not a note beside it."""
+    sc = _load("session_closeout_fb", os.path.join(HERE, "session-closeout"))
+    conn = sqlite3.connect(db)
+    try:
+        rc, _ = sc.tag_session_type(conn, session_id, code, birth_only=False,
+                                    stream=sys.stderr)
+        if rc == 0:
+            conn.commit()
+        return rc
+    finally:
+        conn.close()
+
+
+def _swap_for(st, exercise):
+    for p in st.get("swaps") or []:
+        if p["orig"] == exercise and not p.get("reverted"):
+            return p
+    return None
+
+
+def slot_move(state_dir, session_id, exercise):
+    """The exercise to enter for a planned one (exercise-enter calls this)."""
+    st = read_state(state_dir, session_id)
+    p = _swap_for(st, exercise)
+    if not p:
+        return {"kind": "slot", "exercise": exercise, "say": None,
+                "choices": []}
+    return {"kind": "slot", "exercise": p["new"], "planned": p["orig"],
+            "say": T("slot_swapped", orig=p["orig_display"],
+                     new_ro=J(p["new_display"], "ro")),
+            "choices": [choice("revert", COPY["c_revert"])],
+            "answer": {"verb": "fatigue-brief revert --session %s "
+                               "--exercise %s" % (session_id, p["orig"])}}
+
+
+def cmd_slot(a):
+    out = slot_move(a.state_dir, a.session, a.exercise)
+    if a.json:
+        print(json.dumps(out, ensure_ascii=False, indent=1))
+    else:
+        print("EXERCISE\t%s" % out["exercise"])
+        if out["say"]:
+            print(out["say"])
+            print("CHOICES\t%s" % out["choices"][0]["label"])
+    return EXIT_OK
+
+
+def cmd_revert(a):
+    st = read_state(a.state_dir, a.session)
+    p = _swap_for(st, a.exercise)
+    if not p:
+        print("fatigue-brief revert: %s is not swapped in session %s"
+              % (a.exercise, a.session), file=sys.stderr)
+        return EXIT_REFUSED
+    p["reverted"] = True
+    write_json(state_path(a.state_dir, a.session), st)
+    print("EXERCISE\t%s" % p["orig"])
+    print(T("ack_revert", orig_ro=J(p["orig_display"], "ro")))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# close
+# ---------------------------------------------------------------------------
+DRAFTS_ASKED = ".fatigue-drafts-asked.json"
+
+
+def _session_of(M, conn, tax, lib, session_id):
+    row = conn.execute("SELECT date FROM workouts WHERE id=?",
+                       (session_id,)).fetchone()
+    if not row:
+        return None
+    d = datetime.datetime.strptime(row[0], "%Y-%m-%d")
+    for s in M.load_sessions(conn, tax, lib, d - datetime.timedelta(days=1),
+                             d + datetime.timedelta(days=2)):
+        if s.workout_id == session_id:
+            return s
+    return None
+
+
+def _close_facts(db, session_id, at):
+    """The session-end facts both close surfaces phrase: (declared, top
+    labels most-used first, slowest (label, when) or None, since), or None
+    when the kit read model / the session is missing."""
+    M = mf()
+    if M is None:
+        return None
+    conn = ro_conn(db)
+    try:
+        tax = M.Taxonomy(conn)
+        lib = M.Library(conn, tax)
+        sess = _session_of(M, conn, tax, lib, session_id)
+        if sess is None:
+            return None
+        per = {}
+        for leaf, ld in sess.load.items():
+            m = tax.muscle_of(leaf) or leaf
+            if tax.nodes and tax.kind(m) != "muscle":
+                continue
+            per[m] = per.get(m, 0.0) + ld
+        trained = sorted(((ld / tax.dose(m), m) for m, ld in per.items()
+                          if ld >= M.PLAN_TARGET_SHARE * tax.dose(m)),
+                         reverse=True)
+        st = M.compute_state(conn, max(at, sess.t))
+        slow = None
+        for _, m in trained:
+            r = st["nodes"].get(m)
+            if r and r["eta"] and (slow is None or r["eta"] > slow[1]["eta"]):
+                slow = (m, r)
+        since = conn.execute(
+            "SELECT MIN(recorded_at) FROM workout_sets WHERE session_id=?",
+            (session_id,)).fetchone()[0]
+        if not since:
+            since = conn.execute("SELECT created_at FROM workouts WHERE id=?",
+                                 (session_id,)).fetchone()[0]
+        return {"declared": sess.lane == "declared",
+                "top": [tax.label(m) for _, m in trained],
+                "slow": ((slow[1]["label"], future_when(slow[1]["eta"], at))
+                         if slow else None),
+                "since": since}
+    finally:
+        conn.close()
+
+
+def build_close(db, prog, session_id, at, state_dir, drafts=True):
+    """(lines, extra) -- 2 lines, no question; `extra` = the one-time draft
+    confirmation (or [])."""
+    f = _close_facts(db, session_id, at)
+    if f is None:
+        return [], []
+    lines = []
+    if f["declared"]:
+        lines.append(T("close_declared"))
+    elif f["top"]:
+        labels = joined(f["top"][:2])
+        lines.append(T("close_top", labels_reul=J(labels, "reul")))
+    if f["slow"]:
+        lab, when = f["slow"]
+        lines.append(T("close_eta", label_eun=J(lab, "eun"), when=when))
+    since = f["since"]
+    extra = draft_confirm(prog, since, state_dir) if drafts and since else []
+    for s in lines + extra:
+        gate(s, "close")
+    return lines, extra
+
+
+def build_close_line(db, prog, session_id, at, state_dir, drafts=True):
+    """(line, extra) -- the closeout CARD's last line (owner 2026-10-02: the
+    fatigue tail folded into the card, one line) + the same one-time draft
+    confirmation build_close returns. Slowest recovery first; else the most
+    used regions; else the declared-session note. '' when nothing to say."""
+    f = _close_facts(db, session_id, at)
+    if f is None:
+        return "", []
+    if f["slow"]:
+        line = T("close_slow_line", label=f["slow"][0], when=f["slow"][1])
+    elif f["top"] and not f["declared"]:
+        line = T("close_top_line", labels=joined(f["top"][:2]))
+    elif f["declared"]:
+        line = T("close_declared")
+    else:
+        line = ""
+    since = f["since"]
+    extra = draft_confirm(prog, since, state_dir) if drafts and since else []
+    for s in extra:
+        gate(s, "close")
+    return line, extra
+
+
+def build_close_card(db, prog, session_id, at):
+    """The daily retro card's muscle value: the most-used regions, plus the
+    slowest region's recovery time in brackets. '' when nothing to say."""
+    f = _close_facts(db, session_id, at)
+    if f is None or f["declared"] or not f["top"]:
+        return ""
+    labels = joined(f["top"][:2])
+    if not f["slow"]:
+        return labels
+    lab, when = f["slow"]
+    return T("close_card_eta", labels=labels, label_eun=J(lab, "eun"), when=when)
+
+
+def draft_confirm(prog, since, state_dir):
+    """Exercises created mid-session with a drafted map: ONE confirmation,
+    once (spec G / A5). Drafts already asked at an earlier close are
+    promoted silently (silence = kept) and never asked again."""
+    asked_path = os.path.join(state_dir, DRAFTS_ASKED)
+    try:
+        with open(asked_path, encoding="utf-8") as fh:
+            asked = json.load(fh)
+    except (OSError, ValueError):
+        asked = {}
+    rc, out, _ = kit(["exercise-drafts", "--json"])
+    if rc != 0:
+        return []
+    try:
+        drafts = json.loads(out)
+    except ValueError:
+        return []
+    # silence promotion for drafts asked at an earlier close
+    for d in drafts:
+        if d["name"] in asked and d["name"] not in _just(since, drafts):
+            kit(["exercise-confirm", "--name", d["name"]])
+    fresh = [d for d in drafts if d["name"] in _just(since, drafts)
+             and d["name"] not in asked]
+    if not fresh:
+        return []
+    now = datetime.datetime.now().strftime("%Y-%m-%d %H:%M")
+    for d in fresh:
+        asked[d["name"]] = now
+    write_json(asked_path, asked)
+    cost = {"high": COPY["cost_high"], "med": COPY["cost_med"],
+            "low": COPY["cost_low"]}
+
+    def musc(d):
+        prim = [m["label"] for m in d["muscles"] if m["role"] == "primary"]
+        return joined(prim or [m["label"] for m in d["muscles"]])
+    if len(fresh) == 1:
+        d = fresh[0]
+        name = ex_ko(d["name"], prog)
+        return [T("draft_one", ex_eun=J(name, "eun"),
+                  muscles_reul=J(musc(d), "reul"),
+                  cost=cost.get(d["cost"], COPY["cost_med"]))]
+    return [T("draft_many")] + [
+        T("draft_line", ex=ex_ko(d["name"], prog), muscles=musc(d),
+          cost=cost.get(d["cost"], COPY["cost_med"])) for d in fresh]
+
+
+def _just(since, drafts):
+    """names created at/after the session start (created_at is UTC 'Z')."""
+    M = mf()
+    try:
+        z = M._local_to_z(since)
+    except Exception:  # noqa: BLE001 -- an unreadable start: none are 'new'
+        return set()
+    return {d["name"] for d in drafts if (d.get("created_at") or "") >= z}
+
+
+def close_tail(db, session_id, program=None, state_dir=None, at=None):
+    """For session-closeout: the text to append after its card, or ''.
+    Never raises (a close-out must not fail on a render)."""
+    try:
+        if mf() is None:
+            return ""
+        lines, extra = build_close(
+            db, Program(program or DEFAULT_PROGRAM), session_id,
+            at or datetime.datetime.now().replace(second=0, microsecond=0),
+            state_dir or STATE_DIR)
+        return "\n".join(lines + extra)
+    except Exception as exc:  # noqa: BLE001
+        print("fatigue-brief close_tail: %s" % exc, file=sys.stderr)
+        return ""
+
+
+def close_card_line(db, session_id, program=None, state_dir=None, at=None):
+    """For session-closeout's card: (line, extra_lines). Never raises."""
+    try:
+        if mf() is None:
+            return "", []
+        return build_close_line(
+            db, Program(program or DEFAULT_PROGRAM), session_id,
+            at or datetime.datetime.now().replace(second=0, microsecond=0),
+            state_dir or STATE_DIR)
+    except Exception as exc:  # noqa: BLE001
+        print("fatigue-brief close_card_line: %s" % exc, file=sys.stderr)
+        return "", []
+
+
+def cmd_close(a):
+    at = _dt(a.at) if a.at else datetime.datetime.now().replace(
+        second=0, microsecond=0)
+    if mf() is None:
+        print("fatigue-brief: kit read model not found", file=sys.stderr)
+        return EXIT_ERR
+    lines, extra = build_close(a.db, Program(a.program), a.session, at,
+                               a.state_dir)
+    if a.json:
+        print(json.dumps({"kind": "close", "lines": lines, "confirm": extra},
+                         ensure_ascii=False, indent=1))
+    else:
+        for l in lines + extra:
+            print(l)
+    return EXIT_OK if (lines or extra) else EXIT_NOTHING
+
+
+# ---------------------------------------------------------------------------
+# weekly retro (kit retro-sections provider)
+# ---------------------------------------------------------------------------
+OFFERS = ".fatigue-retro-offers.json"
+
+
+def _codes_of(conn, wids):
+    out = {}
+    for wid in wids:
+        row = conn.execute("SELECT st.code FROM workouts w JOIN session_type "
+                           "st ON st.id = w.session_type_id WHERE w.id=?",
+                           (wid,)).fetchone()
+        if row:
+            out[wid] = row[0]
+    return out
+
+
+def build_retro(db, prog, week, today, state_dir, record=True, facts_only=False):
+    M = mf()
+    if M is None:
+        return []
+    conn = ro_conn(db)
+    try:
+        w = M.compute_week(conn, week, today)
+        if not w["sessions"]:
+            return []
+        tax = M.Taxonomy(conn)
+        lib = M.Library(conn, tax)
+        labels = joined([t["label"] for t in w["top"][:2]])
+        lines = []
+        ov = [o for o in w["overlaps"]]
+        if ov:
+            count = {}
+            for o in ov:
+                count[o["node"]] = count.get(o["node"], 0) + 1
+            node = max(sorted(count), key=lambda n: count[n])
+            lab = tax.label(node)
+            lines.append(T("retro_top_overlap", labels_reul=J(labels, "reul"),
+                           olabel_i=J(lab, "i"), n=count[node]))
+        elif labels:
+            lines.append(T("retro_top", labels_reul=J(labels, "reul")))
+        offers = {} if facts_only else _read_offers(state_dir)
+        proposal = None
+        fd = w.get("function_direction") or {}
+        if fd.get("on"):
+            missing = [f for f in w["functional"] if f["sets"] == 0
+                       and (facts_only or not (not f["library_has"] and _closed(
+                           offers, "new:%s" % f["item"], w["week"])))]
+            if missing:
+                nm = [FUNCTIONAL[f["item"]]["name"] for f in missing[:2]]
+                names = nm[0] if len(nm) == 1 else "%s %s" % (
+                    J(nm[0], "irang"), nm[1])
+                lines.append(T("retro_missing", items_i=J(names, "i")))
+            for f in ([] if facts_only else missing):
+                cand = _functional_candidate(M, conn, tax, lib, prog,
+                                             f["item"])
+                if cand:
+                    key = "add:%s" % cand
+                    s = T("retro_add_existing",
+                          ex_reul=J(ex_ko(cand, prog), "reul"))
+                else:
+                    add = FUNCTIONAL[f["item"]]["add"]
+                    key = "new:%s" % f["item"]
+                    s = T("retro_add_new",
+                          item_i=J(FUNCTIONAL[f["item"]]["name"], "i"),
+                          ex_reul=J(add, "reul"))
+                if _closed(offers, key, w["week"]):
+                    continue
+                proposal = (key, s)
+                break
+        if not facts_only and proposal is None and ov:
+            sp = _spacing(M, conn, tax, lib, w, ov)
+            if sp:
+                a_code, b_code = sp
+                key = "space:%s:%s" % (a_code, b_code)
+                if not _closed(offers, key, w["week"]):
+                    proposal = (key, T("retro_space", a_wa=J(a_code, "wa"),
+                                       b=b_code))
+        if proposal:
+            lines.append(proposal[1])
+            if record:
+                weeks = offers.setdefault(proposal[0], [])
+                if w["week"] not in weeks:
+                    weeks.append(w["week"])
+                write_json(os.path.join(state_dir, OFFERS), offers)
+    finally:
+        conn.close()
+    lines = lines[:3]
+    for s in lines:
+        gate(s, "retro")
+    return lines
+
+
+def _closed(offers, key, week):
+    """Spec A5 offer decay: offered OFFER_CLOSE_AFTER times in other weeks
+    -> silently closed (re-running the same week does not count)."""
+    weeks = offers.get(key, [])
+    return len(weeks) >= OFFER_CLOSE_AFTER and week not in weeks
+
+
+def _read_offers(state_dir):
+    try:
+        with open(os.path.join(state_dir, OFFERS), encoding="utf-8") as fh:
+            return json.load(fh)
+    except (OSError, ValueError):
+        return {}
+
+
+def _functional_candidate(M, conn, tax, lib, prog, item):
+    """An exercise this user already has that covers `item`: used before,
+    else in their program, else registered."""
+    have = [ex for ex in sorted(lib.names())
+            if item in M.functional_flags(lib, tax, ex)]
+    if not have:
+        return None
+    used = {r[0] for r in conn.execute(
+        "SELECT DISTINCT exercise_name FROM workout_sets")}
+    for pool in (used, prog.names(), set(lib.ax)):
+        for ex in have:
+            if ex in pool:
+                return ex
+    return None
+
+
+def _spacing(M, conn, tax, lib, w, ov):
+    """(earlier code, later code) of the worst overlap: the session that
+    re-loaded the region and the one that left it loaded."""
+    worst = max(ov, key=lambda o: o["pre_ratio"])
+    t = _dt(worst["at"])
+    sessions = M.load_sessions(conn, tax, lib, t - datetime.timedelta(days=4),
+                               t + datetime.timedelta(minutes=1))
+    prior = [s for s in sessions if s.t < t and any(
+        (tax.muscle_of(n) or n) == worst["node"] for n in s.load)]
+    if not prior:
+        return None
+    codes = _codes_of(conn, [prior[-1].workout_id, worst["workout_id"]])
+    a_code = codes.get(prior[-1].workout_id)
+    b_code = codes.get(worst["workout_id"])
+    if not a_code or not b_code or a_code == b_code:
+        return None
+    return a_code, b_code
+
+
+def cmd_retro(a):
+    if a.lane != "weekly":
+        return EXIT_NOTHING
+    try:
+        raw_today = a.today or os.environ.get("KIT_RETRO_TODAY")
+        today = (datetime.datetime.strptime(raw_today, "%Y-%m-%d")
+                 if raw_today else datetime.datetime.now())
+        week = a.week
+        # An explicit date selects its own week; otherwise use the kit's
+        # review window, including Monday reviews of a historical week.
+        start = os.environ.get("KIT_RETRO_WEEK_START")
+        if not week and not a.today and start:
+            week = datetime.datetime.strptime(start, "%Y-%m-%d").strftime("%G-W%V")
+        if not week and today.weekday() == 0:
+            # a Monday retro looks back on the week that just ended
+            week = (today - datetime.timedelta(days=7)).strftime("%G-W%V")
+        lines = build_retro(a.db, Program(a.program), week, today,
+                            a.state_dir, record=(a.mode == "section"),
+                            facts_only=a.facts_only)
+    except Exception as exc:  # noqa: BLE001 -- a provider never fails a retro
+        print("fatigue-brief retro: %s" % exc, file=sys.stderr)
+        return EXIT_NOTHING
+    if not lines:
+        return EXIT_NOTHING
+    print(lines[0] if a.mode == "line" else "\n".join(lines))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+# body signal
+# ---------------------------------------------------------------------------
+def cmd_signal(a):
+    if a.sensation == "pain":
+        print("ROUTE\tpain-triage")
+        return EXIT_ROUTED
+    args = ["body-signal-add", "--site", a.site, "--sensation", a.sensation]
+    if a.side:
+        args += ["--side", a.side]
+    if a.exercise:
+        args += ["--exercise", a.exercise]
+    rc, out, err = kit(args)
+    if rc != 0:
+        sys.stderr.write(err)
+        return EXIT_REFUSED
+    M = mf()
+    label = a.site
+    if M is not None and os.path.exists(a.db):
+        conn = ro_conn(a.db)
+        try:
+            label = M.Taxonomy(conn).label(a.site)
+        finally:
+            conn.close()
+    if label == a.site:
+        label = UL.site_ko(a.site)
+    sens = SENSATION[a.sensation][1]
+    if "SITE_NOT_A_MUSCLE" in out:
+        print(T("signal_free", label=label, sensation=sens))
+    else:
+        print(T("signal_ok", label=label, sensation=sens,
+                label_reul=J(label, "reul")))
+    return EXIT_OK
+
+
+# ---------------------------------------------------------------------------
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="fatigue-brief")
+    sub = p.add_subparsers(dest="cmd", required=True)
+
+    def common(sp):
+        sp.add_argument("--db", default=DEFAULT_DB)
+        sp.add_argument("--program", default=DEFAULT_PROGRAM)
+        sp.add_argument("--state-dir", dest="state_dir", default=STATE_DIR)
+        sp.add_argument("--json", action="store_true")
+
+    o = sub.add_parser("open")
+    common(o)
+    o.add_argument("--session", type=int)
+    o.add_argument("--day")
+    o.add_argument("--at")
+    o.add_argument("--photo")
+    o.add_argument("--no-photo", dest="no_photo", action="store_true")
+    k = sub.add_parser("pick")
+    common(k)
+    k.add_argument("--session", type=int, required=True)
+    k.add_argument("--pick", required=True)
+    s = sub.add_parser("slot")
+    common(s)
+    s.add_argument("--session", type=int, required=True)
+    s.add_argument("--exercise", required=True)
+    r = sub.add_parser("revert")
+    common(r)
+    r.add_argument("--session", type=int, required=True)
+    r.add_argument("--exercise", required=True)
+    c = sub.add_parser("close")
+    common(c)
+    c.add_argument("--session", type=int, required=True)
+    c.add_argument("--at")
+    t = sub.add_parser("retro")
+    common(t)
+    t.add_argument("--lane", choices=("daily", "weekly"), required=True)
+    t.add_argument("--mode", choices=("line", "section"), default="section")
+    t.add_argument("--week")
+    t.add_argument("--today")
+    t.add_argument("--facts-only", action="store_true",
+                   help="emit facts without proposals or offer-history writes")
+    g = sub.add_parser("signal")
+    common(g)
+    g.add_argument("--site", required=True)
+    g.add_argument("--sensation", required=True,
+                   choices=("stiff", "tight", "sore", "pain"))
+    g.add_argument("--side", choices=("L", "R", "both"))
+    g.add_argument("--exercise")
+    a = p.parse_args(argv)
+    if a.cmd == "open" and not (a.session or a.day):
+        p.error("open needs --session or --day")
+    return {"open": cmd_open, "pick": cmd_pick, "slot": cmd_slot,
+            "revert": cmd_revert, "close": cmd_close, "retro": cmd_retro,
+            "signal": cmd_signal}[a.cmd](a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

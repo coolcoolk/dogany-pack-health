@@ -1,0 +1,219 @@
+#!/usr/bin/env python3
+"""lift-peak -- record an owner-REPORTED all-time best for one lift (owner
+2026-10-13 17:08: previously deadlifted 182 kg for one rep).
+
+WHY. rx-calc's PEAK axis reads a lift's all-time best as max(best logged
+e1RM, owner-reported best). A best lifted before logging began exists only in
+the owner's words; without a product path it would be hand-written to live
+data. This verb is that path.
+
+STORE. The kit `config` table, key `lift_peak_reported` (named in
+progression_step_rules.json peak.config_key), one JSON object keyed by the
+canonical exercise_name:
+  {"deadlift": {"kg": 182.0, "reps": 1, "e1rm": 182.0,
+                "source": "owner_reported", "date": "2026-10-13",
+                "when": "2019", "said": "I previously deadlifted 182 kg"}}
+No kit migration: config is the kit's key/value store and this key is
+pack-owned (like training_experience). source is always 'owner_reported';
+date is the day it was reported, `when` the owner's own words for when it was
+lifted (free text, optional). e1rm = Epley(kg, reps); reps 1 -> kg.
+
+WRITES go through `kit_life.sh config-set` (--kit / env KIT_LIFE_SH, default
+<root>/database/kit_life.sh); the kit writes its own database, so --db must be
+that same file. Reads (show, the known-exercise check) stay read-only SQL.
+
+A reported best LOWER than the lifter's logged best is still stored (the
+owner said it) but changes nothing: the peak is the max.
+
+Usage:
+  lift-peak set <exercise_name> <kg> [--reps N] [--when TEXT] [--said TEXT]
+                [--date YYYY-MM-DD] [--db PATH] [--kit PATH] [--dry-run]
+  lift-peak show [<exercise_name>] [--db PATH]
+  lift-peak clear <exercise_name> [--db PATH] [--kit PATH]
+
+stdout:
+  LIFT_PEAK_SET<TAB>exercise=<n><TAB>kg=<kg><TAB>reps=<r><TAB>e1rm=<e>
+     <TAB>source=owner_reported<TAB>date=<d>
+  LIFT_PEAK<TAB>exercise=<n><TAB>reported_e1rm=<e|-><TAB>logged_e1rm=<e|->
+     <TAB>peak=<e|-><TAB>peak_source=<owner_reported|logged|->
+  LIFT_PEAK_REFUSED<TAB><reason>      (exit 1, nothing written)
+  (a kit refusal -> LIFT_PEAK_REFUSED<TAB>kit_refused<TAB><kit's line>)
+Exit: 0 ok / 1 refused.
+stdlib only.
+"""
+
+import argparse
+import datetime
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sqlite3
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+DEFAULT_DB = os.path.join(HERE, "..", "..", "database", "kit_life.db")
+DEFAULT_KIT = os.path.join(HERE, "..", "..", "database", "kit_life.sh")
+
+
+def _rx():
+    ld = importlib.machinery.SourceFileLoader(
+        "rx_calc_lift_peak", os.path.join(HERE, "rx-calc"))
+    spec = importlib.util.spec_from_loader(ld.name, ld)
+    mod = importlib.util.module_from_spec(spec)
+    ld.exec_module(mod)
+    return mod
+
+
+def _refuse(reason):
+    print("LIFT_PEAK_REFUSED\t%s" % reason)
+    return 1
+
+
+def _key(rx):
+    return ((rx.step_rules().get("peak") or {}).get("config_key")
+            or "lift_peak_reported")
+
+
+def _known_exercise(conn, name):
+    """A name the catalog or the log knows -- never a free word."""
+    for sql in ("SELECT 1 FROM exercise_muscle WHERE exercise_name=? LIMIT 1",
+                "SELECT 1 FROM exercise_pattern WHERE exercise_name=? LIMIT 1",
+                "SELECT 1 FROM ax_exercise WHERE exercise_name=? LIMIT 1",
+                "SELECT 1 FROM workout_sets WHERE exercise_name=? LIMIT 1"):
+        try:
+            if conn.execute(sql, (name,)).fetchone():
+                return True
+        except sqlite3.Error:
+            continue
+    return False
+
+
+def _write(kit, key, peaks):
+    """Write through the kit's own verb (`kit_life.sh config-set key=json`);
+    never SQL against the kit's table. Returns None, or the refusal line."""
+    val = json.dumps(peaks, ensure_ascii=False, sort_keys=True)
+    try:
+        kp = subprocess.run(["bash", kit, "config-set", "%s=%s" % (key, val)],
+                            capture_output=True, text=True, timeout=120)
+    except (OSError, subprocess.SubprocessError) as e:
+        return "kit_exec: %s" % e
+    if kp.returncode != 0:
+        return ((kp.stderr or kp.stdout or "").strip().splitlines()
+                or ["exit %d" % kp.returncode])[-1]
+    return None
+
+
+def _kit_refused(why):
+    return _refuse("kit_refused\t%s" % why)
+
+
+def cmd_set(rx, a):
+    try:
+        kg = float(a.kg)
+    except ValueError:
+        return _refuse("kg_not_a_number")
+    if not 0 < kg < 600:
+        return _refuse("kg_out_of_range")
+    if a.reps < 1 or a.reps > 20:
+        return _refuse("reps_out_of_range")
+    date = a.date or datetime.date.today().isoformat()
+    try:
+        datetime.date.fromisoformat(date)
+    except ValueError:
+        return _refuse("bad_date")
+    e1 = round(rx._epley(kg, a.reps), 2)
+    entry = {"kg": kg, "reps": a.reps, "e1rm": e1,
+             "source": "owner_reported", "date": date}
+    if a.when:
+        entry["when"] = a.when
+    if a.said:
+        entry["said"] = a.said
+    conn = sqlite3.connect(a.db)
+    try:
+        if not _known_exercise(conn, a.exercise):
+            return _refuse("unknown_exercise\texercise=%s" % a.exercise)
+        key = _key(rx)
+        peaks = rx.reported_peaks(conn)
+        peaks[a.exercise] = entry
+        if not a.dry_run:
+            why = _write(a.kit, key, peaks)
+            if why:
+                return _kit_refused(why)
+    finally:
+        conn.close()
+    print("LIFT_PEAK_SET\texercise=%s\tkg=%g\treps=%d\te1rm=%g\t"
+          "source=owner_reported\tdate=%s%s" % (
+              a.exercise, kg, a.reps, e1, date,
+              "\tdry_run=1" if a.dry_run else ""))
+    return 0
+
+
+def cmd_clear(rx, a):
+    conn = sqlite3.connect(a.db)
+    try:
+        peaks = rx.reported_peaks(conn)
+        if a.exercise not in peaks:
+            return _refuse("not_reported\texercise=%s" % a.exercise)
+        del peaks[a.exercise]
+        why = _write(a.kit, _key(rx), peaks)
+        if why:
+            return _kit_refused(why)
+    finally:
+        conn.close()
+    print("LIFT_PEAK_CLEARED\texercise=%s" % a.exercise)
+    return 0
+
+
+def cmd_show(rx, a):
+    conn = sqlite3.connect(a.db)
+    try:
+        peaks = rx.reported_peaks(conn)
+    finally:
+        conn.close()
+    names = [a.exercise] if a.exercise else sorted(peaks)
+    for n in names:
+        ctx = rx.progression_step_context(a.db, n)
+        rep = ctx.get("reported_peak") or {}
+
+        def f(v):
+            return "%g" % round(v, 2) if v else "-"
+        print("LIFT_PEAK\texercise=%s\treported_e1rm=%s\tlogged_e1rm=%s\t"
+              "peak=%s\tpeak_source=%s" % (
+                  n, f(rep.get("e1rm")), f(ctx.get("level_kg")),
+                  f(ctx.get("peak_kg")), ctx.get("peak_source") or "-"))
+    return 0
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(prog="lift-peak")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    s = sub.add_parser("set")
+    s.add_argument("exercise")
+    s.add_argument("kg")
+    s.add_argument("--reps", type=int, default=1)
+    s.add_argument("--when")
+    s.add_argument("--said")
+    s.add_argument("--date")
+    s.add_argument("--dry-run", action="store_true")
+    sh = sub.add_parser("show")
+    sh.add_argument("exercise", nargs="?")
+    c = sub.add_parser("clear")
+    c.add_argument("exercise")
+    for p in (s, sh, c):
+        p.add_argument("--db", default=DEFAULT_DB)
+    for p in (s, c):
+        p.add_argument("--kit", default=os.environ.get("KIT_LIFE_SH")
+                       or DEFAULT_KIT)
+    a = ap.parse_args(argv)
+    a.db = os.path.abspath(a.db)
+    if not os.path.exists(a.db):
+        return _refuse("no_db")
+    rx = _rx()
+    return {"set": cmd_set, "show": cmd_show, "clear": cmd_clear}[a.cmd](rx, a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

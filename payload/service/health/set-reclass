@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""set-reclass -- move ONE logged set between the warm-up and working lanes,
+in one call (owner 2026-10-10 12:50).
+
+WHY. The owner said "that last one was a warm-up" about a set the agent had logged as working
+set 1. The agent ran set-undo, then set-add as a rung: two verbs, two table
+reposts, every keyboard stripped by the undo and a new one posted by the re-add
+seconds later ("why do the buttons keep turning on and off"), and in between the undone set's queued
+rest-over push and a rung keyboard built from its stale 50kg target both
+reached the screen. The agent's prose then told the owner to ignore the 40kg
+row -- model and machine contradicting each other on screen.
+
+The PRINCIPLE (owner 2026-10-10: the agent and the machine must agree): when the agent
+judges a code-armed value wrong it CHANGES THE STATE through a verb, so code
+re-posts the right thing -- it never tells the owner to ignore a machine post.
+This is that verb for a mis-laned set. (A wrong target weight: `set-arm <sid>
+<ex> <seq> --ov-weight <kg> --ov-reason "..."`; a row that should not exist:
+`set-undo`.)
+
+WHAT, in order, with no code post until the last step:
+  1. remove the row (archived to .discarded/, same as set-undo), fence BOTH
+     push channels (countdown control file + the channel-2 arm-gen token),
+     strip its keyboards, take away a coach weight decision derived from it;
+  2. re-add it in the other lane through set-add -- which publishes the table
+     ONCE, posts exactly ONE keyboard for the owed row, re-derives the ramp
+     target (never below a rung already lifted) and arms no working rest for
+     a warm-up.
+
+Usage:  set-reclass <session_id> <exercise> <set_seq> --to ramp|working
+                    [--db PATH] [--program PATH]
+Exit: 0 moved / 1 usage or not found / 3 refused (nothing changed).
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import undo_lib as U  # noqa: E402
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PREP_SEQ_BASE = -100
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="set-reclass",
+                                description="Move one logged set between the "
+                                            "warm-up and working lanes.")
+    p.add_argument("session_id", type=int)
+    p.add_argument("exercise_name")
+    p.add_argument("set_seq", type=int)
+    p.add_argument("--to", required=True, choices=("ramp", "working"))
+    p.add_argument("--db", default=None)
+    p.add_argument("--program", default=None)
+    a = p.parse_args(argv)
+
+    db = U.resolve_db(a.db)
+    conn = U.open_db(db)
+    try:
+        rows = U.sets_of(conn, a.session_id, a.exercise_name)
+        hit = [r for r in rows if int(r[4]) == a.set_seq]
+        if not hit:
+            print("ERROR: no workout_sets row at (session=%s, exercise=%s, "
+                  "set_seq=%s). Nothing changed." % (a.session_id,
+                                                     a.exercise_name,
+                                                     a.set_seq),
+                  file=sys.stderr)
+            return 1
+        row = dict(zip(U.SET_COLS, hit[0]))
+        lane = U.lane_of(a.set_seq)
+        if (a.to == "ramp") == (lane != "working"):
+            print("RECLASS_NOOP %s %s set_seq=%s already in the %s lane"
+                  % (a.session_id, a.exercise_name, a.set_seq, a.to))
+            return 0
+        later = [r for r in rows if U.lane_of(r[4]) == lane
+                 and (int(r[4]) > a.set_seq if lane == "working"
+                      else PREP_SEQ_BASE < int(r[4]) < a.set_seq)]
+        if later:
+            print("RECLASS_NOT_LAST %s %s set_seq=%s later=%s -- only the "
+                  "newest set of its lane moves; nothing changed"
+                  % (a.session_id, a.exercise_name, a.set_seq,
+                     ",".join(str(r[4]) for r in later)))
+            return 3
+        if a.to == "ramp":
+            seats = [int(r[4]) for r in rows if PREP_SEQ_BASE < int(r[4]) <= -1]
+            new_seq = (min(seats) - 1) if seats else -1
+        else:
+            seats = [int(r[4]) for r in rows if int(r[4]) >= 1]
+            new_seq = (max(seats) + 1) if seats else 1
+        U.archive("set-reclass-%s-%s-%s" % (a.session_id,
+                                            U.safe_token(a.exercise_name),
+                                            a.set_seq),
+                  {"verb": "set-reclass", "db": db, "session_id": a.session_id,
+                   "to": a.to, "new_seq": new_seq,
+                   "rows": U.rows_as_dicts(hit)})
+        conn.execute("DELETE FROM workout_sets WHERE id=?", (int(row["id"]),))
+        conn.commit()
+        remaining = U.sets_of(conn, a.session_id, a.exercise_name)
+    finally:
+        conn.close()
+    for kind, path in U.invalidate_session_scoped(
+            a.session_id, a.exercise_name, clear_pin=False, drop_entry=False,
+            preserve_override=True):
+        print("  INVALIDATED %s\t%s" % (kind, path))
+    coach = U.clear_coach_decisions(a.session_id, a.exercise_name, a.set_seq,
+                                    [r for r in remaining if int(r[4]) >= 1])
+    if coach:
+        print("  INVALIDATED coach-decision\t%s" % coach)
+    print("RECLASSIFIED %s %s from=%s to=%s lane=%s weight=%s reps=%s"
+          % (a.session_id, a.exercise_name, a.set_seq, new_seq, a.to,
+             row["weight_kg"], row["reps"]))
+    argv = [sys.executable, os.path.join(HERE, "set-add"), str(a.session_id),
+            a.exercise_name,
+            "session" if row["slot_num"] is None else str(row["slot_num"]),
+            str(new_seq),
+            "done" if row["reps"] is None else str(row["reps"]),
+            "--set-kind", a.to, "--raw",
+            (row["raw_input"] or "") + " [reclass %s->%s]" % (a.set_seq,
+                                                              new_seq)]
+    if row["weight_kg"] is not None:
+        argv += ["--weight", str(row["weight_kg"])]
+    if row["rir"] is not None:
+        argv += ["--rir", str(row["rir"])]
+    if a.db:
+        argv += ["--db", a.db]
+    if a.program:
+        argv += ["--program", a.program]
+    r = subprocess.run(argv, capture_output=True, text=True)
+    sys.stdout.write(r.stdout)
+    sys.stderr.write(r.stderr)
+    return r.returncode
+
+
+if __name__ == "__main__":
+    sys.exit(main())

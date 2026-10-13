@@ -1,0 +1,274 @@
+#!/usr/bin/env python3
+# machine-pick -- hold THIS session's machine for one exercise (kit 062).
+#
+# The tap behind exercise-enter's MACHINE_OPTION / MACHINE_OTHER lines: the
+# owner answers "어느 케이블이에요?" with one button, and every set of that
+# exercise in this session then carries workout_sets.machine_ref (set-add fills
+# it from this choice). `--new LABEL` registers a machine the owner just named
+# through the kit's own machine-register (find-first on the label: the same
+# name at the same gym is the same machine). Nothing is seeded; a machine
+# exists because the owner named it.
+#
+# live 2026-10-08 (session 1, 07:28 / 07:36) -- two more answers to the same
+# question, both of which used to be lost:
+#   --stack MIN-MAX[:STEP]  a PHOTO of the weight stack. The pins read off it
+#                           become the machine's stated grid (kit machine-upd
+#                           --plates); with no --new the label is derived from
+#                           the stack ("cable 2.5-47.5kg"), so the same stack
+#                           is the same machine next time. Snapping and the
+#                           next-weight line then name real pins.
+#   --addon KG|unknown|none an optional add-on block on the stack. A known kg
+#                           puts pin+block points into the grid and CORRECTS
+#                           every row this session flagged `--addon unknown`
+#                           (pin + kg, via set-add --correct). `unknown` is
+#                           remembered as unknown -- never a guessed number.
+#                           With no machine argument it applies to this
+#                           session's machine for the lift.
+#
+# Usage:
+#   machine-pick <session_id> <exercise_name> <machine_ulid> [--db PATH]
+#   machine-pick <session_id> <exercise_name> --new "<label>" [--gym ID] [--db PATH]
+#   machine-pick <session_id> <exercise_name> --stack 2.5-47.5 [--new "<label>"]
+#                [--addon KG|unknown|none] [--db PATH]
+#   machine-pick <session_id> <exercise_name> --addon KG|unknown|none [--db PATH]
+#
+# stdout: MACHINE_PICK exercise=<e> machine=<ulid> kind=PICK|SAME|NEW
+#         MACHINE_STACK machine=<ulid> pins=<n> min=<kg> max=<kg>
+#         MACHINE_ADDON machine=<ulid> addon=<kg|unknown|none> fixed=<n>
+# Exit: 0 ok, 1 error (nothing held).
+import argparse
+import os
+import subprocess
+import sys
+
+sys.dont_write_bytecode = True
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import machine_capture as MC                                     # noqa: E402
+
+DEFAULT_DB = os.path.join(HERE, "..", "..", "database", "kit_life.db")
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+DATA_DIR = (os.environ.get("WARG_DATA_DIR")
+            or os.path.join(PROJECT_ROOT, "files", "program"))
+DEFAULT_PROGRAM = os.path.join(DATA_DIR, "program.yaml")
+
+
+def _addon_value(raw):
+    v = str(raw).strip().lower()
+    if v in ("unknown", "?", "\ubaa8\ub984"):         # "unknown" (ko)
+        return "unknown"
+    if v in ("none", "no", "0", "\uc5c6\uc74c"):      # "none" (ko)
+        return None
+    return float(v)
+
+
+def _fix_pending(db, program, session_id, machine, kg):
+    """Re-write every row flagged `--addon unknown` on this machine this
+    session at pin + kg (set-add --correct --no-arm: the one write path)."""
+    import live_load as LL
+    fixed = 0
+    for r in LL.read_pending(session_id):
+        if r.get("machine") != machine or r.get("pin") is None:
+            continue
+        cmd = [os.path.join(HERE, "set-add"), str(session_id),
+               r["exercise"], "1", str(r["set_seq"]), str(r["reps"]),
+               "--weight", str(r["pin"]), "--addon", str(kg), "--correct",
+               "--no-arm", "--db", db, "--program", program]
+        if r.get("rir") is not None:
+            cmd += ["--rir", str(r["rir"])]
+        # keep the row's slot as stored
+        try:
+            import sqlite3
+            c = sqlite3.connect(db)
+            try:
+                row = c.execute(
+                    "SELECT slot_num FROM workout_sets WHERE session_id=? AND "
+                    "exercise_name=? AND set_seq=?",
+                    (session_id, r["exercise"], r["set_seq"])).fetchone()
+            finally:
+                c.close()
+            if row and row[0] is not None:
+                cmd[3] = str(row[0])
+            elif row:
+                cmd[3] = "session"
+        except Exception:  # noqa: BLE001
+            pass
+        p = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if p.returncode == 0:
+            fixed += 1
+        else:
+            print("WARN: addon fix failed for %s seq %s: %s"
+                  % (r["exercise"], r["set_seq"], p.stderr.strip()[-300:]),
+                  file=sys.stderr)
+    LL.clear_pending(session_id, machine)
+    return fixed
+
+
+def _refresh_estimate(db, program, session_id, exercise):
+    """An entry estimate armed before the grid was known is re-snapped on it
+    (best-effort; a measured or owner-named weight is never touched)."""
+    try:
+        import importlib.machinery
+        import importlib.util
+        import live_load as LL
+        ov = LL.read_override(session_id, exercise)
+        if ov.get("decision") != LL.DECISION_ESTIMATE:
+            return None
+        loader = importlib.machinery.SourceFileLoader(
+            "rx_calc_mp", os.path.join(HERE, "rx-calc"))
+        spec = importlib.util.spec_from_loader("rx_calc_mp", loader)
+        rx = importlib.util.module_from_spec(spec)
+        loader.exec_module(rx)
+        slot = LL.find_slot(rx, program, db, session_id, exercise)
+        view = LL.view(rx, slot, db, session_id, exercise)
+        est = LL.estimate(rx, view, db, session_id, exercise,
+                          variant=(view or {}).get("_variant"))
+        if est is None:
+            return None
+        disp = (slot or {}).get("display") or exercise
+        cue = LL.load_cue(db, session_id, exercise, view, est["kg"])
+        say = LL.estimate_say(disp, est, cue)
+        LL.arm_weight(session_id, exercise, est["kg"], LL.DECISION_ESTIMATE,
+                      ov.get("reason"), say)
+        return est["kg"], say
+    except Exception as e:  # noqa: BLE001
+        print("WARN: estimate refresh failed (%s)" % e, file=sys.stderr)
+        return None
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="machine-pick")
+    p.add_argument("session_id", type=int)
+    p.add_argument("exercise_name")
+    p.add_argument("machine", nargs="?")
+    p.add_argument("--new", dest="new_label")
+    p.add_argument("--stack", default=None,
+                   help="pins read off a stack photo: MIN-MAX[:STEP] or a "
+                        "comma list")
+    p.add_argument("--step", type=float, default=None)
+    p.add_argument("--addon", default=None,
+                   help="add-on block on the stack: kg | unknown | none")
+    p.add_argument("--addon-source", default="owner",
+                   help="where an --addon kg came from: a looked-up URL, or "
+                        "owner (read off the block). 0.36.0 item 6")
+    p.add_argument("--addon-confidence", default=None,
+                   choices=("high", "medium", "low"),
+                   help="confidence in a looked-up --addon kg (required "
+                        "with a URL source)")
+    p.add_argument("--gym", type=int)
+    p.add_argument("--db", default=DEFAULT_DB)
+    p.add_argument("--program", default=DEFAULT_PROGRAM)
+    a = p.parse_args(argv)
+    db = os.path.abspath(a.db)
+    program = os.path.abspath(a.program)
+    import live_load as LL
+
+    addon = None
+    if a.addon is not None:
+        try:
+            addon = _addon_value(a.addon)
+        except ValueError:
+            print("ERROR: --addon takes a kg number, unknown or none",
+                  file=sys.stderr)
+            return 1
+
+    looked_up = (a.addon_source or "owner") != "owner"
+    if looked_up and isinstance(addon, float) and not a.addon_confidence:
+        print("ERROR: a looked-up --addon needs --addon-confidence "
+              "(high|medium|low) -- a number is never stored without its "
+              "source and confidence", file=sys.stderr)
+        return 1
+
+    points = None
+    if a.stack is not None:
+        try:
+            points = MC.stack_points(a.stack, a.step)
+        except (ValueError, TypeError) as e:
+            print("ERROR: --stack %r: %s" % (a.stack, e), file=sys.stderr)
+            return 1
+        if not a.machine and not a.new_label:
+            a.new_label = MC.stack_label(db, a.exercise_name, points)
+
+    ulid = None
+    if a.machine or a.new_label:
+        if a.machine and a.new_label:
+            print("ERROR: give a machine ulid OR --new LABEL", file=sys.stderr)
+            return 1
+        try:
+            kind, ulid = MC.pick(db, a.session_id, a.exercise_name,
+                                 ulid=a.machine, new_label=a.new_label,
+                                 gym=a.gym)
+        except Exception as e:  # noqa: BLE001
+            print("ERROR: machine-pick: %s" % e, file=sys.stderr)
+            return 1
+        print("MACHINE_PICK exercise=%s machine=%s kind=%s"
+              % (a.exercise_name, ulid, kind))
+    elif a.addon is not None:
+        hit = MC.session_machine(db, a.session_id, a.exercise_name)
+        ulid = hit[0] if hit else None
+        if not ulid:
+            print("ERROR: no machine held for %s in session %s -- pick one "
+                  "first" % (a.exercise_name, a.session_id), file=sys.stderr)
+            return 1
+    else:
+        print("ERROR: give a machine ulid, --new LABEL, --stack or --addon",
+              file=sys.stderr)
+        return 1
+
+    rec = LL.addon_record(ulid)
+    if points is not None:
+        LL.set_stack(ulid, points)
+    stack = points or rec.get("stack") or []
+    if a.addon is not None:
+        LL.set_addon(ulid, addon, stack=stack or None,
+                     source=(a.addon_source if isinstance(addon, float)
+                             else None),
+                     confidence=(a.addon_confidence or
+                                 ("stated" if not looked_up else None)))
+    eff_addon = addon if a.addon is not None else LL.addon_of(ulid)
+    if stack:
+        grid = list(stack)
+        if isinstance(eff_addon, float) and eff_addon > 0:
+            grid += [round(x + eff_addon, 4) for x in stack]
+        try:
+            MC.set_plates(db, ulid, sorted(set(grid)))
+        except Exception as e:  # noqa: BLE001
+            print("ERROR: machine-pick: stack not stored: %s" % e,
+                  file=sys.stderr)
+            return 1
+        if points is not None:
+            print("MACHINE_STACK machine=%s pins=%d min=%s max=%s"
+                  % (ulid, len(stack), LL.kg_txt(stack[0]),
+                     LL.kg_txt(stack[-1])))
+    if a.addon is not None:
+        fixed = 0
+        if isinstance(addon, float) and addon > 0:
+            fixed = _fix_pending(db, program, a.session_id, ulid, addon)
+        print("MACHINE_ADDON machine=%s addon=%s fixed=%d"
+              % (ulid, LL.kg_txt(addon) if isinstance(addon, float)
+                 else ("unknown" if addon == "unknown" else "none"), fixed))
+        if isinstance(addon, float) and looked_up:
+            print("ADDON_SOURCE machine=%s kg=%s source=%s confidence=%s"
+                  % (ulid, LL.kg_txt(addon), a.addon_source,
+                     a.addon_confidence))
+        if fixed:
+            if looked_up:
+                print("ADDON_SAY: %s" % LL.t(
+                    "health.live.addon_fixed_sourced", kg=LL.kg_txt(addon),
+                    n=fixed, source=a.addon_source,
+                    confidence=LL.t("health.live.confidence.%s"
+                                    % a.addon_confidence)))
+            else:
+                print("ADDON_SAY: %s" % LL.t("health.live.addon_fixed",
+                                             kg=LL.kg_txt(addon), n=fixed))
+    ref = _refresh_estimate(db, program, a.session_id, a.exercise_name)
+    if ref is not None:
+        print("LOAD_ESTIMATE exercise=%s kg=%s refreshed=machine_grid"
+              % (a.exercise_name, LL.kg_txt(ref[0])))
+        if not LL.estimate_said(a.session_id, a.exercise_name, mark=True):
+            print("LOAD_ESTIMATE_SAY: %s" % ref[1])
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

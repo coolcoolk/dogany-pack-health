@@ -1,0 +1,384 @@
+#!/usr/bin/env python3
+# session-retro -- the health agent's daily retro lines (kit retro-sections
+# provider, lane `daily`; pack_health 0.30.0, owner 2026-10-02 08:27;
+# every set + burn + fatigue + meal ask, owner 2026-10-10 21:14).
+#
+# The domain daily retro is a GLANCE CARD with no conversation (kit
+# daily-retro.sh domain path). The kit prints each registry row as its own
+# block (<= 3 lines each), so the card is several rows of this one tool, in
+# registry order, the tail last:
+#
+#   --part day        the whole workout block (owner-approved shape, 2026-10-12):
+#                     a bold head line (session, done/planned sets, minutes,
+#                     burn as reference), then ONE blockquote line per lift
+#                     ("> " lines): working sets only, the heaviest working
+#                     weight once and the reps done at it joined by the
+#                     middle dot; no warm-ups, no first-record tags; the
+#                     missed sets in one last quoted line. More than 3 lines:
+#                     the kit reader must allow it for this row (see the
+#                     registry). No workout today: the rest head only.
+#   --part fatigue    one line: the most-used regions + the slowest region's
+#                     recovery time (fatigue-brief build_close_card), ko only
+#   --part meal       bold head, then a quoted intake-vs-target line and the
+#                     quoted day-end settlement (steps-based estimate); with
+#                     no meal logged: the head and one quoted ask
+#   --part next       the next planned session (the card's tail): weekday,
+#                     start time and the program day
+#   --part attach --mode attach   DATA for the kit, not prose (see ATTACH)
+#
+# BURN IS REFERENCE ONLY (owner 2026-10-09): the session row's kcal (watch or
+# close-out entry) is shown on the day line and never touches the intake
+# target (brief_lib.diet_target is burn-free).
+#
+# Silence (D4): a day with no workout, no meal and no planned next session
+# sends nothing (every part exits 3). A rest day with a plan says rest, asks
+# for meals when none are logged, and ends with the next session.
+#
+# ATTACH (needs a kit change; until then the kit never asks for it). Called
+# `--part attach --mode attach`, prints rows the kit sends with the card:
+#   photo<TAB><path>        the fatigue body figure (fatigue_heatmap.py) for a
+#                           training day; no row when it cannot be drawn
+#   buttons<TAB><json>      push.sh --buttons-json rows: the meal ask's three
+#                           choices, only when no meal is logged
+# In any other mode the part exits 3, so the current kit (line / section
+# only) shows nothing for it.
+#
+#   session-retro --lane daily [--mode line|section|attach]
+#                 [--part day|fatigue|meal|next|attach]
+#                 [--date YYYY-MM-DD] [--at YYYY-MM-DDTHH:MM] [--out PATH]
+#   exit 0 + lines (no decision; the day block may exceed 3) | exit 3 nothing
+# Read-only on the database. Facts and rules: brief_lib.py.
+import argparse
+import datetime
+import importlib.machinery
+import importlib.util
+import json
+import os
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)
+import brief_lib as BL                                          # noqa: E402
+import ui_labels as UL                                          # noqa: E402
+
+QUOTE = "> "           # a contiguous run of these lines is one blockquote
+MEAL_BUTTONS = ("health.retro.meal_btn_photo", "health.retro.meal_btn_text",
+                "health.retro.meal_btn_skip")
+
+
+def kg(x):
+    return "%g" % round(float(x), 2)
+
+
+# ---------------------------------------------------------------------------
+# day
+# ---------------------------------------------------------------------------
+def session_line(conn, w, program):
+    """One workout row -> (head line, [missed items]); minutes and burn ride
+    on the head as reference."""
+    burn = BL.t("health.retro.burn", kcal=BL.num(w["kcal"])) if w.get("kcal") else ""
+    day_ex = []
+    if w["code"] and program:
+        day_ex = [e for e in ((program.get("days") or {}).get(w["code"]) or {})
+                  .get("exercises") or () if e.get("sets")]
+    if day_ex:
+        logged = BL.sets_done(conn, w["id"])
+        planned = sum(int(e["sets"]) for e in day_ex)
+        done = sum(min(logged.get(e.get("name"), 0), int(e["sets"])) for e in day_ex)
+        line = BL.t("health.retro.session_sets", code=w["code"], done=done,
+                    planned=planned)
+        if w["minutes"]:
+            line += BL.t("health.retro.minutes", minutes=BL.num(w["minutes"]))
+        line += burn
+        missed = [BL.t("health.retro.missed_item", name=e.get("display") or e.get("name"),
+                       n=int(e["sets"]) - logged.get(e.get("name"), 0))
+                  for e in day_ex if logged.get(e.get("name"), 0) < int(e["sets"])]
+        return line, missed
+    return BL.t("health.retro.session_free",
+                label=w["label"] or BL.t("health.retro.session_label_default"),
+                minutes=BL.num(w["minutes"])) + burn, []
+
+
+def active(conn, day, rows=None):
+    """Does tonight's card speak at all? A workout, a meal, or a planned
+    next session. Otherwise every part is silent (D4)."""
+    if rows if rows is not None else BL.workouts(conn, day, day):
+        return True
+    got = BL.intake(conn, day)
+    if got and got["meals"] > 0:
+        return True
+    return BL.next_training(BL.schedule(conn), day) is not None
+
+
+def day_lines(conn, day):
+    rows = BL.workouts(conn, day, day)
+    if not rows:
+        return [BL.t("health.retro.rest")] if active(conn, day, rows) else []
+    program = BL.load_program() if any(r["code"] for r in rows) else None
+    heads, missed = [], []
+    for w in rows[:2]:
+        head, miss = session_line(conn, w, program)
+        heads.append(head)
+        missed += miss
+    out = heads + [QUOTE + ln for ln in lift_rows(conn, day)]
+    if missed:
+        out.append(QUOTE + BL.t("health.retro.missed_line",
+                                items=BL.t("health.retro.items_sep").join(missed)))
+    return [ln for ln in out if ln and ln.strip()]
+
+
+# ---------------------------------------------------------------------------
+# lifts: working sets, one line per lift
+# ---------------------------------------------------------------------------
+def _set_cols(conn):
+    return {r[1] for r in conn.execute("PRAGMA table_info(workout_sets)")}
+
+
+def lifts(conn, day):
+    """[{name, work: [(kg|None, reps, hold_sec|None)]}] in the order the lifts
+    were first logged today; warm-up (ramp) and prep rows are left out."""
+    ids = [w["id"] for w in BL.workouts(conn, day, day)]
+    if not ids:
+        return []
+    cols = _set_cols(conn)
+    kind = "set_kind" if "set_kind" in cols else "'working'"
+    hold = "hold_sec" if "hold_sec" in cols else "NULL"
+    rows = conn.execute(
+        "SELECT exercise_name, weight_kg, reps, %s, %s FROM workout_sets "
+        "WHERE session_id IN (%s) ORDER BY id" % (kind, hold, ",".join("?" * len(ids))),
+        ids).fetchall()
+    out, by = [], {}
+    for name, w, reps, k, sec in rows:
+        if k in ("prep", "ramp"):
+            continue
+        if name not in by:
+            by[name] = {"name": name, "work": []}
+            out.append(by[name])
+        by[name]["work"].append((float(w) if w else None, reps,
+                                 sec if k == "hold" else None))
+    return out
+
+
+def lift_name(name):
+    return UL.i18n("movement." + name, BL.lang()) or name.replace("_", " ")
+
+
+def set_val(reps, sec):
+    return BL.t("health.retro.hold_unit", sec=sec) if sec else str(reps)
+
+
+def lift_row(it):
+    """One working-set line, no "> " prefix: the heaviest working weight once
+    and the reps done at it (a lift whose sets used different weights shows
+    the reps at the top weight); bodyweight lifts show the reps alone."""
+    name = lift_name(it["name"])
+    work = it["work"]
+    if not work:
+        return ""
+    sep = BL.t("health.retro.vals_sep")
+    weighted = [s for s in work if s[0]]
+    if weighted:
+        top = max(s[0] for s in weighted)
+        vals = sep.join(set_val(r, sec) for w, r, sec in weighted if w == top)
+        return BL.t("health.retro.lift_kg", name=name, kg=kg(top), vals=vals)
+    vals = sep.join(set_val(r, sec) for _w, r, sec in work)
+    key = "health.retro.lift_hold" if any(s[2] for s in work) else "health.retro.lift_reps"
+    return BL.t(key, name=name, vals=vals)
+
+
+def lift_rows(conn, day):
+    return [r for r in (lift_row(it) for it in lifts(conn, day)) if r]
+
+
+# ---------------------------------------------------------------------------
+# fatigue (fatigue-brief owns every fatigue sentence and the body figure)
+# ---------------------------------------------------------------------------
+def fatigue_brief():
+    path = os.path.join(HERE, "fatigue-brief")
+    loader = importlib.machinery.SourceFileLoader("fatigue_brief_retro", path)
+    spec = importlib.util.spec_from_loader(loader.name, loader)
+    mod = importlib.util.module_from_spec(spec)
+    with BL.quiet():
+        loader.exec_module(mod)
+    return mod
+
+
+def at_time(day, arg):
+    """The fatigue reading's clock: --at / KIT_RETRO_AT, else now on the run
+    date, else that date at 21:00 (a past or pinned date stays stable)."""
+    raw = arg or os.environ.get("KIT_RETRO_AT")
+    if raw:
+        return datetime.datetime.fromisoformat(raw).replace(second=0, microsecond=0)
+    now = datetime.datetime.now().replace(second=0, microsecond=0)
+    return now if now.date() == day else datetime.datetime.combine(
+        day, datetime.time(21, 0))
+
+
+def fatigue_part(day, at):
+    """The most-worked regions for today's last session, read-only. fatigue-brief copy is Korean only,
+    so another language stays silent rather than mixing languages."""
+    if BL.lang() != "ko":
+        return []
+    conn = BL.connect()
+    try:
+        rows = BL.workouts(conn, day, day)
+    finally:
+        conn.close()
+    if not rows:
+        return []
+    FB = fatigue_brief()
+    with BL.quiet():
+        value = FB.build_close_card(BL.db_path(), FB.Program(BL.program_path()),
+                                    rows[-1]["id"], at)
+    return [BL.t("health.retro.focus", value=value)] if value else []
+
+
+def fatigue_photo(day, at, out_path):
+    """(path, None) or (None, why): the fatigue-brief body figure for the
+    current reading. Never raises; no figure means no attachment."""
+    try:
+        conn = BL.connect()
+        try:
+            if not BL.workouts(conn, day, day):
+                return None, "no workout"
+        finally:
+            conn.close()
+        FB = fatigue_brief()
+        with BL.quiet():
+            rd = FB.Reading(BL.db_path(), at, FB.Program(BL.program_path()))
+        try:
+            top = rd.top_items()
+            if not top:
+                return None, "no fatigue"
+            os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+            with BL.quiet():
+                res, why = FB.render_photo(
+                    rd, [(it["label"], it["pct"], it["ratio"]) for it in top], out_path)
+        finally:
+            rd.close()
+        if res and res.get("path") and os.path.isfile(res["path"]):
+            return res["path"], None
+        return None, why or "no file"
+    except Exception as exc:  # noqa: BLE001 -- a figure never fails a retro
+        return None, "%s: %s" % (exc.__class__.__name__, exc)
+
+
+# ---------------------------------------------------------------------------
+# meal, next
+# ---------------------------------------------------------------------------
+def intake_line(conn, day):
+    got = BL.intake(conn, day)
+    if not got or got["meals"] <= 0:
+        return ""
+    target = BL.diet_target(conn, day)
+    kcal, protein = BL.num(got["kcal"]), BL.num(got["protein"])
+    if target and target["kcal"] is not None and target["protein"] is not None:
+        return BL.t("health.retro.intake", kcal=kcal, target=BL.num(target["kcal"]),
+                    protein=protein, protein_target=BL.num(target["protein"]))
+    if target and target["kcal"] is not None:
+        return BL.t("health.retro.intake_kcal", kcal=kcal,
+                    target=BL.num(target["kcal"]), protein=protein)
+    return BL.t("health.retro.intake_only", kcal=kcal, protein=protein)
+
+
+def meal_missing(conn, day):
+    got = BL.intake(conn, day)
+    return not (got and got["meals"] > 0) and active(conn, day)
+
+
+def meal_lines(conn, day):
+    line = intake_line(conn, day)
+    if line:
+        # the day-end settlement on real data (owner 2026-10-11 12:06):
+        # steps-based NEAT + cardio at the MET rule, never watch kcal
+        return [BL.t("health.retro.meal_head"), QUOTE + line,
+                QUOTE + BL.settlement_line(conn, day)]
+    return BL.t("health.retro.meal_ask").split("\n") if meal_missing(conn, day) else []
+
+
+def next_line(conn, day):
+    if not active(conn, day):
+        return []
+    nxt = BL.next_training(BL.schedule(conn), day)
+    if not nxt:
+        return []
+    d, start = nxt
+    rx = BL.session_rx(d) or {}
+    code = BL.t("health.retro.code_pad", code=rx["rotation_day"]) if rx.get("rotation_day") else ""
+    if (d - day).days == 1:
+        line = (BL.t("health.retro.next_tomorrow", wd=BL.wd_short(d), time=start, code=code)
+                if start else BL.t("health.retro.next_tomorrow_day", wd=BL.wd_short(d), code=code))
+    else:
+        line = (BL.t("health.retro.next_later", md=BL.md(d), wd=BL.wd_short(d),
+                     time=start, code=code)
+                if start else BL.t("health.retro.next_later_day", md=BL.md(d),
+                                   wd=BL.wd_short(d), code=code))
+    return [line]
+
+
+def meal_buttons():
+    return [[{"text": BL.t(k), "callback_data": "opt:" + BL.t(k)} for k in MEAL_BUTTONS]]
+
+
+def attach_rows(day, at, out_path):
+    conn = BL.connect()
+    try:
+        ask = meal_missing(conn, day)
+    finally:
+        conn.close()
+    rows = []
+    photo, why = fatigue_photo(day, at, out_path)
+    if photo:
+        rows.append("photo\t%s" % photo)
+    elif why not in ("no workout", "no fatigue"):
+        print("session-retro: no fatigue figure (%s)" % why, file=sys.stderr)
+    if ask:
+        rows.append("buttons\t%s" % json.dumps(meal_buttons(), ensure_ascii=False))
+    return rows
+
+
+def main(argv=None):
+    p = argparse.ArgumentParser(prog="session-retro")
+    p.add_argument("--lane", choices=("morning", "daily", "weekly"), required=True)
+    p.add_argument("--mode", choices=("line", "section", "grid", "attach"),
+                   default="section")
+    p.add_argument("--part", choices=("day", "fatigue", "meal", "next",
+                                      "attach"), default="day")
+    p.add_argument("--date")
+    p.add_argument("--at")
+    p.add_argument("--out")
+    p.add_argument("--db")
+    a = p.parse_args(argv)
+    if a.lane != "daily" or a.mode == "grid":
+        return BL.EXIT_NOTHING
+    if (a.part == "attach") != (a.mode == "attach"):
+        return BL.EXIT_NOTHING
+    try:
+        if a.db:
+            os.environ["HEALTH_BRIEF_DB"] = a.db
+        day = BL.run_date(a.date)
+        if a.part == "attach":
+            out = a.out or os.path.join(BL.PROJECT_ROOT, "files", "outbox",
+                                        "fatigue-retro-%s.jpg" % day.strftime("%Y%m%d"))
+            rows = attach_rows(day, at_time(day, a.at), out)
+            if not rows:
+                return BL.EXIT_NOTHING
+            print("\n".join(rows))
+            return BL.EXIT_OK
+        if a.part == "fatigue":
+            lines = fatigue_part(day, at_time(day, a.at))
+        else:
+            conn = BL.connect()
+            try:
+                lines = {"day": day_lines, "meal": meal_lines,
+                         "next": next_line}[a.part](conn, day)
+            finally:
+                conn.close()
+    except Exception as exc:  # noqa: BLE001 -- a provider never fails a retro
+        print("session-retro: %s" % exc, file=sys.stderr)
+        return BL.EXIT_NOTHING
+    return BL.emit(lines, a.mode, limit=None)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

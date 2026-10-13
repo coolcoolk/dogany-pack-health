@@ -1,0 +1,18 @@
+{
+  "doc": "Rows the adaptive daily layer adds (day-plan, owner decisions 2026-10-06 D1-D5). Minutes, set caps, max_lifts and primary_min_sets are NOT copied here: daily_plan.load_rules() reads them from compose_rank_rules.json (budget / set_caps / trainer_fit). Readiness thresholds are not copied either: they are the kit's STATE_RECOVERING / STATE_HARD, passed in by the caller. Values are provisional practitioner heuristics (spec grade C-D) except where the spec names an owner decision.",
+  "minutes_min": 20,
+  "act_ratio": 0.75,
+  "session_muscle_cap": 10,
+  "edits": {"add_max": 1, "trim": 1, "min_sets": 2},
+  "score": {"floor_gap_bonus": 1.0, "partial_penalty": 0.5},
+  "attendance": {"start_weeks": 3, "full_weeks": 6},
+  "pain_site_muscles": {
+    "doc": "An open pain event on a site blocks the muscles that site moves (provisional, practitioner grade D; the caution filters stay the safety source).",
+    "knee": ["quads", "hamstrings"],
+    "hip": ["glutes", "hamstrings"],
+    "lower_back": ["back", "hamstrings", "glutes"],
+    "shoulder": ["shoulders", "chest"],
+    "elbow": ["biceps", "triceps"],
+    "wrist": ["forearms"]
+  }
+}

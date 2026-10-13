@@ -1,0 +1,64 @@
+{
+  "format": "dogany-term-dict/1",
+  "note": "DGN-1500 module layer seed for pack_health (workout module), from the pack glossary draft. Only confirmed rows. pack_install.sh stamps layer=module / owner=pack_health on install. 'allow' vetoes the framework bridge entry: in this agent the word means legs.",
+  "allow": [
+    "다리"
+  ],
+  "entries": [
+    {
+      "id": "warmup",
+      "canonical": "웜업",
+      "forbidden": [
+        "워밍업"
+      ],
+      "rewrite": true,
+      "approved": "owner 2026-08-26 (웜업, 워밍업 아님), re-confirmed 2026-09-16",
+      "note": "Same word, owner-chosen spelling; both end in the same syllable, so particles stay grammatical. The one rewrite-safe entry."
+    },
+    {
+      "id": "warmup-other",
+      "canonical": "웜업",
+      "forbidden": [
+        "warm-up",
+        "예비세트"
+      ],
+      "rewrite": false,
+      "approved": "owner 2026-08-26",
+      "note": "Counted only: English / a different noun -- a rewrite would change the register or the meaning."
+    },
+    {
+      "id": "prep-session",
+      "canonical": "준비운동",
+      "forbidden": [
+        "프렙",
+        "매트프렙"
+      ],
+      "rewrite": false,
+      "approved": "owner 2026-08-26 (준비운동, 프렙 아님)",
+      "note": "Counted only: in kit_life the same loanword means pre-departure prep (canonical 준비), so it is ambiguous in an agent that has both."
+    },
+    {
+      "id": "split",
+      "canonical": "분할",
+      "forbidden": [
+        "스플릿"
+      ],
+      "rewrite": false,
+      "approved": "owner 2026-09-16 08:21 (Split -> 분할)",
+      "note": "Counted only (the loanword is also a general word); the exercise name split squat is excepted -- replay 2026-09-30: 8/8 hits were that exercise before the exception.",
+      "except": [
+        "스플릿 스쿼트"
+      ]
+    },
+    {
+      "id": "exercise-item",
+      "canonical": "종목",
+      "forbidden": [
+        "익서사이즈"
+      ],
+      "rewrite": false,
+      "approved": "owner 2026-08-26 (종목, 운동 아님)",
+      "note": "The draft also forbids the general word for exercise/workout; left out -- it is the everyday word and would count nearly every message."
+    }
+  ]
+}

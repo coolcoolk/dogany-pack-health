@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+# onboarding-gate -- the DETERMINISTIC ANSWER to one question: is this
+# instance's DOMAIN onboarding still outstanding?
+#
+# ---------------------------------------------------------------------------
+# THE HOLE THIS FILLS (measured on a fresh mint, 2026-09-15)
+# ---------------------------------------------------------------------------
+# The owner minted a health agent and walked the framework's identity
+# onboarding: name (e.g. the persona name), emoji, address term, tone, humor. The agent closed with
+# a settings echo, a capability list, and
+#
+#     "편하게 아무거나 던져주세요, <호칭>. 오늘부터 바로 시작해봅시다!"
+#
+# and stopped. It had just declared it does 운동 기록·프로그램 설계, 라이브 세션,
+# 식단 관리, 체성분 추적 while knowing NOTHING: no goal, no body state, no injury
+# history, no split, and no files/program/program.yaml. His first "운동 시작"
+# then walked into the minute-one wall that program-init removed the day before.
+#
+#     identity onboarding (dogany-user-onboarding)  Q1 name -> Q5 humor, END.
+#                                                   No "next" instruction.
+#     the consult spine (AGENT-CONSULT G0-G7 + W1-W5)  exists, and is entered
+#                                                   only by an owner phrase.
+#     files/program/program.yaml                    absent on a fresh mint.
+#
+# Yesterday's fix built the door. NOTHING WALKED THE OWNER TO IT. That is what
+# this gate and the health-onboarding skill beside it are for.
+#
+# ---------------------------------------------------------------------------
+# WHAT THIS FILE IS, AND WHAT IT HONESTLY IS NOT (D2)
+# ---------------------------------------------------------------------------
+# D2's enforcement ladder is (1) tool-enforced semantics, (2) per-turn
+# deterministic state injection, (3) prose. Rung 2 is a Claude Code hook, and
+# this pack CANNOT REGISTER ONE -- measured, not assumed:
+#
+#   * pack_install.sh's behavior-pack profile (kind=pack, contract_version=1)
+#     exits at its own end (the `exit 0` that closes the class-dispatch block)
+#     BEFORE the legacy STEP 5 hook-wiring lane, and that lane is hardcoded to
+#     one filename (routines/ledger-inject.py) anyway;
+#   * compat-lint C4 refuses `routines/<non-bundle>` and any config file other
+#     than pack_health.conf + i18n fragments, so there is no registry to write;
+#   * `capabilities.schedules` is BLOCKED for kind=pack (DGN-1402), so there is
+#     no launchd unit either.
+#
+# So this gate does NOT claim to fire itself. What it claims is narrower, and
+# it is the part that makes the difference between a hope and a mechanism:
+#
+#   THE "DONE" SIGNAL IS THE ARTIFACT, NEVER A SELF-REPORT.
+#   The verdict is computed from files/program/program.yaml and the session_type
+#   rows -- through program-init, which is their only reader -- so an interview
+#   that ends without producing them leaves the gate OPEN and it is offered
+#   again next session. A model that says "설정 끝났습니다" without the card
+#   cannot close this gate. That is D2's "it either happens or it reports that
+#   it did not", delivered in the one lane this pack owns.
+#
+#   The decline latch below is the ONLY self-reported state here, and it is
+#   deliberately powerless in the other direction: it can WITHHOLD an offer, it
+#   can never say "complete". Only the artifact says complete.
+#
+# ---------------------------------------------------------------------------
+# THE LANE SEAM, NAMED (D10)
+# ---------------------------------------------------------------------------
+#   RULE lane (this file, kind=gate) -- reading the identity marker; asking
+#       program-init for the artifact verdict; the decline ladder arithmetic;
+#       the OFFER / NO-OFFER decision and its named reason. Same input -> same
+#       required output, every input machine-readable: rule lane, with a
+#       carrier, which is this file.
+#   LLM lane -- everything downstream: speaking the offer in the owner's
+#       language, and the interview itself (AGENT-CONSULT's G0-G7 spine and the
+#       workout module W1-W5). This file NEVER writes a word the owner reads
+#       and NEVER decides a training fact.
+#   NOT A LANE OF THIS FILE AT ALL -- the choreography. The consult spine
+#       already owns step order; a second order here would be a second home.
+#
+# ---------------------------------------------------------------------------
+# D1 -- THIS FILE SHIPS NO PROGRAM
+# ---------------------------------------------------------------------------
+# There is no rotation code, no exercise, no split and no goal anywhere below.
+# The gate can only ever say "ask him" or "he has already answered"; it cannot
+# answer for him. `program-init` holds the same line and this one does not
+# reopen it from the side.
+#
+# ---------------------------------------------------------------------------
+# Usage
+# ---------------------------------------------------------------------------
+#   onboarding-gate verdict [--json-out]   OFFER / NO-OFFER + the named reason
+#   onboarding-gate state   [--json-out]   every input the verdict was built on
+#   onboarding-gate offered --by <name>    record that an offer WAS made
+#   onboarding-gate declined               the owner said not now (ladder +1)
+#   onboarding-gate reset-latch            discard the latch (never the card)
+#
+#   common: --root PATH --db PATH --program PATH --latch PATH
+#
+# Exit codes:
+#   0  OFFER      -- the domain onboarding entry is outstanding; offer it now
+#   3  NO-OFFER   -- nothing to offer. The reason is on the VERDICT line and is
+#                    one of: identity-pending / identity-absent / complete /
+#                    declined-exhausted
+#   1  environment error (unreadable root, program-init missing, bad argument)
+#
+# Deliberately NOT exit 2: this gate refuses nothing and validates nothing. A
+# card that exists and is INVALID is program-init's REFUSED (2) and reaches here
+# as "not complete" -- which keeps the entry open, which is correct: an owner
+# whose card does not pass its own contract has not finished.
+#
+# stdout is machine-parseable TAB lines; prose goes to stderr.
+# stdlib only. ASCII source.
+
+import argparse
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
+
+PROGRAM_INIT = os.path.join(HERE, "program-init")
+
+EXIT_OFFER, EXIT_ERR, EXIT_NO_OFFER = 0, 1, 3
+
+# The framework's own first-contact marker. Single source: it is written by
+# mint into identity/hot.custom.agent.md and DELETED by the
+# dogany-user-onboarding skill as its completion act ("skipping deletion ->
+# triggers re-onboarding every session -- must delete"). So marker-gone is the
+# framework's OWN definition of "identity onboarding finished", and reading it
+# is reading their answer rather than inventing a second one.
+ONBOARDING_MARKER = "<!-- ONBOARDING_PENDING -->"
+
+# Identity file resolution, newest layout first. This is a VERBATIM mirror of
+# routines/onboarding-check.py's resolve_persona_md() precedence (DGN-1141
+# stage 6 / DGN-773 T3), including its fail-safe reading: NEITHER PRESENT means
+# onboarding is still needed, not "assume it finished". A pack that guessed the
+# other way would open a domain interview on top of a running identity one.
+IDENTITY_CANDIDATES = (
+    os.path.join("identity", "hot.custom.agent.md"),    # 2.0 layout
+    "PROFILE.md",                                       # 2.0 flat root
+    "AGENT.md",                                         # pre-2.0
+)
+
+# The decline ladder, in the vocabulary the consult spine already uses for
+# exactly this (AGENT-CONSULT `consult_offered`: 0 never declined / 1 declined
+# once, one re-offer allowed / 2 exhausted, fully passive). Reused rather than
+# reinvented so the owner meets one rule, not two.
+DECLINE_EXHAUSTED = 2
+
+# There is NO timestamp in the latch and no per-day budget arithmetic. Two
+# reasons, both deliberate: a clock in a gate makes its tests date-sensitive
+# (the verdict would depend on when the suite ran), and the offer this bounds is
+# not an unsolicited contact -- it happens inside a conversation the owner is
+# already in. The decline ladder is what bounds it (D5b attention guard, D6
+# question budget), and a ladder needs a count, not a calendar.
+LATCH_BASENAME = ".domain-onboarding.json"
+
+
+class GateError(Exception):
+    """An environment failure. Exit 1, named, never dressed up as a verdict."""
+
+
+# ---------------------------------------------------------------------------
+# inputs
+# ---------------------------------------------------------------------------
+def data_dir(root):
+    """Where this pack keeps its own state. WARG_DATA_DIR is honoured exactly
+    as program-init honours it, so the two can never disagree about which
+    surface is live."""
+    return os.environ.get("WARG_DATA_DIR") or os.path.join(
+        root, "files", "program")
+
+
+def identity_state(root):
+    """('set'|'pending'|'absent', path_or_None).
+
+    set     -- an identity file exists and carries no ONBOARDING_PENDING marker.
+               The framework skill deleted it, which is its completion act.
+    pending -- an identity file exists and still carries the marker. Identity
+               onboarding is RUNNING; the domain must not interleave with it
+               (one question at a time is the framework's rule and D6's).
+    absent  -- no identity file at any of the three accepted names. The
+               framework hook reads this as onboarding-needed; so does this.
+    """
+    for rel in IDENTITY_CANDIDATES:
+        path = os.path.join(root, rel)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, "r", encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError as e:
+            raise GateError("identity file unreadable (%s): %s" % (path, e))
+        return ("pending" if ONBOARDING_MARKER in text else "set"), path
+    return "absent", None
+
+
+def program_state(db, program, program_init=None):
+    """('complete'|'absent'|'invalid'|'registry-drift'|'unknown', detail).
+
+    ONE READER. `program-init check` is the only thing in this pack that knows
+    whether the card and its rotation registry are both real, and this gate asks
+    IT rather than re-implementing the question -- a second reader is how two
+    answers to one fact get born. Its exit codes are the contract the install
+    lane already branches on: 0 complete / 2 card invalid / 3 unmet / 1 env.
+    """
+    runner = program_init or PROGRAM_INIT
+    if not os.path.isfile(runner):
+        raise GateError("program-init not found at %s -- this gate cannot "
+                        "answer without it and will not guess" % runner)
+    argv = [runner, "check", "--db", db, "--program", program]
+    if not os.access(runner, os.X_OK):
+        argv = [sys.executable] + argv
+    env = dict(os.environ)
+    env["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        res = subprocess.run(argv, capture_output=True, text=True, env=env)
+    except OSError as e:
+        raise GateError("program-init could not be run: %s" % e)
+    out = (res.stdout or "").strip()
+    if res.returncode == 0:
+        return "complete", out
+    if res.returncode == 2:
+        return "invalid", out
+    if res.returncode == 3:
+        # Two different unmet shapes, and the offer differs: an absent card
+        # means the owner was never asked; a drifted registry means he answered
+        # and the derived half did not land. Both keep the gate open, and the
+        # reason has to survive to the caller so the skill resumes at the right
+        # place instead of re-asking a question he already answered.
+        if "PROGRAM\tunmet\tabsent" in out:
+            return "absent", out
+        return "registry-drift", out
+    return "unknown", (out or (res.stderr or "").strip()
+                       or "program-init exit %d" % res.returncode)
+
+
+def load_latch(path):
+    try:
+        with open(path, "r", encoding="utf-8") as fh:
+            d = json.load(fh)
+    except (OSError, ValueError):
+        return {"offers": 0, "declines": 0, "by": []}
+    if not isinstance(d, dict):
+        return {"offers": 0, "declines": 0, "by": []}
+    return {
+        "offers": d.get("offers") if isinstance(d.get("offers"), int) else 0,
+        "declines": (d.get("declines")
+                     if isinstance(d.get("declines"), int) else 0),
+        "by": d.get("by") if isinstance(d.get("by"), list) else [],
+    }
+
+
+def save_latch(path, latch):
+    d = os.path.dirname(os.path.abspath(path))
+    if d and not os.path.isdir(d):
+        os.makedirs(d, exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as fh:
+        json.dump(latch, fh, ensure_ascii=False, indent=2)
+        fh.write("\n")
+    os.replace(tmp, path)
+
+
+# ---------------------------------------------------------------------------
+# the verdict
+# ---------------------------------------------------------------------------
+def decide(identity, program, latch):
+    """(verdict, reason, tier). Pure arithmetic over the three inputs -- no I/O,
+    so a test can drive every branch without building a filesystem.
+
+    ORDER IS THE ARGUMENT, so it is stated rather than implied:
+      1. identity first. Identity onboarding owns the turn until it deletes its
+         own marker; a domain offer on top of it is two interviews at once.
+      2. the artifact second. `complete` is the ONLY thing that closes this
+         gate for good, and only program-init can say it.
+      3. the decline ladder LAST, and only ever to withhold. It cannot say
+         complete -- an owner who declined twice still has no card, and
+         session-open will still name program-init the moment he says
+         "운동 시작". Passive, not silent.
+    """
+    if identity == "pending":
+        return "NO-OFFER", "identity-pending", None
+    if identity == "absent":
+        return "NO-OFFER", "identity-absent", None
+    if program == "complete":
+        return "NO-OFFER", "complete", None
+    if latch["declines"] >= DECLINE_EXHAUSTED:
+        return "NO-OFFER", "declined-exhausted", None
+    tier = "open" if latch["declines"] == 0 else "reoffer"
+    return "OFFER", program, tier
+
+
+def collect(args):
+    root = os.path.abspath(args.root)
+    identity, identity_path = identity_state(root)
+    program, detail = program_state(args.db, args.program, args.program_init)
+    latch = load_latch(args.latch)
+    verdict, reason, tier = decide(identity, program, latch)
+    return {
+        "verdict": verdict,
+        "reason": reason,
+        "tier": tier,
+        "identity": identity,
+        "identity_file": identity_path,
+        "program": program,
+        "program_detail": detail,
+        "program_yaml": os.path.abspath(args.program),
+        "db": os.path.abspath(args.db),
+        "latch_file": os.path.abspath(args.latch),
+        "offers": latch["offers"],
+        "declines": latch["declines"],
+        "root": root,
+    }
+
+
+# The one sentence this gate hands the LLM lane when it opens. It says WHAT is
+# outstanding and WHO asks it -- it does not script the words the owner hears,
+# because those belong to the instance's own tone and address term, which this
+# file has no business deciding.
+ENTRY_POINTER = (
+    "health-onboarding skill (.claude/skills/health-onboarding/SKILL.md, "
+    "else .claude/skills-bundle/health-onboarding/SKILL.md) -- it runs the "
+    "existing consult spine; do NOT improvise an interview here")
+
+
+def emit_verdict(st, json_out):
+    if json_out:
+        print(json.dumps(st, ensure_ascii=False, indent=2))
+        return
+    print("VERDICT\t%s\t%s%s" % (st["verdict"], st["reason"],
+                                 "\t" + st["tier"] if st["tier"] else ""))
+    print("IDENTITY\t%s\t%s" % (st["identity"], st["identity_file"] or "-"))
+    print("PROGRAM\t%s\t%s" % (st["program"], st["program_yaml"]))
+    if st["verdict"] == "OFFER":
+        print("ENTRY\t%s" % ENTRY_POINTER)
+
+
+def main(argv=None):
+    ap = argparse.ArgumentParser(
+        prog="onboarding-gate", add_help=True,
+        description="Is this instance's DOMAIN onboarding still outstanding? "
+                    "Computed from the identity marker and from the artifacts "
+                    "program-init owns -- never from a self-report.")
+    ap.add_argument("command", choices=("verdict", "state", "offered",
+                                        "declined", "reset-latch"))
+    ap.add_argument("--root", default=PROJECT_ROOT)
+    ap.add_argument("--db")
+    ap.add_argument("--program")
+    ap.add_argument("--latch")
+    ap.add_argument("--program-init", dest="program_init")
+    ap.add_argument("--by", default="",
+                    help="who made the offer (for `offered`) -- recorded so a "
+                         "missed offer is distinguishable from a refused one")
+    ap.add_argument("--json-out", dest="json_out", action="store_true")
+    args = ap.parse_args(argv)
+
+    root = os.path.abspath(args.root)
+    ddir = data_dir(root)
+    if not args.db:
+        args.db = os.path.join(root, "database", "kit_life.db")
+    if not args.program:
+        args.program = os.path.join(ddir, "program.yaml")
+    if not args.latch:
+        args.latch = os.path.join(ddir, LATCH_BASENAME)
+
+    if args.command == "reset-latch":
+        if os.path.exists(args.latch):
+            os.unlink(args.latch)
+            print("RESET\t%s" % args.latch)
+        else:
+            print("RESET\tnone")
+        return EXIT_OFFER
+
+    if args.command in ("offered", "declined"):
+        latch = load_latch(args.latch)
+        if args.command == "offered":
+            latch["offers"] += 1
+            if args.by:
+                latch["by"] = (latch["by"] + [args.by])[-8:]
+            save_latch(args.latch, latch)
+            print("OFFERED\t%d\t%s" % (latch["offers"], args.by or "-"))
+        else:
+            latch["declines"] += 1
+            save_latch(args.latch, latch)
+            # Name the consequence at the moment it is incurred. A latch that
+            # silently goes passive is indistinguishable from a broken one.
+            print("DECLINED\t%d\t%s" % (
+                latch["declines"],
+                "exhausted -- passive from here; the entry re-opens only on "
+                "his own ask, and session-open still names program-init"
+                if latch["declines"] >= DECLINE_EXHAUSTED
+                else "one re-offer remains"))
+        return EXIT_OFFER
+
+    try:
+        st = collect(args)
+    except GateError as e:
+        sys.stderr.write("onboarding-gate: %s\n" % e)
+        print("VERDICT\tERROR\t%s" % e)
+        return EXIT_ERR
+
+    if args.command == "state":
+        print(json.dumps(st, ensure_ascii=False, indent=2))
+        return EXIT_OFFER if st["verdict"] == "OFFER" else EXIT_NO_OFFER
+
+    emit_verdict(st, args.json_out)
+    if st["verdict"] == "OFFER":
+        sys.stderr.write(
+            "onboarding-gate: identity onboarding is finished and this "
+            "instance has NO usable training card (%s). The owner has not been "
+            "asked yet -- nothing here may author one for him. Entry: %s\n"
+            % (st["reason"], ENTRY_POINTER))
+        return EXIT_OFFER
+    return EXIT_NO_OFFER
+
+
+if __name__ == "__main__":
+    try:
+        sys.exit(main())
+    except KeyboardInterrupt:
+        sys.exit(EXIT_ERR)

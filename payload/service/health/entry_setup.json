@@ -1,0 +1,102 @@
+{
+  "version": 1,
+  "_ruling": "owner live 2026-10-08 session 1: (a) curl was entered as \"덤벨, 케이블, 바 중 뭘로\" and the bar type was never asked -- \"처음부터 바벨인지 EZ바인지 물어보라고\": the entry asks the lift's REAL implement variants (read from exercise_movement_grip) as one question, before the weight. (b) \"그립 뭘로 해\" on close-grip pulldown, then \"정해 드리기 어려워요\" about the handle orientation -- owner 2026-08-19 rule: setup answers are specific, never a principle. The entry cue states the attachment, the grip and the orientation. entry_setup.py is the one reader of this file.",
+  "variants": {
+    "open_movements": ["curl", "reverse_curl", "tricep_isolation", "lateral_raise", "rear_delt_isolation", "crunch"],
+    "_open_why": "movements whose implement is the owner's call at the rack. A lift whose NAME already carries an implement (cable_lateral_raise, ez_bar_curl) is fixed by the program and is not asked; bench_press / rows / squats are not in this list and are never asked.",
+    "equipment_tokens": ["barbell", "ez_bar", "dumbbell", "cable", "machine", "smith", "kettlebell", "band"],
+    "exclude_tokens": ["incline", "decline", "preacher", "seated", "lying", "single_arm", "single_leg", "hammer", "standing", "kickback", "overhead"],
+    "_exclude_why": "a variant that changes the BODY position is a different exercise, not a different implement; one option per equipment, the shortest name wins.",
+    "equipment_order": ["barbell", "ez_bar", "dumbbell", "cable", "machine", "kettlebell"],
+    "equipment_labels": {
+      "barbell": "일자 바벨",
+      "ez_bar": "EZ바",
+      "dumbbell": "덤벨",
+      "cable": "케이블",
+      "machine": "머신",
+      "kettlebell": "케틀벨",
+      "smith_machine": "스미스 머신"
+    }
+  },
+  "setup": {
+    "close_grip_lat_pulldown": {
+      "attachment": "V바(좁은 평행 손잡이)",
+      "grip": "손바닥이 서로 마주 보게(뉴트럴) 잡아요",
+      "orient": "손잡이가 비스듬하면 八자로 거세요 -- 엄지 쪽이 서로 가깝고 새끼손가락 쪽이 바깥으로 벌어지게. 당기면 팔꿈치가 옆구리 바로 앞으로 내려와요"
+    },
+    "neutral_grip_lat_pulldown": {
+      "attachment": "넓은 평행 손잡이 바(뉴트럴 바)",
+      "grip": "손바닥이 서로 마주 보게, 어깨너비 손잡이를 잡아요",
+      "orient": "손잡이가 비스듬하면 八자로 거세요 -- 엄지 쪽이 가깝고 새끼손가락 쪽이 바깥으로"
+    },
+    "lat_pulldown": {
+      "attachment": "긴 랫바",
+      "grip": "손등이 앞을 보게(오버핸드), 어깨너비보다 주먹 하나씩 넓게 잡아요"
+    },
+    "wide_grip_lat_pulldown": {
+      "attachment": "긴 랫바",
+      "grip": "손등이 앞을 보게(오버핸드), 바의 꺾이는 지점 바로 안쪽을 잡아요"
+    },
+    "underhand_lat_pulldown": {
+      "attachment": "긴 랫바(또는 일자 바)",
+      "grip": "손바닥이 나를 보게(언더핸드), 어깨너비로 잡아요"
+    },
+    "seated_cable_row": {
+      "attachment": "V바(좁은 평행 손잡이)",
+      "grip": "손바닥이 서로 마주 보게 잡아요",
+      "orient": "손잡이가 비스듬하면 八자로 거세요 -- 엄지 쪽이 가깝게"
+    },
+    "single_arm_cable_row": {
+      "attachment": "D자 한 손 손잡이",
+      "grip": "손바닥이 안쪽을 보게 잡고 당기면서 엄지가 위로 오게 둬요"
+    },
+    "tricep_pushdown_rope": {
+      "attachment": "로프",
+      "grip": "매듭 바로 위를 손바닥이 마주 보게 잡아요"
+    },
+    "tricep_overhead_extension": {
+      "attachment": "로프",
+      "grip": "매듭 바로 위를 손바닥이 마주 보게 잡고, 케이블을 등 뒤로 넘겨 머리 뒤에서 시작해요"
+    },
+    "face_pull": {
+      "attachment": "로프",
+      "grip": "엄지가 뒤를 향하게 로프 끝을 잡아요"
+    },
+    "cable_reverse_fly": {
+      "attachment": "손잡이 없이 케이블 볼(또는 D자 손잡이)",
+      "grip": "케이블을 X자로 교차해 반대쪽 손으로 잡아요"
+    },
+    "cable_crunch": {
+      "attachment": "로프",
+      "grip": "로프 양끝을 귀 옆(관자놀이)에 붙여 잡아요"
+    },
+    "cable_lateral_raise": {
+      "attachment": "D자 한 손 손잡이(맨 아래 도르래)",
+      "grip": "케이블이 몸 앞을 지나가게 반대쪽 손으로 잡고, 손등이 위를 보게 들어요"
+    },
+    "cable_curl": {
+      "attachment": "일자 바 또는 EZ 바 핸들(맨 아래 도르래)",
+      "grip": "손바닥이 위로(언더핸드), 어깨너비로 잡아요"
+    },
+    "bicep_curl": {
+      "grip": "손바닥이 위로(언더핸드), 어깨너비로 잡아요"
+    },
+    "ez_bar_curl": {
+      "grip": "EZ바 안쪽 굴곡(좁은 쪽)을 손바닥이 위로 오게 잡아요"
+    },
+    "dumbbell_curl": {
+      "grip": "손바닥이 앞을 보게(언더핸드) 잡고, 팔꿈치는 옆구리에 붙여요"
+    },
+    "chest_supported_dumbbell_row": {
+      "grip": "손바닥이 서로 마주 보게 덤벨을 잡아요",
+      "orient": "벤치 각도는 30-45도, 가슴 위쪽을 패드 끝에 걸쳐요"
+    }
+  },
+  "grip_fallback": {
+    "close": "손을 어깨너비보다 좁게 잡아요",
+    "wide": "손을 어깨너비보다 넓게 잡아요",
+    "neutral": "손바닥이 서로 마주 보게 잡아요",
+    "supinated": "손바닥이 위로(언더핸드) 잡아요",
+    "pronated": "손등이 위로(오버핸드) 잡아요"
+  }
+}

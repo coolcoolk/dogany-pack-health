@@ -1,0 +1,165 @@
+# program rules -- dose, set floor, slot fields
+
+Read when: designing or revising slot sets / reps / weight / rest / lattice / setup
+fields, a grip or equipment swap goes permanent, or asked why a dose is what it is.
+program-plan `RX_RULES` transcribes 「워킹 무게를 정하는 방식」 + 「최소 세트 하한 정책」
+below -- change them here and there in the same commit.
+
+## 워킹 무게를 정하는 방식 (owner 2026-07-19)
+
+verbatim: 「워킹 무게 결정 방식: 램프업 + RIR 오토레귤레이션 계측식 (감 기반 지양)」
+- weight is MEASURED: ramp up, read the day via RIR, fix the working weight. never
+  declared from last log or feel. survives any program change (program = what, this =
+  how much).
+- 강도 기본 스킴: 복합 RIR 1-2 · 5-8회 / 고립 RIR 0-1 · 12-15회 / 램프업 RIR 4+. slot
+  `rep_range` is final authority; this is the start. compound freeweights: G19 floor
+  (RIR 2-3) overrides -> reference/rir-floor.md.
+- 코어·버티기 (owner 2026-09-27 「이런거 나한테 왜물어봐 지가 정해줘야지」 + 「임의로
+  적지말고 지식창고 뒤져봐」): core drill 12-15회 = isolation scheme (kimwog
+  exercise/set-counting-volume-unit-009 B: near-failure sets count in ~6-20+ reps;
+  exercise/progression-modality-load-vs-reps-028 B: growth similar across loads). a
+  lift no class covers -> isolation scheme. hold without registered `hold_sec`: 3 x
+  20초 (short repeated holds over one long grind -- McGill torso-endurance practice;
+  3 x 20 s front-plank trial protocol; Behm & Colado 2012: diminishing transfer past
+  60-90 s). the pack decides; a dose is never asked.
+- 버티기 선택 = 목적 판단 (owner 2026-09-27 11:35 「근육 크기에 영향이 없으면 목적에 안
+  맞으니 빼는게 맞고」): a hold trains trunk endurance, not size. size / body-comp goal
+  -> loaded core lift for abs (cable crunch); hold only for function / health goals or
+  when no loaded core lift is available. candidates carry `builds_size`.
+- first program: every `weight_kg` starts null; the ramp-up measures it.
+- 무거운 하체 간격 (owner 2026-09-27 13:16):
+  heavy = high axial spinal load only: back-squat and conventional-deadlift families.
+  Romanian deadlifts, back-targeted hinges, and V squat are not heavy. Qualifying
+  lifts sharing a
+  muscle node never start inside the kit's recovery window (056 half-life x
+  log2(hard / recovering) = 36 h for glutes / erectors). program-plan `apply_spacing`
+  reorders the rotation (split kept) first, else pairs the heavy lift with a light one
+  of the same pattern; the week keeps a heavy squat and hinge. one card line, never asked.
+  A light replacement must not load a recorded caution area: one-leg balance is
+  excluded when the standing foot or ankle is cautioned.
+
+## 최소 세트 하한 정책 (C16/C19, owner 2026-08-01)
+
+- WORKING slot (not warmup) never designed / kept below 3 sets. never trim to 2.
+- need less weekly volume -> drop a slot, lower load / intensity, lower frequency, or
+  reallocate. (reverses the old 3->2 redistribution trims of 2026-07-17 / 07-26.)
+- EXCEPTION: time-hold slots (rep_range in SECONDS, e.g. wall sit) = not volume sets;
+  floor does not apply, keep designed count.
+- floor = LOWER bound only. never forces an increase that set-increase suppression /
+  audit ceiling blocks; adding sets still needs ceiling headroom.
+- 2026-08-01 adoption restored the 2-set slots to 3 after audit headroom check (hold
+  slot stayed 2); all affected groups ended in_band.
+- SET STYLE (owner 2026-10-07; kimwog exercise/set-floor-rule-072 set_style): the
+  3-set floor above is the `volume` style, the default. a user who asks for
+  `intensity` gets warm-up sets (rep taper, not counted) + 2 working sets per lift at
+  RIR 0~1 (compound freeweights keep the G19 band); compounds may go to 3 when the
+  weekly floor needs it, isolation / core stay at 2. the weekly per-muscle floor is
+  never lowered by the style: more lifts, not more sets. data: compose_rank_rules.json
+  `set_style`; change lane: reference/program-edit.md 세트 방식.
+- WEEKLY FLOOR IS HARD (owner 2026-10-07): with minutes left in the window the draft
+  meets every weekly per-muscle floor before any `volume_shortfall` -- a set on an
+  existing lift within the style cap, else one more lift (a muscle slot also offers
+  the other pull plane: coverage `slot_plane_variety`, so a row day can take a lat
+  pulldown). `volume_shortfall` = a window that truly cannot hold the floor.
+- ONE LIFT PER ISOLATION MOVEMENT A SESSION (owner 2026-10-07): no bicep curl + cable
+  curl on one day; the minutes go to the short muscles first. a straight-knee and a
+  seated calf raise count as different lifts. a repeat only for the user's focus, or
+  when it is the only lift that brings a muscle to its weekly floor (a once-a-week arm
+  day whose biceps lifts are all curls): the floor is hard over this rule.
+  data: coverage `session_unique_isolation` (E-ISOLATION-REPEAT, engine drafts only).
+
+## muscle fatigue in rx (F30; code = rx-calc DGN-316 6.3)
+
+code: a PRIMARY muscle in state `fatigued` trims that lift's SETS by one step (floor
+kept; hold / rehab slots never trimmed); `weight_kg` is never touched; `muscle_state`
+is exposed in rx JSON. a `loaded` accessory muscle changes nothing in code. old prose
+("loaded -> hold / relax weight progression") has no carrier -> rule-lane candidate,
+not a rule the model applies silently.
+
+## rest_sec -- rx-calc factor model (C18, owner 2026-07-31)
+
+- `rest = clamp(base + intensity_adj + fatigue_adj, 60, 210)`, rounded to 15 s. base
+  compound 150 / isolation 90. intensity_adj from rep_range top (<=6 +30, 7-12 0, >12
+  -30). fatigue_adj from lift fatigue_cost (high +15, med 0, low -15). hold slots: base
+  only. code owns it; do not hand-compute.
+- slot `rest_sec` override still wins; model only fills slots without one.
+- basis: warehouse rest-interval-volume-load-017 (grade B/C) -- own-rule, no "과학이
+  그렇다". RIR not a rest input yet.
+
+## 증량 폭 -- 주동근 + 본인 수준 2축, 바벨 마이크로-앵커 (owner 2026-10-13; B7 대체)
+
+rx-calc picks the 'up' step itself (choose_step); numbers in
+service/health/progression_step_rules.json (own-rule heuristic, owner-tunable,
+no "연구가 이렇다"). no name keywords.
+- region / class from DATA: exercise_muscle primary -> muscle_node root (legs =
+  lower; barbell_row = back = upper); exercise_pattern / ax_exercise.movement ->
+  compound | isolation. missing -> minimum loadable step.
+- (a) level: weight / best logged e1RM. >= 0.85 -> step <= 2.5 kg (deadlift 180);
+  < 0.60 -> up to 2x nominal (60 vs ~200: +5); else nominal (lower compound 5,
+  upper / isolation 2.5). no history -> minimum step.
+- (b) relative cap: step / load <= 10 % compound, 7.5 % isolation (deadlift
+  20 -> 25 = +25 % -> micro step if the lattice has one, else reps-first).
+- candidates = the slot's lattice steps; the largest passing both wins. none ->
+  reps-first: hold the load, target rep top + 2, then the smallest step.
+- lattice = equipment fact (gym min plate 2.5 kg / side -> 5 kg totals; micro
+  plates 1.25 + 0.75 pairs -> lattice step 1.25 on the 1-2 lifts they come for).
+- inc_override = explicit per-slot step; wins over all of the above. owner ok.
+- stall -> miss_streak / hold / deload as before; rx-calc never flips lattice.
+- plate notation: total = 20 kg bar + 2 x per side; convert to per-side when needed.
+- low-load barbell isolation (curl) out of scope until measured.
+
+### STAGE + PEAK (owner 2026-10-13 17:06 / 17:08; on top of the 2 axes)
+- PEAK = max(best logged e1RM, owner-REPORTED best). reported -> `lift-peak set
+  <exercise_name> <kg> [--reps N] --when .. --said ..` (kit config key
+  lift_peak_reported, source owner_reported + date; `lift-peak show` reads back).
+  this session's top-set e1RM < peak x 0.97 -> REGAIN: nominal step (x2 below 75 %
+  of peak), <= 10 % compound / 7.5 % isolation, never past the load that puts the
+  same reps at the peak. deadlift 150x4 (e1RM 170), reported 182 -> 155 -> 160 ->
+  then stage rules (+2.5 / reps-first).
+- STAGE (at / past peak) = top-set e1RM / bodyweight vs a sex standard per lift
+  class (deadlift own row): novice / intermediate / advanced. kit config sex,
+  bodyweight (metric_log, else config weight_kg), training_years_band (3plus never
+  novice; lt1 / beginner never advanced), own 4-week gain < 2 % -> not novice.
+  novice: session-to-session, lower <= 10 kg, upper <= 5, step <= 6.25 % (male
+  squat 80 -> 85 -> 90); intermediate: lower 5 / upper 2.5, <= 5 %, near own
+  level 2.5; advanced: minimum step if <= 2.5 %, else reps-first.
+- sex or bodyweight missing -> stage 'unknown', the 2-axis rule above runs as is
+  (no novice jump on a guess); step_basis.stage_missing names what is missing.
+- every threshold is own-rule heuristic in progression_step_rules.json stage /
+  peak, owner-tunable; not graded evidence.
+
+## 단관절 고립 진행 축 -- 템포/TUT (owner 2026-08-08, NOT wired)
+
+owner: 「단관절 고립운동 부하 증가 방향: 무게 증량 대신 수행시간(템포/TUT) 늘리는
+방식으로 설계 전환」. rx-calc progression is still weight-axis; program.yaml has no
+tempo / TUT field. next build / revise: propose this as default for isolation slots,
+get owner ok. never fall back silently to weight-increase.
+
+## 슬롯 셋업 참고자료 (C21, owner 2026-07-31)
+
+- `setup_cue` (text) = PRIMARY, rendered on card / session: posture / feel,
+  machine-agnostic (no raw dial numbers).
+- `ref_photo` = OPTIONAL anchor only when text cannot hold gym-specific geometry; not
+  parsed / rendered. not either-or: text always, photo only where needed.
+
+## 그립 / 어태치먼트 (C19 owner 2026-07-31; F29; 2026-08-04)
+
+- grip / variant auto-inherits last session's pick (F29); reconfirm once only on change.
+  structured grip storage (grip_vocab migration) not wired -- prose rule.
+- per-grip weight kept apart (2026-08-04): never mix a changed-grip session's weight
+  into the original grip's line. storage split not wired -- judgment rule.
+- grip_vocab (overhand / underhand / neutral / wide / close) has muscle deltas
+  (grip_muscle_delta). attachment kind (rope / strap / bar) is a DIFFERENT axis
+  (wrist freedom / ROM / comfort) -- never promote it to a muscle-delta axis (would
+  invent ungraded deltas). record in `exercise_movement_grip.equipment`
+  (documentation-only) and in setup_cue if useful.
+
+## 기구 대체 시 슬롯 식별자 유지 (owner 2026-08-04)
+
+owner: 「기구 대체 시 내부 슬롯명은 원래 종목명 유지, 표시명만 대체 기구로 변경 --
+e1RM·볼륨 추세 이력 끊기지 않게 하는 방식으로 합의」
+- slot key (English id) = history axis; display name (Korean) = render axis. a swap
+  changes only render. new slot key breaks e1RM / volume trends at that point.
+- live one-off swap: code carries it (workout-session set-add `--ov-display`, F19/F21).
+- permanent swap in program.yaml: prose, editor keeps it. non-convertible weight system
+  -> keep slot key, re-calibrate the weight line only.
